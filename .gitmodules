@@ -1,0 +1,3 @@
+[submodule "monoforce"]
+	path = monoforce
+	url = https://github.com/ctu-vras/monoforce

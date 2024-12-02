@@ -1,0 +1,18 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "flipper_training"
+version = "1.0"
+authors = [{ name="David Korcak", email="david.korcak@gmail.com" }]
+description = "Physics engine and training environment for the robot control"
+dynamic = ["dependencies"]
+
+
+[tool.setuptools.packages.find]
+where = ["..", "."] 
+include = ["flipper_training", "flipper_training.*"] 
+
+[tool.setuptools.package-data]
+"*" = ["monoforce"]
