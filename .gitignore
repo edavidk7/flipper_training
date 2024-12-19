@@ -179,3 +179,4 @@ sim_validation
 .DS_Store
 .DS_store
 .vscode
+.cache

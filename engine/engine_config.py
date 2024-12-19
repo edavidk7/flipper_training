@@ -3,6 +3,7 @@ import torch
 import numpy as np
 from dataclasses import dataclass
 from flipper_training.utils.numerical import IntegrationMode
+from flipper_training.utils.environment import compute_heightmap_gradients
 from flipper_training.engine.robot_model import RobotModelConfig
 
 
@@ -19,17 +20,17 @@ class PhysicsEngineConfig:
         3) origin [0,0] is at the center of the grid.
 
     Attributes:
+        num_robots (int): number of robots in the simulation.
         x_grid (torch.Tensor):  x-coordinates of the grid. 
         y_grid (torch.Tensor): y-coordinates of the grid.
         z_grid (torch.Tensor): z-coordinates of the grid.
         grid_res (float): resolution of the grid in meters. Represents the metric distance between 2 centers of adjacent grid cells.
         max_coord (float): maximum coordinate of the grid.
-        robot_type (Literal['tradr', 'marv', 'husky']): type of the robot.
         robot_model (RobotModelConfig): configuration of the robot model.
         integration_mode (IntegrationMode): integration mode for the physics engine. Default is "rk4".
         dt (float): time step for numerical integration. Default is 0.01. (100 Hz)
         gravity (float): acceleration due to gravity. Default is 9.81 m/s^2.
-        k_stiffness (float or torch.Tensor): stiffness of the terrain. Default is 10_000.  
+        k_stiffness (float or torch.Tensor): stiffness of the terrain. Default is 20_000.  
         k_damping (float or torch.Tensor or None): damping of the terrain. Default is None, it is calculated based on the critical damping, i.e. sqrt(4 * robot_mass * k_stiffness).
         k_friction (float or torch.Tensor): friction of the terrain. Default is 1.0.    
     """
@@ -39,13 +40,13 @@ class PhysicsEngineConfig:
     z_grid: torch.Tensor
     grid_res: float
     max_coord: float
-    robot_type: Literal['marv']
+    robot_model: RobotModelConfig
     integration_mode: IntegrationMode = "rk4"
     dt: float = 0.01
     gravity: float = 9.81
-    k_stiffness: float | torch.Tensor = 10_000.
+    k_stiffness: float | torch.Tensor = 20_000.
     k_friction: float | torch.Tensor = 1.0
 
     def __post_init__(self):
-        self.robot_model = RobotModelConfig(robot_type=self.robot_type)
-        self.k_damping = float(np.sqrt(4 * self.robot_model.robot_mass * self.k_stiffness))
+        self.k_damping = float(np.sqrt(4 * self.robot_model.mass * self.k_stiffness))
+        self.z_grid_grad = compute_heightmap_gradients(self.z_grid, self.grid_res)

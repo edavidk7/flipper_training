@@ -27,6 +27,7 @@ def get_integrator_fn(mode: IntegrationMode) -> Integrator:
         raise ValueError(f'Unsupported integration mode: {mode}. Supported values')
 
 
+@torch.compiler.disable
 def euler_integrator(x: torch.Tensor, xd: torch.Tensor, dt: float) -> torch.Tensor:
     """
     Euler integrator.
@@ -42,6 +43,7 @@ def euler_integrator(x: torch.Tensor, xd: torch.Tensor, dt: float) -> torch.Tens
     return x + xd * dt
 
 
+@torch.compiler.disable
 def rk2_integrator(x: torch.Tensor, xd: torch.Tensor, dt: float) -> torch.Tensor:
     """
     Second-order Runge-Kutta integrator.
@@ -59,6 +61,7 @@ def rk2_integrator(x: torch.Tensor, xd: torch.Tensor, dt: float) -> torch.Tensor
     return x + k2 / 2
 
 
+@torch.compiler.disable
 def rk4_integrator(x: torch.Tensor, xd: torch.Tensor, dt: float) -> torch.Tensor:
     """
     Fourth-order Runge-Kutta integrator.

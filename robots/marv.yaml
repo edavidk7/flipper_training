@@ -1,11 +1,12 @@
-robot_mass: 67.8 # kg fully loaded without arm
+mass: 67.8 # kg fully loaded without arm
+driving_part_density: 0.3 # relative to the body density
 vel_max: 1.0 # m/s
 omega_max: 1.0 # rad/s
-joint_positions:
-  - [0.2565, 0.265305, 0.0]
-  - [0.256, -0.273, 0.0]
-  - [-0.256, 0.25966, 0.0]
-  - [-0.25666667, -0.273, 0.0]
+joint_positions: # x,y,z of the joint axes in the robot's frame
+  - [0.2565, 0.25, 0.0]
+  - [0.256, -0.25, 0.0]
+  - [-0.256, 0.25, 0.0]
+  - [-0.25666667, -0.25, 0.0]
 driving_part_bboxes: # planar x,y bounding boxes containing the driving parts
   - - [0.10897, 0.30049]
     - [0.10897, 0.2]
@@ -28,3 +29,4 @@ body_bbox: # planar x,y bounding box containing the entire robot
   - [-0.3, -0.19]
   - [0.3, -0.19]
   - [0.3, 0.19]
+lmao: 1.0 # just to show that the parser doesn't care about unknown keys

@@ -12,13 +12,10 @@ def compute_heightmap_gradients(z_grid: torch.Tensor, grid_res: float) -> torch.
     - z_grid: Heightmap tensor of shape (B, H, W).
     - grid_res: Resolution of the grid in meters.
     """
-    B, H, W = z_grid.shape
-    z_grid = z_grid.squeeze()
-    gradients = torch.vstack(torch.gradient(z_grid, spacing=grid_res, dim=(1, 0), edge_order=2))
-    return gradients.reshape(B, 2, H, W)
+    return torch.stack(torch.gradient(z_grid, spacing=grid_res, dim=(2, 1), edge_order=2), dim=1)
 
 
-# @torch.compile
+@torch.compile
 def surface_normals(z_grid_grads: torch.Tensor, query: torch.Tensor, max_coord: float) -> torch.Tensor:
     """
     Computes the surface normals and tangents at the queried coordinates.
@@ -42,7 +39,7 @@ def surface_normals(z_grid_grads: torch.Tensor, query: torch.Tensor, max_coord: 
     return n
 
 
-# @torch.compile
+@torch.compile
 def interpolate_grid(grid: torch.Tensor, query: torch.Tensor, max_coord: float | torch.Tensor) -> torch.Tensor:
     """
     Interpolates the height at the desired (query[0], query[1]]) coordinates.

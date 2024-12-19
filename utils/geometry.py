@@ -62,55 +62,50 @@ def skew_symmetric(v):
 
 def rot_X(theta):
     if isinstance(theta, float):
-        theta = torch.tensor(theta).unsqueeze(0)
-    elif theta.dim() == 1:
-        theta = theta.unsqueeze(0)
-    B = theta.shape[0]
+        theta = torch.tensor(theta)
+    theta = theta.reshape(-1, 1)
     cos_ang = torch.cos(theta)
     sin_ang = torch.sin(theta)
     zeros = torch.zeros_like(theta)
     ones = torch.ones_like(theta)
     return torch.stack([
-        torch.stack([ones, zeros, zeros], dim=-1),
-        torch.stack([zeros, cos_ang, -sin_ang], dim=-1),
-        torch.stack([zeros, sin_ang, cos_ang], dim=-1)
-    ], dim=-2)  # Stack along new dimension to create (B, 3, 3)
+        torch.cat([ones, zeros, zeros], dim=-1),
+        torch.cat([zeros, cos_ang, -sin_ang], dim=-1),
+        torch.cat([zeros, sin_ang, cos_ang], dim=-1)
+    ], dim=1)  # Stack along new dimension to create (B, 3, 3)
 
 
 def rot_Y(theta):
     if isinstance(theta, float):
-        theta = torch.tensor(theta).unsqueeze(0)
-    elif theta.dim() == 1:
-        theta = theta.unsqueeze(0)
-    B = theta.shape[0]
+        theta = torch.tensor(theta)
+    theta = theta.reshape(-1, 1)
     cos_ang = torch.cos(theta)
     sin_ang = torch.sin(theta)
     zeros = torch.zeros_like(theta)
     ones = torch.ones_like(theta)
     return torch.stack([
-        torch.stack([cos_ang, zeros, sin_ang], dim=-1),
-        torch.stack([zeros, ones, zeros], dim=-1),
-        torch.stack([-sin_ang, zeros, cos_ang], dim=-1)
-    ], dim=-2)  # Stack along new dimension to create (B, 3, 3)
+        torch.cat([cos_ang, zeros, sin_ang], dim=-1),
+        torch.cat([zeros, ones, zeros], dim=-1),
+        torch.cat([-sin_ang, zeros, cos_ang], dim=-1)
+    ], dim=1)  # Stack along new dimension to create (B, 3, 3)
 
 
 def rot_Z(theta):
     if isinstance(theta, float):
-        theta = torch.tensor(theta).unsqueeze(0)
-    elif theta.dim() == 1:
-        theta = theta.unsqueeze(0)
-    B = theta.shape[0]
+        theta = torch.tensor(theta)
+    theta = theta.reshape(-1, 1)
     cos_ang = torch.cos(theta)
     sin_ang = torch.sin(theta)
     zeros = torch.zeros_like(theta)
     ones = torch.ones_like(theta)
     return torch.stack([
-        torch.stack([cos_ang, -sin_ang, zeros], dim=-1),
-        torch.stack([sin_ang, cos_ang, zeros], dim=-1),
-        torch.stack([zeros, zeros, ones], dim=-1)
-    ], dim=-2)  # Stack along new dimension to create (B, 3, 3)
+        torch.cat([cos_ang, -sin_ang, zeros], dim=-1),
+        torch.cat([sin_ang, cos_ang, zeros], dim=-1),
+        torch.cat([zeros, zeros, ones], dim=-1)
+    ], dim=1)  # Stack along new dimension to create (B, 3, 3)
 
 
+@torch.compile
 def global_to_local(t: torch.Tensor, R: torch.Tensor, points: torch.Tensor):
     """
     Transforms the global coordinates to the local coordinates.
@@ -131,6 +126,7 @@ def global_to_local(t: torch.Tensor, R: torch.Tensor, points: torch.Tensor):
     return torch.bmm(points - t, R)  # Correspods to transposed rotation matrix -> inverse
 
 
+@torch.compile
 def local_to_global(t: torch.Tensor, R: torch.Tensor, points: torch.Tensor):
     """
     Transforms the global coordinates to the local coordinates.
