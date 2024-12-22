@@ -33,7 +33,7 @@ def surface_normals(z_grid_grads: torch.Tensor, query: torch.Tensor, max_coord: 
     # Interpolate the grid values into shape (B, 2, N, 1)
     grad_query = torch.nn.functional.grid_sample(z_grid_grads, grid_coords, align_corners=True, mode="bilinear", padding_mode="border").squeeze(-1).transpose(1, 2)  # (B, N, 2)
     # Compute the surface normals
-    n = torch.dstack([-grad_query, torch.ones((B, N, 1))])  # n = [-dz/dx, -dz/dy, 1]
+    n = torch.dstack([-grad_query, torch.ones((B, N, 1), device=query.device)])  # n = [-dz/dx, -dz/dy, 1]
     n = normalized(n)
     return n
 

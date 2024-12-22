@@ -60,3 +60,4 @@ class PhysicsEngineConfig:
         for key, value in self.__dict__.items():
             if isinstance(value, torch.Tensor):
                 setattr(self, key, value.to(self.device))
+        self.robot_model.move_all_tensors_to_device(self.device)

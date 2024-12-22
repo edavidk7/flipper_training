@@ -224,6 +224,20 @@ class RobotModelConfig:
         # Save to cache
         self.save_to_cache()
 
+    def move_all_tensors_to_device(self, device: torch.device) -> None:
+        """
+        Moves all tensors to the specified device.
+
+        Args:
+            device (torch.device): device to move the tensors to.
+
+        Returns:
+            None
+        """
+        for attr, val in self.__dict__.items():
+            if isinstance(val, torch.Tensor):
+                setattr(self, attr, val.to(device))
+
     def visualize_robot(self, robot_points: Optional[torch.Tensor] = None, return_geoms: bool = False) -> Optional[List[pv.PolyData]]:
         """
         Visualizes the robot in 3D using PyVista.
@@ -231,8 +245,9 @@ class RobotModelConfig:
         if robot_points is None:
             robot_points = self.robot_points
 
-        driving_part_points = torch.cat([robot_points[mask] for mask in self.driving_parts])
-        other_points = robot_points[torch.sum(self.driving_parts, dim=0) == 0]
+        robot_points = robot_points.cpu()
+        driving_part_points = torch.cat([robot_points[mask] for mask in self.driving_parts.cpu()])
+        other_points = robot_points[torch.sum(self.driving_parts.cpu(), dim=0) == 0]
 
         # Create PyVista point clouds
         driving_pcd = pv.PolyData(driving_part_points.numpy())
@@ -246,7 +261,7 @@ class RobotModelConfig:
         plotter.add_mesh(driving_pcd, color='red', point_size=5, render_points_as_spheres=True)
 
         # Add joint spheres
-        for joint in self.joint_positions:
+        for joint in self.joint_positions.cpu():
             sphere = pv.Sphere(center=joint.numpy(), radius=0.01)
             plotter.add_mesh(sphere, color='green')
         # CoG sphere
@@ -267,8 +282,8 @@ class RobotModelConfig:
 
         if return_geoms:
             # Collect all geometries if needed
-            geometries = [self.mesh, other_pcd, driving_pcd]
-            for joint in self.joint_positions:
+            geometries = [other_pcd, driving_pcd]
+            for joint in self.joint_positions.cpu():
                 sphere = pv.Sphere(center=joint.numpy(), radius=0.01)
                 geometries.append(sphere)
             return geometries
