@@ -1,0 +1,17 @@
+\[
+\begin{aligned}
+a &= \frac{1}{t^2}, \quad \text{so} \quad a\,t^3 = t, \\[6pt]
+\min(0, x) - a\,t^3 &=
+\begin{cases}
+x - t, & x \le 0,\\
+-\,t, & x > 0,
+\end{cases}
+\\[6pt]
+f(x) &= a\,(x - t)^3, \\[6pt]
+\max\!\Bigl(\min(0,x) - a\,t^3,\;f(x)\Bigr) &=
+\begin{cases}
+\max\bigl(x - t,\;(x - t)^3 / t^2\bigr), & x \le 0,\\
+\max\bigl(-\,t,\;(x - t)^3 / t^2\bigr), & x > 0.
+\end{cases}
+\end{aligned}
+\]

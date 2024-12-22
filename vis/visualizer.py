@@ -17,7 +17,7 @@ def animate_trajectory(config: PhysicsEngineConfig,
     aux_info_vec = vectorize_iter_of_tensor_tuples(aux_info)
     # Figure
     window_size = vis_opts.get("window_size", (1280, 720))
-    realtime = vis_opts.get("realtime", False)
+    freq = vis_opts.get("freq", None)
     f = mlab.figure(size=window_size)
     # Static terrain
     terrain_vis = mlab.mesh(config.x_grid[robot_index], config.y_grid[robot_index], config.z_grid[robot_index], colormap="terrain", opacity=0.8)
@@ -46,6 +46,9 @@ def animate_trajectory(config: PhysicsEngineConfig,
         spring_forces_vis.mlab_source.set(x=contact_points[:, 0], y=contact_points[:, 1], z=contact_points[:, 2], u=fspring[:, 0], v=fspring[:, 1], w=fspring[:, 2])
         traj_vis.mlab_source.reset(x=xs[:i + 1, 0], y=xs[:i + 1, 1], z=xs[:i + 1, 2])
         mlab.process_ui_events()
-        if realtime:
-            time.sleep(config.dt)
+        if freq is not None:
+            if freq == "sim":
+                time.sleep(config.dt)
+            else:
+                time.sleep(1 / freq)
     mlab.show()

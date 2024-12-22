@@ -105,7 +105,6 @@ def rot_Z(theta):
     ], dim=1)  # Stack along new dimension to create (B, 3, 3)
 
 
-@torch.compile
 def global_to_local(t: torch.Tensor, R: torch.Tensor, points: torch.Tensor):
     """
     Transforms the global coordinates to the local coordinates.
@@ -126,7 +125,6 @@ def global_to_local(t: torch.Tensor, R: torch.Tensor, points: torch.Tensor):
     return torch.bmm(points - t, R)  # Correspods to transposed rotation matrix -> inverse
 
 
-@torch.compile
 def local_to_global(t: torch.Tensor, R: torch.Tensor, points: torch.Tensor):
     """
     Transforms the global coordinates to the local coordinates.

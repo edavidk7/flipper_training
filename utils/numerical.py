@@ -4,7 +4,7 @@ from .geometry import skew_symmetric
 
 
 IntegrationMode = Literal["euler", "rk2", "rk4"]
-Integrator = Callable[[torch.Tensor, torch.Tensor, float], torch.Tensor]
+Integrator = Callable[[torch.Tensor, float], torch.Tensor]
 
 
 def get_integrator_fn(mode: IntegrationMode) -> Integrator:
@@ -27,61 +27,54 @@ def get_integrator_fn(mode: IntegrationMode) -> Integrator:
         raise ValueError(f'Unsupported integration mode: {mode}. Supported values')
 
 
-@torch.compiler.disable
-def euler_integrator(x: torch.Tensor, xd: torch.Tensor, dt: float) -> torch.Tensor:
+def euler_integrator(xd: torch.Tensor, dt: float) -> torch.Tensor:
     """
     Euler integrator.
 
     Parameters:
-        - x: State.
-        - xd: Derivative of the state.
+        - xd: Derivative of the function.
         - dt: Time step.
 
     Returns:
-        - torch.Tensor: Integrated state.
+        - torch.Tensor: Integrated function.
     """
-    return x + xd * dt
+    return xd * dt
 
 
-@torch.compiler.disable
-def rk2_integrator(x: torch.Tensor, xd: torch.Tensor, dt: float) -> torch.Tensor:
+def rk2_integrator(xd: torch.Tensor, dt: float) -> torch.Tensor:
     """
     Second-order Runge-Kutta integrator.
 
     Parameters:
-        - x: State.
-        - xd: Derivative of the state.
+        - xd: Derivative of the function.
         - dt: Time step.
 
     Returns:
-        - torch.Tensor: Integrated state.
+        - torch.Tensor: Integrated function.
     """
     k1 = xd * dt
     k2 = dt * (xd + k1)
-    return x + k2 / 2
+    return k2 / 2
 
 
-@torch.compiler.disable
-def rk4_integrator(x: torch.Tensor, xd: torch.Tensor, dt: float) -> torch.Tensor:
+def rk4_integrator(xd: torch.Tensor, dt: float) -> torch.Tensor:
     """
     Fourth-order Runge-Kutta integrator.
 
     Parameters:
-        - x: State.
-        - xd: Derivative of the state.
+        - xd: Derivative of the function.
         - dt: Time step.
 
     Returns:
-        - torch.Tensor: Integrated state.
+        - torch.Tensor: Integrated function.
     """
     k1 = dt * xd
     k2 = dt * (xd + k1 / 2)
     k3 = dt * (xd + k2 / 2)
     k4 = dt * (xd + k3)
-    return x + (k1 + 2 * k2 + 2 * k3 + k4) / 6
+    return (k1 + 2 * k2 + 2 * k3 + k4) / 6
 
 
-@torch.compile
 def integrate_rotation(R: torch.Tensor, omega: torch.Tensor, dt: float, eps: float = 1e-6, integrator: Integrator = rk4_integrator) -> torch.Tensor:
     """
         Integrates the rotation matrix for the next time step using Rodrigues' formula.
@@ -94,9 +87,9 @@ def integrate_rotation(R: torch.Tensor, omega: torch.Tensor, dt: float, eps: flo
         Returns:
         - Updated rotation matrices. Shape [B, 3, 3]
         """
-    omega_dt = integrator(torch.zeros_like(omega), omega, dt)
-    theta = torch.norm(omega_dt, dim=1, keepdim=True)  # Rotation angle
-    omega_skew = skew_symmetric(omega_dt)
+    delta_omega = integrator(omega, dt)
+    theta = torch.norm(delta_omega, dim=1, keepdim=True)  # Rotation angle
+    omega_skew = skew_symmetric(delta_omega)
     I = torch.eye(3, device=omega.device, dtype=omega.dtype).unsqueeze(0)  # Shape: [1, 3, 3]
     theta_expand = torch.clamp(theta.unsqueeze(2), eps)
     sin_term = torch.sin(theta_expand) / theta_expand

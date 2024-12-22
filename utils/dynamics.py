@@ -1,9 +1,23 @@
 import torch
 
-__all__ = ['inertia_tensor']
+__all__ = ['inertia_tensor', "cog"]
 
 
-@torch.compile
+def cog(pointwise_mass: torch.Tensor, points: torch.Tensor):
+    """
+    Compute the center of gravity of a rigid body represented by point masses.
+
+    Parameters:
+
+        mass (torch.Tensor): masses of the points in shape (N).
+        points (torch.Tensor): A tensor of shape (B, N, 3) representing the points of the body.
+
+    Returns:
+        torch.Tensor: The center of gravity of the body.
+    """
+    return torch.sum(pointwise_mass[:, None] * points, dim=-2) / pointwise_mass.sum()
+
+
 def inertia_tensor(pointwise_mass: torch.Tensor, points: torch.Tensor):
     """
         Compute the inertia tensor for a rigid body represented by point masses.

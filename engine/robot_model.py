@@ -217,13 +217,9 @@ class RobotModelConfig:
         driving_parts = torch.stack(driving_parts, dim=0)
         # Calculate pointwise mass and center of gravity
         pointwise_mass = self.mass * pointwise_relative_density / pointwise_relative_density.sum()
-        cog = (robot_points * pointwise_mass.unsqueeze(1)).sum(dim=0) / self.mass
         # Set
         self.pointwise_mass = pointwise_mass
-        self.robot_points = robot_points - cog
-        self.joint_positions = self.joint_positions - cog
-        self.body_bbox -= cog[:2]
-        self.driving_part_bboxes -= cog[:2]
+        self.robot_points = robot_points
         self.driving_parts = driving_parts
         # Save to cache
         self.save_to_cache()

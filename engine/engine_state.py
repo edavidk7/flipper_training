@@ -48,6 +48,9 @@ class AuxEngineInfo(NamedTuple):
         in_contact (torch.Tensor): Contact status. Shape (B, n_pts).
         normals (torch.Tensor): Normals at the contact points. Shape (B, n_pts, 3).
         global_robot_points (torch.Tensor): Robot points in global coordinates. Shape (B, n_pts, 3).
+        torque (torch.Tensor): Torque generated on the robot's CoG. Shape (B, 3).
+        global_cog_coords (torch.Tensor): CoG coordinates in global frame. Shape (B, 3).
+        I_global (torch.Tensor): Inertia tensor in global frame. Shape (B, 3, 3).
     """
 
     F_spring: torch.Tensor
@@ -55,6 +58,9 @@ class AuxEngineInfo(NamedTuple):
     in_contact: torch.Tensor
     normals: torch.Tensor
     global_robot_points: torch.Tensor
+    torque: torch.Tensor
+    global_cog_coords: torch.Tensor
+    I_global: torch.Tensor
 
 
 def vectorize_iter_of_tensor_tuples(tuples: Iterable[Type[NamedTuple]]) -> Type[NamedTuple]:
