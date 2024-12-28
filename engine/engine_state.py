@@ -1,7 +1,7 @@
 import torch
-from typing import NamedTuple, Type, List, Tuple, Iterable
+from typing import NamedTuple, Iterable
 
-__all__ = ["PhysicsState", "PhysicsStateDer", "AuxEngineInfo"]
+__all__ = ["PhysicsState", "PhysicsStateDer", "AuxEngineInfo", "vectorize_iter_of_tensor_tuples"]
 
 
 class PhysicsState(NamedTuple):
@@ -50,6 +50,7 @@ class AuxEngineInfo(NamedTuple):
         global_robot_points (torch.Tensor): Robot points in global coordinates. Shape (B, n_pts, 3).
         torque (torch.Tensor): Torque generated on the robot's CoG. Shape (B, 3).
         global_cog_coords (torch.Tensor): CoG coordinates in global frame. Shape (B, 3).
+        cog_corrected_points (torch.Tensor): Corrected CoG points in global frame. Shape (B, n_pts, 3).
         I_global (torch.Tensor): Inertia tensor in global frame. Shape (B, 3, 3).
     """
 
@@ -60,10 +61,11 @@ class AuxEngineInfo(NamedTuple):
     global_robot_points: torch.Tensor
     torque: torch.Tensor
     global_cog_coords: torch.Tensor
+    cog_corrected_points: torch.Tensor
     I_global: torch.Tensor
 
 
-def vectorize_iter_of_tensor_tuples(tuples: Iterable[Type[NamedTuple]]) -> Type[NamedTuple]:
+def vectorize_iter_of_tensor_tuples(tuples: Iterable[NamedTuple]) -> NamedTuple:
     """
     Vectorize an iterable of Tensor Named Tuples into a single Named Tuple containing stacked tensors.
 

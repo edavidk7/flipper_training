@@ -1,6 +1,8 @@
 import torch
-from flipper_training.engine.engine_config import PhysicsEngineConfig
 from typing import Tuple
+from flipper_training.configs.engine_config import PhysicsEngineConfig
+from flipper_training.configs.robot_config import RobotModelConfig
+from flipper_training.configs.world_config import WorldConfig
 from flipper_training.utils.geometry import normalized, local_to_global, rot_Y
 from flipper_training.utils.dynamics import inertia_tensor, cog
 from flipper_training.engine.engine_state import PhysicsState, PhysicsStateDer, AuxEngineInfo
@@ -9,29 +11,35 @@ from flipper_training.utils.environment import surface_normals, interpolate_grid
 
 
 class DPhysicsEngine(torch.nn.Module):
-    def __init__(self, config: PhysicsEngineConfig):
+    def __init__(self, config: PhysicsEngineConfig, robot_model: RobotModelConfig, device: torch.device | str):
         super().__init__()
         self.config = config
-        self.device = config.device
+        self.device = device
+        self.robot_model = robot_model
         self.integrator_fn = get_integrator_fn(self.config.integration_mode)
 
-    def forward(self, state: PhysicsState, controls: torch.Tensor) -> tuple[PhysicsState, PhysicsStateDer, AuxEngineInfo]:
+    def forward(self, state: PhysicsState,
+                controls: torch.Tensor,
+                world_config: WorldConfig) -> tuple[PhysicsState, PhysicsStateDer, AuxEngineInfo]:
         """
         Forward pass of the physics engine.
         """
-        state_der, aux_info = self.forward_kinematics(state, controls)
+        state_der, aux_info = self.forward_kinematics(state, controls, world_config)
         return self.update_state(state, state_der), state_der, aux_info
 
-    def forward_kinematics(self, state: PhysicsState,
-                           controls: torch.Tensor) -> Tuple[PhysicsStateDer,
-                                                            AuxEngineInfo]:
+    def forward_kinematics(self,
+                           state: PhysicsState,
+                           controls: torch.Tensor,
+                           world_config: WorldConfig) -> Tuple[PhysicsStateDer,
+                                                               AuxEngineInfo]:
+
         global_robot_points, global_I, cog_corrected_points, global_cogs = self.construct_global_robot_points(state)
 
         # find the contact points
-        in_contact, dh_points = self.find_contact_points(global_robot_points)
+        in_contact, dh_points = self.find_contact_points(global_robot_points, world_config)
 
         # compute surface normals at the contact points
-        n = surface_normals(self.config.z_grid_grad, global_robot_points[..., :2], self.config.max_coord)
+        n = surface_normals(world_config.z_grid_grad, global_robot_points[..., :2], world_config.max_coord)
 
         # Compute current point velocities based on CoG motion and rotation
         xd_points = state.xd.unsqueeze(1) + torch.cross(state.omega.unsqueeze(1), cog_corrected_points, dim=-1)
@@ -40,23 +48,25 @@ class DPhysicsEngine(torch.nn.Module):
         xd_points_n = (xd_points * n).sum(dim=-1, keepdims=True)
 
         # Reaction at the contact points as spring-damper forces
+        k_damping = (4 * self.robot_model.mass * world_config.k_stiffness)**0.5 * self.config.damping_alpha
         # F_s = -k * dh - b * v_n, multiply by -n to get the force vector
-        F_spring = (self.config.k_stiffness * dh_points + self.config.k_damping * xd_points_n) * (-n)
+        F_spring = (world_config.k_stiffness * dh_points + k_damping * xd_points_n) * (-n)
         F_spring = F_spring * in_contact / torch.clamp(torch.sum(in_contact, dim=1, keepdims=True), min=1)
 
         # friction forces
-        F_friction = self.calculate_friction(F_spring, state.R, xd_points, controls, n)
+        k_friction = world_config.k_friction
+        F_friction = self.calculate_friction(F_spring, state.R, xd_points, controls, n, k_friction)
 
         # rigid body rotation: M = sum(r_i x F_i)
         act_force = F_spring + F_friction  # total force acting on the robot's points
         torque, omega_d = self.calculate_torque_omega_d(act_force, cog_corrected_points, global_I)
 
         # motion of the cog
-        F_cog = self.config.F_gravity + act_force.sum(dim=1)  # F = F_spring + F_friction + F_grav
-        xdd = F_cog / self.config.robot_model.mass  # a = F / m, very funny xdd
+        F_cog = torch.tensor([0., 0., -self.robot_model.mass * self.config.gravity], device=self.device) + act_force.sum(dim=1)  # F = F_spring + F_friction + F_grav
+        xdd = F_cog / self.robot_model.mass  # a = F / m, very funny xdd
 
-        # joint rotational velocities
-        thetas_d = controls[:, len(self.config.robot_model.driving_parts):]
+        # joint rotational velocities, shape (B, n_joints)
+        thetas_d = self.compute_joint_angular_velocities(controls)
 
         # new state derivative
         new_state_der = PhysicsStateDer(xd=state.xd, xdd=xdd, omega_d=omega_d, thetas_d=thetas_d)
@@ -69,9 +79,25 @@ class DPhysicsEngine(torch.nn.Module):
                                  global_robot_points=global_robot_points,
                                  torque=torque,
                                  global_cog_coords=global_cogs,
+                                 cog_corrected_points=cog_corrected_points,
                                  I_global=global_I)
 
         return new_state_der, aux_info
+
+    def compute_joint_angular_velocities(self, controls: torch.Tensor) -> torch.Tensor:
+        """
+        Compute the joint angle velocities based on the control inputs and the current joint angles.
+
+        Args:
+            controls: The control inputs.
+            thetas: The current joint angles.
+
+        Returns:
+            thetas_d: The joint angle velocities.
+        """
+        thetas_d = controls[:, len(self.robot_model.driving_parts):]
+        thetas_d = thetas_d.clamp(-self.robot_model.joint_vel_limits, self.robot_model.joint_vel_limits)
+        return thetas_d
 
     def calculate_torque_omega_d(self, act_force: torch.Tensor, cog_corrected_points: torch.Tensor, global_I: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         """
@@ -90,7 +116,7 @@ class DPhysicsEngine(torch.nn.Module):
         omega_d = torch.linalg.solve_ex(global_I, torque)[0]
         return torque, omega_d
 
-    def calculate_friction(self, F_normal: torch.Tensor, R: torch.Tensor, xd_points: torch.Tensor, controls: torch.Tensor, n: torch.Tensor) -> torch.Tensor:
+    def calculate_friction(self, F_normal: torch.Tensor, R: torch.Tensor, xd_points: torch.Tensor, controls: torch.Tensor, n: torch.Tensor, k_friction: float | torch.Tensor) -> torch.Tensor:
         """
         Calculate the friction force acting on the robot points.
 
@@ -108,13 +134,13 @@ class DPhysicsEngine(torch.nn.Module):
         N = torch.norm(F_normal, dim=2)  # normal force magnitude at the contact points, guaranteed to be zero if not in contact because of the spring force being zero
         F_friction = torch.zeros_like(F_normal)  # initialize friction forces
         thrust_dir = normalized(R[..., 0])  # thrust direction in the global frame
-        for i, mask in enumerate(self.config.robot_model.driving_parts):
+        for i, mask in enumerate(self.robot_model.driving_parts):
             u = controls[:, i].unsqueeze(1)  # control input
             v_cmd = u * thrust_dir  # commanded velocity
             dv = v_cmd.unsqueeze(1) - xd_points  # velocity difference between the commanded and the actual velocity of the robot points
             dv_n = (dv * n).sum(dim=-1, keepdims=True)  # normal component of the relative velocity computed as dv_n = dv . n
             dv_tau = dv - dv_n * n  # tangential component of the relative velocity
-            F_friction[:, mask] = (self.config.k_friction * N.unsqueeze(2) * torch.tanh(dv_tau))[:, mask]  # saturation of the tangential velocity using tanh
+            F_friction[:, mask] = (k_friction * N.unsqueeze(2) * torch.tanh(dv_tau))[:, mask]  # saturation of the tangential velocity using tanh
         return F_friction
 
     def penetration_model(self, dh: torch.Tensor) -> torch.Tensor:
@@ -127,7 +153,7 @@ class DPhysicsEngine(torch.nn.Module):
         pen = torch.maximum(torch.minimum(-torch.tensor(self.config.contact_threshold, device=self.device), dh_offset), cubic)
         return pen
 
-    def find_contact_points(self, robot_points: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+    def find_contact_points(self, robot_points: torch.Tensor, world_config: WorldConfig) -> Tuple[torch.Tensor, torch.Tensor]:
         """
         Find the contact points on the robot.
 
@@ -140,10 +166,10 @@ class DPhysicsEngine(torch.nn.Module):
             in_contact: A boolean tensor of shape (B, n_pts, 1) indicating whether the points are in contact with the terrain.
             dh_points: The penetration depth of the points. Shape (B, n_pts, 1). It is computed using the penetration model.
         """
-        z_points = interpolate_grid(self.config.z_grid, robot_points[..., :2], self.config.max_coord)
+        z_points = interpolate_grid(world_config.z_grid, robot_points[..., :2], world_config.max_coord)
         dh_points = robot_points[..., 2:3] - z_points
-        on_grid = (robot_points[..., 0:1] >= -self.config.max_coord) & (robot_points[..., 0:1] <= self.config.max_coord) & \
-            (robot_points[..., 1:2] >= -self.config.max_coord) & (robot_points[..., 1:2] <= self.config.max_coord)
+        on_grid = (robot_points[..., 0:1] >= -world_config.max_coord) & (robot_points[..., 0:1] <= world_config.max_coord) & \
+            (robot_points[..., 1:2] >= -world_config.max_coord) & (robot_points[..., 1:2] <= world_config.max_coord)
         in_contact = (dh_points <= self.config.contact_threshold) & on_grid
         pen = self.penetration_model(dh_points)
         pen = pen * in_contact
@@ -158,34 +184,36 @@ class DPhysicsEngine(torch.nn.Module):
         xd = xd + self.integrator_fn(xdd, self.config.dt)
         x = x + self.integrator_fn(xd, self.config.dt)
         delta_thetas = self.integrator_fn(thetas_d, self.config.dt)
-        local_robot_points = self.rotate_joints(local_robot_points, delta_thetas)  # Apply rotation incrementally to avoid copying the entire point cloud
+        # joint rotation here allows us to do it inplace without copying the tensor
+        local_robot_points = self.rotate_joints(local_robot_points, delta_thetas)
         thetas = thetas + delta_thetas
+        thetas = thetas.clamp(self.robot_model.joint_limits[0], self.robot_model.joint_limits[1])
         omega = omega + self.integrator_fn(omega_d, self.config.dt)
         R = integrate_rotation(R, omega, self.config.dt, integrator=self.integrator_fn)
         return PhysicsState(x, xd, R, local_robot_points, omega, thetas)
 
     def construct_global_robot_points(self, state: PhysicsState) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         """
-        Construct the global robot points from the local robot points in the state.
+        Construct the global robot points from the default local robot points.
         Also compute the global, CoG corrected robot points. Use them to compute the inertia tensor in the global frame.
         """
         robot_points = local_to_global(state.x, state.R, state.local_robot_points)  # global robot points
-        global_cogs = cog(self.config.robot_model.pointwise_mass, robot_points)  # center of gravity in global coordinates
+        global_cogs = cog(self.robot_model.pointwise_mass, robot_points)  # center of gravity in global coordinates
         cog_corrected_points = robot_points - global_cogs.unsqueeze(1)  # CoG corrected robot points in global coordinates (CoG at origin, same rotation as global frame)
-        I_global = inertia_tensor(self.config.robot_model.pointwise_mass, cog_corrected_points)
+        I_global = inertia_tensor(self.robot_model.pointwise_mass, cog_corrected_points)
         return robot_points, I_global, cog_corrected_points, global_cogs
 
     def rotate_joints(self, robot_points: torch.Tensor, thetas: torch.Tensor) -> torch.Tensor:
         """
-        Rotate points on the robot pointcloud corresponding to the joints based on the joint angles.
+        Rotate points on the robot pointcloud corresponding to the joints based on the joint angles. The rotation is done in LOCAL coordinates, inplace.
 
         Args:
             robot_points: The robot points in LOCAL coordinates.
             thetas: The joint angles to rotate by.
         """
-        # Update each driving part simultaneously on all robots INPLACE
-        for i, (pmask, ppos) in enumerate(zip(self.config.robot_model.driving_parts, self.config.robot_model.joint_positions)):
+        for i, (pmask, ppos) in enumerate(zip(self.robot_model.driving_parts, self.robot_model.joint_positions)):
             rot_Ys = rot_Y(thetas[:, i])
-            flippter_pts = robot_points[:, pmask] - ppos.to(device=self.device)
+            ppos = ppos.to(device=self.device)
+            flippter_pts = robot_points[:, pmask] - ppos
             robot_points[:, pmask] = torch.bmm(flippter_pts, rot_Ys) + ppos
         return robot_points

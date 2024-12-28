@@ -2,12 +2,12 @@ import torch
 import time
 from typing import Iterable, Dict
 import mayavi.mlab as mlab
-from flipper_training.engine.engine_state import PhysicsState, PhysicsStateDer, AuxEngineInfo, vectorize_iter_of_tensor_tuples
-from flipper_training.engine.engine_config import PhysicsEngineConfig
-from flipper_training.utils.geometry import local_to_global
+from flipper_training.engine.engine_state import PhysicsState, AuxEngineInfo, vectorize_iter_of_tensor_tuples
+from flipper_training.configs import WorldConfig, PhysicsEngineConfig
 
 
-def animate_trajectory(config: PhysicsEngineConfig,
+def animate_trajectory(world_config: WorldConfig,
+                       engine_config: PhysicsEngineConfig,
                        states: Iterable[PhysicsState],
                        aux_info: Iterable[AuxEngineInfo],
                        robot_index: int = 0,
@@ -20,7 +20,7 @@ def animate_trajectory(config: PhysicsEngineConfig,
     freq = vis_opts.get("freq", None)
     f = mlab.figure(size=window_size)
     # Static terrain
-    terrain_vis = mlab.mesh(config.x_grid[robot_index], config.y_grid[robot_index], config.z_grid[robot_index], colormap="terrain", opacity=0.8)
+    terrain_vis = mlab.mesh(world_config.x_grid[robot_index], world_config.y_grid[robot_index], world_config.z_grid[robot_index], colormap="terrain", opacity=0.8)
     # Unpack the states
     xs = states_vec.x[:, robot_index].cpu().numpy()
     robot_points = aux_info_vec.global_robot_points[:, robot_index].cpu().numpy()
@@ -47,8 +47,8 @@ def animate_trajectory(config: PhysicsEngineConfig,
         traj_vis.mlab_source.reset(x=xs[:i + 1, 0], y=xs[:i + 1, 1], z=xs[:i + 1, 2])
         mlab.process_ui_events()
         if freq is not None:
-            if freq == "sim":
-                time.sleep(config.dt)
+            if freq == "realtime":
+                time.sleep(engine_config.dt)
             else:
                 time.sleep(1 / freq)
     mlab.show()
