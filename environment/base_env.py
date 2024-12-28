@@ -37,7 +37,7 @@ class BaseDPhysicsEnv():
         percep_grid_points = torch.dstack(grid).reshape(-1, 2)
         self.percep_grid_points = percep_grid_points.unsqueeze(0).repeat(self.phys_cfg.num_robots, 1, 1).to(self.device)
 
-    def reset(self, **kwargs) -> None:
+    def reset(self, **kwargs) -> tuple[PhysicsState, torch.Tensor]:
         """
         Reset the environment to its initial state.
 
@@ -47,6 +47,8 @@ class BaseDPhysicsEnv():
         assert self.init_data, "Environment is not initialized! Call init with proper arguments first."
         new_init = deepcopy(self.init_data) | kwargs
         self.init(**new_init)
+        assert self.state is not None, "State is not initialized! Call init with proper arguments first."
+        return self.state, self._sample_percep_data()
 
     def init(self, positions: torch.Tensor, rotations: torch.Tensor, thetas: torch.Tensor, world_cfg: WorldConfig) -> None:
         """
