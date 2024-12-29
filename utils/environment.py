@@ -1,5 +1,45 @@
 import torch
+from typing import Tuple, Callable
 from .geometry import normalized
+
+
+def make_x_y_grids(max_coord: float, grid_res: float, num_robots: int) -> Tuple[torch.Tensor, torch.Tensor]:
+    """
+    Creates a grid of x and y coordinates.
+
+    Args:
+    - max_coord: Maximum coordinate value.
+    - grid_res: Resolution of the grid in meters.
+    - num_robots: Number of robots.
+
+    Returns:
+    - Tuple of x and y grids of shape (num_robots, H, W).
+    """
+    dim = int(2 * max_coord / grid_res)
+    xint = torch.linspace(-max_coord, max_coord, dim)
+    yint = torch.linspace(-max_coord, max_coord, dim)
+    x, y = torch.meshgrid(xint, yint, indexing='xy')
+    x = x.unsqueeze(0).repeat(num_robots, 1, 1)
+    y = y.unsqueeze(0).repeat(num_robots, 1, 1)
+    return x, y
+
+
+def generate_heightmaps(x: torch.Tensor, y: torch.Tensor, heightmap_gen: Callable[[torch.Tensor, torch.Tensor], torch.Tensor]) -> torch.Tensor:
+    """
+    Generates a heightmap using the specified heightmap function.
+
+    Args:
+    - x: Tensor of x coordinates. Shape is (B, H, W).
+    - y: Tensor of y coordinates. Shape is (B, H, W).
+
+    Returns:
+    - Heightmap tensor of shape (B, H, W)
+    """
+    B, H, W = x.shape
+    z = torch.zeros((B, H, W), device=x.device)
+    for i in range(B):
+        z[i] = heightmap_gen(x, y)
+    return z
 
 
 def compute_heightmap_gradients(z_grid: torch.Tensor, grid_res: float) -> torch.Tensor:

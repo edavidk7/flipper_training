@@ -177,7 +177,7 @@ class RobotModelConfig(BaseConfig):
         Returns:
             torch.Tensor: speeds of the driving parts. shape (n_robots, n_driving_parts)
         """
-        joint_y = self.joint_positions[:, 1]
+        joint_y = self.joint_positions[..., 1]
         return vw[..., 0] + joint_y * vw[..., 1]
 
     def create_robot_geometry(self) -> None:

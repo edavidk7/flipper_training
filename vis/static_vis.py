@@ -55,7 +55,7 @@ def plot_birdview_trajectory(world_config: WorldConfig,
     states_vec: PhysicsState = vectorize_iter_of_tensor_tuples(states)
 
     # create figure w/ main axis and a separate colorbar axis
-    fig = plt.figure(figsize=(10, 10), dpi=200, **fig_opts)
+    fig = plt.figure(figsize=(11, 10), dpi=200, **fig_opts)
     gs = fig.add_gridspec(ncols=2, width_ratios=[40, 1])
     ax = fig.add_subplot(gs[0])
     cax = fig.add_subplot(gs[1])  # colorbar axis
@@ -80,7 +80,7 @@ def plot_birdview_trajectory(world_config: WorldConfig,
     zs = states_vec.x[:, robot_idx, 2].cpu().numpy()
     lc = LineCollection(segments, cmap='viridis', norm=plt.Normalize(zs.min(), zs.max()))
     lc.set_array(zs)
-    lc.set_linewidth(5)
+    lc.set_linewidth(3)
     ax.add_collection(lc)
 
     # aspect ratio
@@ -88,7 +88,7 @@ def plot_birdview_trajectory(world_config: WorldConfig,
 
     # colorbar w/ custom axis
     cb = fig.colorbar(lc, cax=cax)
-    cb.ax.set_title("Z coordinate")  # label
+    cb.ax.set_title("z")  # label
     cb.ax.tick_params(labelsize=10)
     cb.ax.locator_params(nbins=20)
     # you can add more ticks by specifying them directly or using locator params

@@ -1,13 +1,10 @@
 import torch
 from copy import deepcopy
-from flipper_training.configs.world_config import WorldConfig
 from flipper_training.engine.engine_state import PhysicsState, PhysicsStateDer, AuxEngineInfo
 from flipper_training.engine.engine import DPhysicsEngine
-from configs.engine_config import PhysicsEngineConfig
-from configs.robot_config import RobotModelConfig
+from flipper_training.configs import PhysicsEngineConfig, WorldConfig, EnvConfig, RobotModelConfig
 from flipper_training.utils.geometry import planar_rot_from_R3, local_to_global
 from flipper_training.utils.environment import interpolate_grid
-from configs.env_config import EnvConfig
 
 
 class BaseDPhysicsEnv():
@@ -50,6 +47,22 @@ class BaseDPhysicsEnv():
         assert self.state is not None, "State is not initialized! Call init with proper arguments first."
         return self.state, self._sample_percep_data()
 
+    def compile(self, **compile_kwargs) -> None:
+        """
+        Compile the physics engine. The method will execute compile on all methods and the engine. It will take some time to finish.
+        """
+        assert self.state is not None, "State is not initialized! Call init with proper arguments first."
+        # Call compile on all methods
+        self.engine.forward = torch.compile(self.engine.forward, **compile_kwargs)
+        self._rotate_percep_grid = torch.compile(self._rotate_percep_grid, **compile_kwargs)
+        self._sample_heightmap = torch.compile(self._sample_heightmap, **compile_kwargs)
+        self._sample_pointcloud = torch.compile(self._sample_pointcloud, **compile_kwargs)
+        # Run the forward passes to trigger the compilation
+        _ = self.engine(deepcopy(self.state), torch.zeros(self.phys_cfg.num_robots, 2 * self.robot_cfg.num_joints, device=self.device), self.world_cfg)
+        _ = self._rotate_percep_grid(self.state.R)
+        _ = self._sample_heightmap(self.state)
+        _ = self._sample_pointcloud(self.state)
+
     def init(self, positions: torch.Tensor, rotations: torch.Tensor, thetas: torch.Tensor, world_cfg: WorldConfig) -> None:
         """
         Initialize the state used by the physics engine. This should be called before starting the simulation.
@@ -62,7 +75,7 @@ class BaseDPhysicsEnv():
         """
         conf_n_robots = self.phys_cfg.num_robots
         assert positions.shape == (conf_n_robots, 3), f"Invalid shape for positions: {positions.shape}. Expected {(conf_n_robots, 3)}."
-        assert rotations.shape == (conf_n_robots, 3), f"Invalid shape for rotations: {rotations.shape}. Expected {(conf_n_robots, 3)}."
+        assert rotations.shape == (conf_n_robots, 3, 3), f"Invalid shape for rotations: {rotations.shape}. Expected {(conf_n_robots, 3,3)}."
         assert thetas.shape == (conf_n_robots, self.robot_cfg.num_joints), f"Invalid shape for thetas: {thetas.shape}. Expected {(conf_n_robots, self.robot_cfg.num_joints)}."
         x0 = positions.to(self.device)
         R0 = rotations.to(self.device)
@@ -99,7 +112,7 @@ class BaseDPhysicsEnv():
         """
         rotated_percep_points = self._rotate_percep_grid(state.R)
         z_coords = interpolate_grid(self.world_cfg.z_grid, rotated_percep_points, self.world_cfg.max_coord)
-        return torch.cat((self.percep_grid_points, z_coords.unsqueeze(-1)), dim=-1)  # local coordinates + z coordinates
+        return torch.cat((self.percep_grid_points, z_coords), dim=-1)  # local coordinates + z coordinates
 
     def _sample_percep_data(self) -> torch.Tensor:
         """
@@ -123,9 +136,9 @@ class BaseDPhysicsEnv():
             full_controls = controls.to(self.device)
         elif controls.shape[1] == 2 + self.robot_cfg.num_joints:
             vw = controls[:, :2]
-            joint_v = self.robot_cfg.get_controls(vw)
-            join_w = controls[:, 2:]
-            full_controls = torch.cat((joint_v, join_w), dim=1).to(self.device)
+            joint_v = self.robot_cfg.get_controls(vw).unsqueeze(0)
+            joint_w = controls[:, 2:]
+            full_controls = torch.cat((joint_v, joint_w), dim=1).to(self.device)
         else:
             raise ValueError(f"Invalid shape for controls: {controls.shape}. Expected {(self.phys_cfg.num_robots, 2 + self.robot_cfg.num_joints)} or {(self.phys_cfg.num_robots, 2*self.robot_cfg.num_joints)}.")
         return full_controls
