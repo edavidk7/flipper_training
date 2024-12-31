@@ -7,5 +7,4 @@ __all__ = [
     'WorldConfig',
     'PhysicsEngineConfig',
     'RobotModelConfig',
-    'EnvConfig'
-]
+    'EnvConfig',]

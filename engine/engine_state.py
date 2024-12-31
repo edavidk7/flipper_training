@@ -1,5 +1,10 @@
 import torch
 from typing import NamedTuple, Iterable
+TENSORDICT_AVAILABLE = True
+try:
+    from tensordict import TensorDict
+except ImportError:
+    TENSORDICT_AVAILABLE = False
 
 __all__ = ["PhysicsState", "PhysicsStateDer", "AuxEngineInfo", "vectorize_iter_of_tensor_tuples"]
 
@@ -22,6 +27,53 @@ class PhysicsState(NamedTuple):
     omega: torch.Tensor
     thetas: torch.Tensor
 
+    @staticmethod
+    def dummy(num_robots: int, robot_points: torch.Tensor) -> "PhysicsState":
+        """Create a dummy PhysicsState object with zero tensors.
+
+        Args:
+            num_robots (int): Number of robots.
+            robot_points (torch.Tensor): 3D pointcloud representing the robot. Shape (n_pts, 3).
+
+        """
+        return PhysicsState(
+            x=torch.zeros(num_robots, 3),
+            xd=torch.zeros(num_robots, 3),
+            R=torch.zeros(num_robots, 3, 3),
+            local_robot_points=robot_points.unsqueeze(0).repeat(num_robots, 1, 1),
+            omega=torch.zeros(num_robots, 3),
+            thetas=torch.zeros(num_robots, 1),
+        )
+
+    @staticmethod
+    def empty_dummy(**kwargs) -> "PhysicsState":
+        """Create an empty dummy PhysicsState object with zero tensors.
+           Some fields can be overridden by passing them as keyword arguments.
+        """
+        base = dict(
+            x=torch.empty(0, 3),
+            xd=torch.empty(0, 3),
+            R=torch.empty(0, 3, 3),
+            local_robot_points=torch.empty(0, 0, 3),
+            omega=torch.empty(0, 3),
+            thetas=torch.empty(0, 1),
+        )
+        return PhysicsState(**base | kwargs)
+
+    def to_tensordict(self) -> TensorDict:
+        """
+        Convert the PhysicsState object to a TensorDict object
+        """
+        if not TENSORDICT_AVAILABLE:
+            raise ImportError("tensordict is not available. Please install it using `pip install tensordict`.")
+        return TensorDict.from_namedtuple(self)
+
+    def nonempty_fields(self) -> dict[str, torch.Tensor]:
+        """
+        Return a dictionary of non-empty fields in the PhysicsState object.
+        """
+        return {k: v for k, v in self._asdict().items() if v.numel() > 0}
+
 
 class PhysicsStateDer(NamedTuple):
     """Physics State Derivative
@@ -36,6 +88,20 @@ class PhysicsStateDer(NamedTuple):
     xdd: torch.Tensor
     omega_d: torch.Tensor
     thetas_d: torch.Tensor
+
+    @staticmethod
+    def dummy(num_robots: int) -> "PhysicsStateDer":
+        """Create a dummy PhysicsStateDer object with zero tensors.
+
+        Args:
+            num_robots (int): Number of robots.
+        """
+        return PhysicsStateDer(
+            xd=torch.zeros(num_robots, 3),
+            xdd=torch.zeros(num_robots, 3),
+            omega_d=torch.zeros(num_robots, 3),
+            thetas_d=torch.zeros(num_robots, 1),
+        )
 
 
 class AuxEngineInfo(NamedTuple):

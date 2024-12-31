@@ -1,6 +1,7 @@
 import torch
-from typing import Tuple, Callable
+from typing import Any, Tuple, Callable
 from .geometry import normalized
+from .heightmap_generators import BaseHeightmapGenerator
 
 
 def make_x_y_grids(max_coord: float, grid_res: float, num_robots: int) -> Tuple[torch.Tensor, torch.Tensor]:
@@ -13,7 +14,7 @@ def make_x_y_grids(max_coord: float, grid_res: float, num_robots: int) -> Tuple[
     - num_robots: Number of robots.
 
     Returns:
-    - Tuple of x and y grids of shape (num_robots, H, W).
+    - Tuple of x and y grids of shape (num_robots, D, D) where D = 2 * max_coord / grid_res.
     """
     dim = int(2 * max_coord / grid_res)
     xint = torch.linspace(-max_coord, max_coord, dim)
@@ -24,22 +25,29 @@ def make_x_y_grids(max_coord: float, grid_res: float, num_robots: int) -> Tuple[
     return x, y
 
 
-def generate_heightmaps(x: torch.Tensor, y: torch.Tensor, heightmap_gen: Callable[[torch.Tensor, torch.Tensor], torch.Tensor]) -> torch.Tensor:
+def generate_heightmaps(x: torch.Tensor, y: torch.Tensor, heightmap_gen: BaseHeightmapGenerator, rng: torch.Generator | None = None) -> Tuple[torch.Tensor, torch.Tensor]:
     """
-    Generates a heightmap using the specified heightmap function.
+    Generates a heightmap using the specified heightmap generator.
 
     Args:
-    - x: Tensor of x coordinates. Shape is (B, H, W).
-    - y: Tensor of y coordinates. Shape is (B, H, W).
+    - x: Tensor of x coordinates. Shape is (B, D, D).
+    - y: Tensor of y coordinates. Shape is (B, D, D).
 
     Returns:
-    - Heightmap tensor of shape (B, H, W)
+    - Heightmap tensor of shape (B, D, D)
+    - Mask tensor of shape (B, D, D) indicating the suitability of the heightmap for start/end points.
     """
-    B, H, W = x.shape
-    z = torch.zeros((B, H, W), device=x.device)
+    B, D, _ = x.shape
+    z = torch.zeros((B, D, D), device=x.device)
+    mask = torch.ones((B, D, D), device=x.device)
+    max_coord = x.max().item()
     for i in range(B):
-        z[i] = heightmap_gen(x, y)
-    return z
+        genret = heightmap_gen(x[i], y[i], max_coord, rng)
+        if isinstance(genret, tuple):
+            z[i], mask[i] = genret
+        else:
+            z[i] = genret
+    return z, mask
 
 
 def compute_heightmap_gradients(z_grid: torch.Tensor, grid_res: float) -> torch.Tensor:

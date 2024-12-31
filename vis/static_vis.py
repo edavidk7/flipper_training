@@ -11,6 +11,9 @@ from flipper_training.configs import WorldConfig
 from flipper_training.engine.engine_state import PhysicsState, vectorize_iter_of_tensor_tuples, AuxEngineInfo
 from flipper_training.utils.geometry import yaw_from_R
 
+START_COLOR = "blue"
+END_COLOR = "green"
+
 
 def plot_grids_xyz(x: torch.Tensor, y: torch.Tensor, z: torch.Tensor):
     """
@@ -36,6 +39,99 @@ def plot_grids_xyz(x: torch.Tensor, y: torch.Tensor, z: torch.Tensor):
     plt.colorbar(z_im, ax=ax[2])
     fig.tight_layout()
     plt.show()
+
+
+def plot_single_heightmap(x: torch.Tensor, y: torch.Tensor, z: torch.Tensor, start: torch.Tensor | None = None, end: torch.Tensor | None = None, **fig_opts) -> plt.Axes:
+    """
+    Plot the heightmap.
+
+    Parameters:
+        - x: x-coordinates of the grid.
+        - y: y-coordinates of the grid.
+        - z: z-coordinates of the grid.
+        - start: Starting position of the robot (optional).
+        - end: Ending position of the robot (optional).
+        - fig_opts: Additional options for the figure.
+
+    Returns:
+        - Axes object.
+    """
+    fig = plt.figure(figsize=(11, 10), dpi=200, **fig_opts)
+    gs = fig.add_gridspec(ncols=2, width_ratios=[40, 1])
+    ax = fig.add_subplot(gs[0])
+    cax = fig.add_subplot(gs[1])  # colorbar axis
+    im = ax.contourf(x, y, z, cmap='inferno', levels=100)
+    ax.set_aspect('equal')
+    cb = fig.colorbar(im, cax=cax)
+    cb.ax.set_title("z")  # label
+    cb.ax.tick_params(labelsize=10)
+    cb.ax.locator_params(nbins=20)
+    fig.tight_layout()
+    if start is not None:
+        ax.plot(start[0], start[1], 'o', label='Start', color=START_COLOR)
+        ax.text(start[0], start[1], 'Start', fontsize=8, color='white')
+    if end is not None:
+        ax.plot(end[0], end[1], 'o', label='End', color=END_COLOR)
+        ax.text(end[0], end[1], 'End', fontsize=8, color='white')
+    return ax
+
+
+def plot_heightmap_3d(x: torch.Tensor, y: torch.Tensor, z: torch.Tensor, start: torch.Tensor | None = None, end: torch.Tensor | None = None) -> go.Figure:
+    """
+    Plot the 3D heightmap.
+
+    Parameters:
+        - x: x-coordinates of the grid.
+        - y: y-coordinates of the grid.
+        - z: z-coordinates of the grid.
+        - start: Starting position of the robot (optional).
+        - end: Ending position of the robot (optional).
+
+    Returns:
+        - Plotly figure.
+    """
+    fig = go.Figure(data=[go.Surface(z=z.cpu().numpy(), x=x.cpu().numpy(), y=y.cpu().numpy())])
+    fig.update_layout(scene=dict(
+        xaxis_title='X',
+        yaxis_title='Y',
+        zaxis_title='Height (Z)',
+        camera_eye=dict(x=1., y=1., z=0.5),
+        aspectmode='manual',
+        aspectratio=dict(
+            x=1.,
+            y=1.,
+            z=z.max().item() / (2 * x.max().item())
+        ),),
+        width=1000,
+        height=500,
+        margin=dict(l=20, r=20, t=20, b=20)
+    )
+    if start is not None:
+        fig.add_trace(go.Scatter3d(
+            x=[start[0].item()],
+            y=[start[1].item()],
+            z=[start[2].item()],
+            mode='markers+text',
+            marker=dict(size=5, color=START_COLOR),
+            textfont=dict(color='gray'),
+            text=['Start'],
+            textposition='top center',
+            showlegend=False,
+        ))
+
+    if end is not None:
+        fig.add_trace(go.Scatter3d(
+            x=[end[0].item()],
+            y=[end[1].item()],
+            z=[end[2].item()],
+            mode='markers+text',
+            marker=dict(size=5, color=END_COLOR),
+            textfont=dict(color='gray'),
+            text=['End'],
+            textposition='top center',
+            showlegend=False,
+        ))
+    return fig
 
 
 def plot_birdview_trajectory(world_config: WorldConfig,

@@ -180,3 +180,4 @@ sim_validation
 .DS_store
 .vscode
 .cache
+.robot_cache

@@ -13,7 +13,7 @@ from flipper_training.utils.geometry import points_in_oriented_box
 ROOT = Path(__file__).parent.parent
 MESHDIR = ROOT / "meshes"
 YAMLDIR = ROOT / "robots"
-POINTCACHE = ROOT / ".cache"
+POINTCACHE = ROOT / ".robot_cache"
 IMPLEMENTED_ROBOTS = ["marv"]
 
 
@@ -85,6 +85,7 @@ class RobotModelConfig(BaseConfig):
         vel_max (float): maximum linear velocity of the robot in m/s.
         omega_max (float): maximum angular velocity of the robot in rad/s.
         driving_part_bboxes (torch.Tensor): bounding boxes of the driving parts.
+        radius (float): radius of the robot.
         body_bbox (torch.Tensor): bounding box of the robot body.
         robot_type (Literal['tradr', 'marv', 'husky']): type of the robot.
         voxel_size (float): size of the voxel grid for the body.
@@ -165,6 +166,7 @@ class RobotModelConfig(BaseConfig):
                     "joint_positions": self.joint_positions,
                     "body_bbox": self.body_bbox,
                     "driving_part_bboxes": self.driving_part_bboxes,
+                    "radius": self.radius,
                     "yaml_hash": self.yaml_hash}
         torch.save(confdict, confpath)
 
@@ -224,6 +226,7 @@ class RobotModelConfig(BaseConfig):
         self.pointwise_mass = pointwise_mass
         self.robot_points = robot_points
         self.driving_parts = driving_parts
+        self.radius = torch.sqrt((robot_points ** 2).sum(dim=1).max())
         # Save to cache
         self.save_to_cache()
 
