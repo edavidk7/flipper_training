@@ -101,6 +101,21 @@ class BaseObjectiveManager(ABC):
         """
         raise NotImplementedError
 
+    @abstractmethod
+    def compute_iteration_limits(self, start_state: PhysicsState, goal_state: PhysicsState, dt: float) -> torch.Tensor:
+        """
+        Compute the iteration limits for the robots in the environment.
+
+        Args:
+        - start_state: PhysicsState object containing the start state of the robots.
+        - goal_state: PhysicsState object containing the goal state of the robots.
+        - dt: Time step.
+
+        Returns:
+        - Tensor containing the iteration limits for the robots.
+        """
+        raise NotImplementedError
+
 
 @dataclass
 class HeightAwareObjectiveManager(BaseObjectiveManager):
@@ -111,6 +126,7 @@ class HeightAwareObjectiveManager(BaseObjectiveManager):
     higher_allowed: float = 0.5  # meters
     min_dist_to_goal: float = 0.1  # meters
     start_drop: float = 0.1  # meters
+    iteration_limit_factor: float = 2.
 
     def _generate_start(self, robot_idx: int,
                         world_config: WorldConfig,
@@ -147,3 +163,18 @@ class HeightAwareObjectiveManager(BaseObjectiveManager):
 
     def check_reached_goal(self, state: PhysicsState, goal: PhysicsState) -> torch.Tensor:
         return torch.norm(state.x - goal.x, dim=-1) <= self.min_dist_to_goal
+
+    def compute_iteration_limits(self, start_state: PhysicsState, goal_state: PhysicsState, dt: float) -> torch.Tensor:
+        """
+        Compute the iteration limits for the robots in the environment. In this case, the iteration limits are computed based on the L1 distance between the start and goal positions (manhattan distance), times self.iteration_limit_factor. This should allow the robot to reach the goal in a reasonable number of iterations.
+
+        Args:
+        - start_state: PhysicsState object containing the start state of the robots.
+        - goal_state: PhysicsState object containing the goal state of the robots.
+        - dt: Time step.
+
+        Returns:
+        - Tensor containing the iteration limits for the robots.
+
+        """
+        return torch.ceil(self.iteration_limit_factor * torch.norm(goal_state.x - start_state.x, dim=-1, p=1) / dt).long()

@@ -95,7 +95,7 @@ class DPhysicsEngine(torch.nn.Module):
         Returns:
             thetas_d: The joint angle velocities.
         """
-        thetas_d = controls[:, len(self.robot_model.driving_parts):]
+        thetas_d = controls[:, self.robot_model.num_joints:]
         thetas_d = thetas_d.clamp(-self.robot_model.joint_vel_limits, self.robot_model.joint_vel_limits)
         return thetas_d
 
@@ -120,6 +120,8 @@ class DPhysicsEngine(torch.nn.Module):
         """
         Calculate the friction force acting on the robot points.
 
+        This function replaces naive boolean masking with multiplication and addition, which is faster and doesn't break threads on a GPU.
+
         Args:
             F_normal: The normal force acting on the robot points.
             R: The rotation matrix of the robot.
@@ -134,13 +136,15 @@ class DPhysicsEngine(torch.nn.Module):
         N = torch.norm(F_normal, dim=2)  # normal force magnitude at the contact points, guaranteed to be zero if not in contact because of the spring force being zero
         F_friction = torch.zeros_like(F_normal)  # initialize friction forces
         thrust_dir = normalized(R[..., 0])  # thrust direction in the global frame
-        for i, mask in enumerate(self.robot_model.driving_parts):
+        for i in range(self.robot_model.num_joints):
             u = controls[:, i].unsqueeze(1)  # control input
             v_cmd = u * thrust_dir  # commanded velocity
             dv = v_cmd.unsqueeze(1) - xd_points  # velocity difference between the commanded and the actual velocity of the robot points
             dv_n = (dv * n).sum(dim=-1, keepdims=True)  # normal component of the relative velocity computed as dv_n = dv . n
             dv_tau = dv - dv_n * n  # tangential component of the relative velocity
-            F_friction[:, mask] = (k_friction * N.unsqueeze(2) * torch.tanh(dv_tau))[:, mask]  # saturation of the tangential velocity using tanh
+            dv_tau_sat = torch.tanh(dv_tau)  # saturation of the tangential velocity using tanh
+            mask = self.robot_model.driving_part_masks[i].unsqueeze(-1)  # Shape (n_pts,1)
+            F_friction += k_friction * N.unsqueeze(2) * dv_tau_sat * mask
         return F_friction
 
     def penetration_model(self, dh: torch.Tensor) -> torch.Tensor:
@@ -170,7 +174,7 @@ class DPhysicsEngine(torch.nn.Module):
         dh_points = robot_points[..., 2:3] - z_points
         on_grid = (robot_points[..., 0:1] >= -world_config.max_coord) & (robot_points[..., 0:1] <= world_config.max_coord) & \
             (robot_points[..., 1:2] >= -world_config.max_coord) & (robot_points[..., 1:2] <= world_config.max_coord)
-        in_contact = (dh_points <= self.config.contact_threshold) & on_grid
+        in_contact = ((dh_points <= self.config.contact_threshold) & on_grid).float()
         pen = self.penetration_model(dh_points)
         pen = pen * in_contact
         return in_contact, pen
@@ -184,7 +188,6 @@ class DPhysicsEngine(torch.nn.Module):
         xd = xd + self.integrator_fn(xdd, self.config.dt)
         x = x + self.integrator_fn(xd, self.config.dt)
         delta_thetas = self.integrator_fn(thetas_d, self.config.dt)
-        # joint rotation here allows us to do it inplace without copying the tensor
         local_robot_points = self.rotate_joints(local_robot_points, delta_thetas)
         thetas = thetas + delta_thetas
         thetas = thetas.clamp(self.robot_model.joint_limits[0], self.robot_model.joint_limits[1])
@@ -207,13 +210,19 @@ class DPhysicsEngine(torch.nn.Module):
         """
         Rotate points on the robot pointcloud corresponding to the joints based on the joint angles. The rotation is done in LOCAL coordinates, inplace.
 
+        This function replaces naive boolean masking with multiplication and addition, which is faster and doesn't break threads on a GPU.
+
         Args:
             robot_points: The robot points in LOCAL coordinates.
             thetas: The joint angles to rotate by.
         """
-        for i, (pmask, ppos) in enumerate(zip(self.robot_model.driving_parts, self.robot_model.joint_positions)):
+        new_robot_points = torch.zeros_like(robot_points)
+        for i in range(self.robot_model.num_joints):
             rot_Ys = rot_Y(thetas[:, i])
-            ppos = ppos.to(device=self.device)
-            flippter_pts = robot_points[:, pmask] - ppos
-            robot_points[:, pmask] = torch.bmm(flippter_pts, rot_Ys) + ppos
-        return robot_points
+            joint_pos = self.robot_model.joint_positions[i]
+            flippter_coord_system_pts = robot_points - joint_pos
+            rotated_pts = torch.bmm(flippter_coord_system_pts, rot_Ys) + joint_pos
+            part_mask = self.robot_model.driving_part_masks[i].unsqueeze(-1)  # Shape (n_pts,1)
+            new_robot_points += part_mask * rotated_pts
+        new_robot_points += self.robot_model.body_mask.unsqueeze(-1) * robot_points
+        return new_robot_points

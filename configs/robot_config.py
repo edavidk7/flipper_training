@@ -161,7 +161,8 @@ class RobotModelConfig(BaseConfig):
             confpath.parent.mkdir(parents=True)
         print(f"Saving robot model to cache: {confpath}")
         confdict = {"robot_points": self.robot_points,
-                    "driving_parts": self.driving_parts,
+                    "driving_part_masks": self.driving_part_masks,
+                    "body_mask": self.body_mask,
                     "pointwise_mass": self.pointwise_mass,
                     "joint_positions": self.joint_positions,
                     "body_bbox": self.body_bbox,
@@ -210,22 +211,23 @@ class RobotModelConfig(BaseConfig):
         # Combine all points
         robot_points = torch.cat(driving_part_points + [robot_body_points]).float()
         # Create masks for the driving parts
-        driving_parts = []
+        driving_part_masks = []
         s = 0
         pointwise_relative_density = torch.ones(robot_points.shape[0])
         for i in range(len(driving_part_points)):
             mask = torch.zeros(robot_points.shape[0], dtype=torch.bool)
             mask[s:s + driving_part_points[i].shape[0]] = True
             s += driving_part_points[i].shape[0]
-            driving_parts.append(mask)
+            driving_part_masks.append(mask)
             pointwise_relative_density[mask] = self.driving_part_density
-        driving_parts = torch.stack(driving_parts, dim=0)
+        driving_part_masks = torch.stack(driving_part_masks, dim=0)
         # Calculate pointwise mass and center of gravity
         pointwise_mass = self.mass * pointwise_relative_density / pointwise_relative_density.sum()
         # Set
         self.pointwise_mass = pointwise_mass
         self.robot_points = robot_points
-        self.driving_parts = driving_parts
+        self.driving_part_masks = driving_part_masks.float()
+        self.body_mask = (torch.sum(driving_part_masks, dim=0) == 0).float()
         self.radius = torch.sqrt((robot_points ** 2).sum(dim=1).max())
         # Save to cache
         self.save_to_cache()
@@ -242,8 +244,8 @@ class RobotModelConfig(BaseConfig):
             robot_points = self.robot_points
 
         robot_points = robot_points.cpu()
-        driving_part_points = torch.cat([robot_points[mask] for mask in self.driving_parts.cpu()])
-        other_points = robot_points[torch.sum(self.driving_parts.cpu(), dim=0) == 0]
+        driving_part_points = torch.cat([robot_points[mask] for mask in self.driving_part_masks.cpu().bool()])
+        other_points = robot_points[torch.sum(self.driving_part_masks.cpu(), dim=0) == 0]
 
         # Create PyVista point clouds
         driving_pcd = pv.PolyData(driving_part_points.numpy())
