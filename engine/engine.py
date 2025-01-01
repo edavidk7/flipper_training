@@ -160,6 +160,7 @@ class DPhysicsEngine(torch.nn.Module):
         """
         z_points = interpolate_grid(world_config.z_grid, robot_points[..., :2], world_config.max_coord)
         dh_points = robot_points[..., 2:3] - z_points
+        # This is a GPU-friendly hack for computing the on-grid points
         clamped_points = robot_points[..., :2].clamp(-world_config.max_coord, world_config.max_coord)
         on_grid = (clamped_points == robot_points[..., :2]).all(dim=-1, keepdim=True)
         in_contact = ((dh_points <= 0.0) & on_grid).float()
@@ -194,7 +195,7 @@ class DPhysicsEngine(torch.nn.Module):
 
     def rotate_joints(self, robot_points: torch.Tensor, thetas: torch.Tensor) -> torch.Tensor:
         """
-        Rotate points on the robot pointcloud corresponding to the joints based on the joint angles. The rotation is done in LOCAL coordinates, inplace.
+        Rotate points on the robot pointcloud corresponding to the joints based on the joint angles. The rotation is done in LOCAL coordinates.
 
         This function replaces naive boolean masking with multiplication and addition, which is faster and doesn't break threads on a GPU.
 
