@@ -151,19 +151,17 @@ class DPhysicsEngine(torch.nn.Module):
         """
         Find the contact points on the robot.
 
-        We use a "dampened contact" model which starts considering points even above the terrain as in contact if they are close enough to the terrain. Their penetration is then calculated with the penetration model function.
-
         Args:
             robot_points: The robot points in GLOBAL coordinates.
 
         Returns:
             in_contact: A boolean tensor of shape (B, n_pts, 1) indicating whether the points are in contact with the terrain.
-            dh_points: The penetration depth of the points. Shape (B, n_pts, 1). It is computed using the penetration model.
+            dh_points: The penetration depth of the points. Shape (B, n_pts, 1).
         """
         z_points = interpolate_grid(world_config.z_grid, robot_points[..., :2], world_config.max_coord)
         dh_points = robot_points[..., 2:3] - z_points
-        on_grid = (robot_points[..., 0:1] >= -world_config.max_coord) & (robot_points[..., 0:1] <= world_config.max_coord) & \
-            (robot_points[..., 1:2] >= -world_config.max_coord) & (robot_points[..., 1:2] <= world_config.max_coord)
+        clamped_points = robot_points[..., :2].clamp(-world_config.max_coord, world_config.max_coord)
+        on_grid = (clamped_points == robot_points[..., :2]).all(dim=-1, keepdim=True)
         in_contact = ((dh_points <= 0.0) & on_grid).float()
         return in_contact, dh_points * in_contact
 
