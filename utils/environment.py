@@ -75,11 +75,13 @@ def surface_normals(z_grid_grads: torch.Tensor, query: torch.Tensor, max_coord: 
     - Surface normals at the queried coordinates.
     """
     norm_query = query / max_coord  # Normalize to [-1, 1]
+    # Clamp the query coordinates to the grid's valid range
+    norm_query = torch.clamp(norm_query, -1, 1)
     # Query coordinates of shape (B, N, 1, 2)
     B, N = query.shape[:2]
     grid_coords = norm_query.unsqueeze(2)
     # Interpolate the grid values into shape (B, 2, N, 1)
-    grad_query = torch.nn.functional.grid_sample(z_grid_grads, grid_coords, align_corners=True, mode="bilinear", padding_mode="border").squeeze(-1).transpose(1, 2)  # (B, N, 2)
+    grad_query = torch.nn.functional.grid_sample(z_grid_grads, grid_coords, align_corners=True, mode="bilinear").squeeze(-1).transpose(1, 2)  # (B, N, 2)
     # Compute the surface normals
     n = torch.dstack([-grad_query, torch.ones((B, N, 1), device=query.device)])  # n = [-dz/dx, -dz/dy, 1]
     n = normalized(n)
@@ -97,10 +99,12 @@ def interpolate_grid(grid: torch.Tensor, query: torch.Tensor, max_coord: float |
     - Interpolated grid values at the queried coordinates in shape (B, N, 1).
     """
     norm_query = query / max_coord  # Normalize to [-1, 1]
+    # Clamp the query coordinates to the grid's valid range
+    norm_query = torch.clamp(norm_query, -1, 1)
     # Query coordinates of shape (B, N, 1, 2)
     grid_coords = norm_query.unsqueeze(2)
     # Grid of shape (B, 1, H, W)
     grid_w_c = grid.unsqueeze(1)
     # Interpolate the grid values into shape (B, 1, N, 1)
-    z_query = torch.nn.functional.grid_sample(grid_w_c, grid_coords, align_corners=True, mode="bilinear", padding_mode="border")
+    z_query = torch.nn.functional.grid_sample(grid_w_c, grid_coords, align_corners=True, mode="bilinear")
     return z_query.squeeze(1)

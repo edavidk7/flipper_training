@@ -147,16 +147,6 @@ class DPhysicsEngine(torch.nn.Module):
             F_friction += k_friction * N.unsqueeze(2) * dv_tau_sat * mask
         return F_friction
 
-    def penetration_model(self, dh: torch.Tensor) -> torch.Tensor:
-        """
-        Transform the actual dh values to softnened penetration values.
-        """
-        a = (1 / self.config.contact_threshold)**2
-        dh_offset = dh - self.config.contact_threshold
-        cubic = a * (dh_offset)**3
-        pen = torch.maximum(torch.minimum(-torch.tensor(self.config.contact_threshold, device=self.device), dh_offset), cubic)
-        return pen
-
     def find_contact_points(self, robot_points: torch.Tensor, world_config: WorldConfig) -> Tuple[torch.Tensor, torch.Tensor]:
         """
         Find the contact points on the robot.
@@ -174,10 +164,8 @@ class DPhysicsEngine(torch.nn.Module):
         dh_points = robot_points[..., 2:3] - z_points
         on_grid = (robot_points[..., 0:1] >= -world_config.max_coord) & (robot_points[..., 0:1] <= world_config.max_coord) & \
             (robot_points[..., 1:2] >= -world_config.max_coord) & (robot_points[..., 1:2] <= world_config.max_coord)
-        in_contact = ((dh_points <= self.config.contact_threshold) & on_grid).float()
-        pen = self.penetration_model(dh_points)
-        pen = pen * in_contact
-        return in_contact, pen
+        in_contact = ((dh_points <= 0.0) & on_grid).float()
+        return in_contact, dh_points * in_contact
 
     def update_state(self, state: PhysicsState, dstate: PhysicsStateDer) -> PhysicsState:
         """
