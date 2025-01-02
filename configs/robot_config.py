@@ -10,11 +10,31 @@ import hashlib
 from dataclasses import dataclass
 from flipper_training.utils.geometry import points_in_oriented_box
 
+np.random.seed(0)
+
 ROOT = Path(__file__).parent.parent
 MESHDIR = ROOT / "meshes"
 YAMLDIR = ROOT / "robots"
 POINTCACHE = ROOT / ".robot_cache"
 IMPLEMENTED_ROBOTS = ["marv"]
+
+
+def cluster_points(points: torch.Tensor, n_points: int, **clus_opts) -> torch.Tensor:
+    """
+    Clusters a point cloud to n_points using the pyacvd library.
+
+    Args:
+        points (torch.Tensor): point cloud.
+        n_points (int): number of points to cluster to.
+
+    Returns:
+        torch.Tensor: clustered points.
+    """
+    surf = pv.PolyData(points.numpy()).delaunay_3d(progress_bar=True)
+    surf = surf.extract_geometry().triangulate()
+    clus = pyacvd.Clustering(surf)
+    clus.cluster(n_points, **clus_opts)
+    return torch.tensor(clus.cluster_centroid)
 
 
 def extract_surface_from_mesh(mesh: pv.PolyData, n_points: int = 100, **clus_opts) -> torch.Tensor:
@@ -125,6 +145,10 @@ class RobotModelConfig(BaseConfig):
         self.driving_part_bboxes = torch.stack([torch.tensor(bbox) for bbox in robot_params["driving_part_bboxes"]], dim=0)
         self.body_bbox = torch.tensor(robot_params["body_bbox"])
 
+    @property
+    def _descr_str(self) -> str:
+        return f"{self.robot_type}_{self.voxel_size:.3f}_{self.points_per_driving_part}.pt"
+
     def load_from_cache(self) -> bool:
         """
         Loads the robot parameters from a cache file.
@@ -132,7 +156,7 @@ class RobotModelConfig(BaseConfig):
         Returns:
             bool: True if the cache file exists, False otherwise.
         """
-        confpath = POINTCACHE / f"{self.robot_type}_{self.voxel_size:.3f}_{self.points_per_driving_part}.pt"
+        confpath = POINTCACHE / self._descr_str
         if confpath.exists():
             print(f"Loading robot model from cache: {confpath}")
             confdict = torch.load(confpath)
@@ -156,7 +180,7 @@ class RobotModelConfig(BaseConfig):
         Returns:
             None
         """
-        confpath = POINTCACHE / f"{self.robot_type}_{self.voxel_size:.3f}_{self.points_per_driving_part}.pt"
+        confpath = POINTCACHE / self._descr_str
         if not confpath.parent.exists():
             confpath.parent.mkdir(parents=True)
         print(f"Saving robot model to cache: {confpath}")
@@ -292,5 +316,11 @@ class RobotModelConfig(BaseConfig):
 
 
 if __name__ == "__main__":
-    robot_model = RobotModelConfig(robot_type="marv", voxel_size=0.08, points_per_driving_part=100)
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--robot_type", type=str, default="marv", help="Type of the robot")
+    parser.add_argument("--voxel_size", type=float, default=0.08, help="Voxel size")
+    parser.add_argument("--points_per_driving_part", type=int, default=192, help="Number of points per driving part")
+    args = parser.parse_args()
+    robot_model = RobotModelConfig(robot_type=args.robot_type, voxel_size=args.voxel_size, points_per_driving_part=args.points_per_driving_part)
     robot_model.visualize_robot()

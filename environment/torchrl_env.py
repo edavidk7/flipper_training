@@ -21,10 +21,7 @@ class TorchRLEnvConfig(EnvConfig):
     """
     reward_func: Callable[[PhysicsState, PhysicsStateDer, torch.Tensor, PhysicsState], torch.Tensor] = lambda x, xd, u, xn: x.omega[..., :2].norm(dim=-1)
     control_type: Literal["per-track", "lon_ang"] = "lon_ang"
-    min_dist_to_goal: float = 1  # minimum distance from start to goal in meters
-    dist_to_goal: float = 0.1  # distance to goal for termination condition in meters
-    max_iters: int = 1000  # maximum number of iterations for the environment before termination
-
+    
 
 class TorchRLEnv(EnvBase):
     _batch_locked = True
@@ -36,42 +33,42 @@ class TorchRLEnv(EnvBase):
         super().__init__(device=device)
         # action spec
         self.n_robots = physics_config.num_robots
-        self.action_spec = self._make_action_spec(n_robots, robot_model_config, env_config.control_type)
+        self.action_spec = self._make_action_spec(robot_model_config, env_config.control_type)
         # observation spec
-        dummy_state = PhysicsState.dummy(n_robots, robot_model_config.robot_points)
-        self.observation_spec = self._make_observation_spec(n_robots, dummy_state, env_config)
+        dummy_state = PhysicsState.dummy(self.n_robots, robot_model_config.robot_points)
+        self.observation_spec = self._make_observation_spec(dummy_state, env_config)
         # reward
-        self.reward_spec = self._make_reward_spec(n_robots)
+        self.reward_spec = self._make_reward_spec()
         # done
-        self.done_spec = self._make_done_spec(n_robots)
+        self.done_spec = self._make_done_spec()
         self._env = BaseDPhysicsEnv(env_config, physics_config, robot_model_config, device)
 
-    def _make_action_spec(self, n_robots: int, robot_model: RobotModelConfig, control_type: Literal["per-track", "lon_ang"]) -> Bounded:
+    def _make_action_spec(self, robot_model: RobotModelConfig, control_type: Literal["per-track", "lon_ang"]) -> Bounded:
         match control_type:
             case "per-track":
-                track_low = torch.full((n_robots, robot_model.num_joints), -robot_model.vel_max).repeat(n_robots, 1)
+                track_low = torch.full((self.n_robots, robot_model.num_joints), -robot_model.vel_max).repeat(self.n_robots, 1)
                 track_high = -track_low
             case "lon_ang":
-                track_low = torch.tensor([-robot_model.vel_max, -robot_model.omega_max]).repeat(n_robots, 1)
+                track_low = torch.tensor([-robot_model.vel_max, -robot_model.omega_max]).repeat(self.n_robots, 1)
                 track_high = -track_low
             case _:
                 raise ValueError(f"Invalid control type: {control_type}")
-        joint_low = robot_model.joint_limits[0].repeat(n_robots, 1)
-        joint_high = robot_model.joint_limits[1].repeat(n_robots, 1)
+        joint_low = robot_model.joint_limits[0].repeat(self.n_robots, 1)
+        joint_high = robot_model.joint_limits[1].repeat(self.n_robots, 1)
         return Bounded(
             low=torch.cat([track_low, joint_low], dim=-1),
             high=torch.cat([track_high, joint_high], dim=-1),
-            shape=(n_robots, track_low.shape[1] + robot_model.num_joints),
+            shape=(self.n_robots, track_low.shape[1] + robot_model.num_joints),
             device=self.device,
             dtype=torch.float32,
         )
 
-    def _make_observation_spec(self, num_robots: int, dummy_state: PhysicsState, env_config: TorchRLEnvConfig) -> Composite:
+    def _make_observation_spec(self, dummy_state: PhysicsState, env_config: TorchRLEnvConfig) -> Composite:
         match env_config.percep_type:
             case "heightmap":
-                percep_shape = (num_robots, 1, env_config.percep_dim, env_config.percep_dim)
+                percep_shape = (self.n_robots, 1, env_config.percep_dim, env_config.percep_dim)
             case "pointcloud":
-                percep_shape = (num_robots, env_config.percep_dim**2, 3)
+                percep_shape = (self.n_robots, env_config.percep_dim**2, 3)
             case _:
                 raise ValueError(f"Invalid perception type: {env_config.percep_type}")
         return Composite({
@@ -101,28 +98,28 @@ class TorchRLEnv(EnvBase):
                 device=self.device,
             ),
             "direction": Unbounded(  # direction to the goal
-                shape=(num_robots, 3),
+                shape=(self.n_robots, 3),
                 dtype=torch.float32,
                 device=self.device,
             )
         })
 
-    def _make_reward_spec(self, num_robots: int) -> Unbounded:
+    def _make_reward_spec(self) -> Unbounded:
         return Unbounded(
-            shape=(num_robots,),
+            shape=(self.n_robots,),
             dtype=torch.float32,
             device=self.device
         )
 
-    def _make_done_spec(self, num_robots: int) -> Bounded:
+    def _make_done_spec(self) -> Bounded:
         return Bounded(
             low=0,
             high=1,
-            shape=(num_robots,),
+            shape=(self.num_robots,),
             dtype=torch.bool,
             device=self.device
         )
-    
+
     def _reset_and_generate_goals(self):
         raise NotImplementedError
 
@@ -155,7 +152,7 @@ class TorchRLEnv(EnvBase):
             "reward": torch.zeros(self.reward_spec.shape, device=self.device),
             "done": torch.zeros(self.done_spec.shape, device=self.device)
         }, batch_size=[self._env.phys_cfg.num_robots])
-        
+
         return tensordict
 
     def _step(self, tensordict):

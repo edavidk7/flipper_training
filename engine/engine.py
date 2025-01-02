@@ -133,7 +133,8 @@ class DPhysicsEngine(torch.nn.Module):
             F_friction: The friction force acting on the robot points.
         """
         # friction forces: shttps://en.wikipedia.org/wiki/Friction
-        N = torch.norm(F_normal, dim=2)  # normal force magnitude at the contact points, guaranteed to be zero if not in contact because of the spring force being zero
+        N = torch.norm(F_normal, dim=2, keepdim=True)  # normal force magnitude at the contact points, guaranteed to be zero if not in contact because of the spring force being zero
+        kN = k_friction * N  # friction force magnitude
         F_friction = torch.zeros_like(F_normal)  # initialize friction forces
         thrust_dir = normalized(R[..., 0])  # thrust direction in the global frame
         for i in range(self.robot_model.num_joints):
@@ -144,7 +145,7 @@ class DPhysicsEngine(torch.nn.Module):
             dv_tau = dv - dv_n * n  # tangential component of the relative velocity
             dv_tau_sat = torch.tanh(dv_tau)  # saturation of the tangential velocity using tanh
             mask = self.robot_model.driving_part_masks[i].unsqueeze(-1)  # Shape (n_pts,1)
-            F_friction += k_friction * N.unsqueeze(2) * dv_tau_sat * mask
+            F_friction += kN * dv_tau_sat * mask
         return F_friction
 
     def find_contact_points(self, robot_points: torch.Tensor, world_config: WorldConfig) -> Tuple[torch.Tensor, torch.Tensor]:
