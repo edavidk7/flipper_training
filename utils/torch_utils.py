@@ -11,7 +11,7 @@ def set_device(device: str):
         torch.backends.cuda.matmul.allow_tf32 = False
         torch.backends.cudnn.allow_tf32 = False
         torch.backends.cudnn.deterministic = True
-        torch.backends.cudnn.benchmark = True
+        torch.backends.cudnn.benchmark = False
         return torch.device("cuda")
     elif device == "mps" and torch.mps.is_available():
         return torch.device("mps")
