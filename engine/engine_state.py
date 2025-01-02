@@ -26,23 +26,25 @@ class PhysicsState(NamedTuple):
     local_robot_points: torch.Tensor
     omega: torch.Tensor
     thetas: torch.Tensor
-
+        
     @staticmethod
-    def dummy(num_robots: int, robot_points: torch.Tensor) -> "PhysicsState":
+    def dummy_like(s: "PhysicsState") -> "PhysicsState":
         """Create a dummy PhysicsState object with zero tensors.
 
         Args:
-            num_robots (int): Number of robots.
-            robot_points (torch.Tensor): 3D pointcloud representing the robot. Shape (n_pts, 3).
+            s (PhysicsState): PhysicsState object to mimic.
+            
+        Returns:
+            PhysicsState: Dummy PhysicsState object with zero tensors.
 
         """
         return PhysicsState(
-            x=torch.zeros(num_robots, 3),
-            xd=torch.zeros(num_robots, 3),
-            R=torch.zeros(num_robots, 3, 3),
-            local_robot_points=robot_points.unsqueeze(0).repeat(num_robots, 1, 1),
-            omega=torch.zeros(num_robots, 3),
-            thetas=torch.zeros(num_robots, 1),
+            x=torch.zeros_like(s.x),
+            xd=torch.zeros_like(s.xd),
+            R=torch.zeros_like(s.R),
+            local_robot_points=torch.zeros_like(s.local_robot_points),
+            omega=torch.zeros_like(s.omega),
+            thetas=torch.zeros_like(s.thetas),
         )
 
     @staticmethod
@@ -131,7 +133,7 @@ class AuxEngineInfo(NamedTuple):
     I_global: torch.Tensor
 
 
-def vectorize_iter_of_tensor_tuples(tuples: Iterable[NamedTuple]) -> NamedTuple:
+def vectorize_iter_of_tensor_tuples(tuples: Iterable[NamedTuple],device: str | None = None) -> NamedTuple:
     """
     Vectorize an iterable of Tensor Named Tuples into a single Named Tuple containing stacked tensors.
 
@@ -141,6 +143,7 @@ def vectorize_iter_of_tensor_tuples(tuples: Iterable[NamedTuple]) -> NamedTuple:
     Returns:
         Type[NamedTuple]: Named Tuple containing stacked tensors.
     """
+    device = device or torch.device("cpu")
     nt = NamedTuple(f"Vectorized{tuples[0].__class__.__name__}", [(field_name, torch.Tensor) for field_name in tuples[0]._fields])
-    fields = {field_name: torch.stack([getattr(t, field_name) for t in tuples], dim=0) for field_name in nt._fields}
+    fields = {field_name: torch.stack([getattr(t, field_name) for t in tuples], dim=0).to(device) for field_name in nt._fields}
     return nt(**fields)
