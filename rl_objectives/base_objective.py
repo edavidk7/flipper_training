@@ -3,7 +3,7 @@ from dataclasses import dataclass
 from typing import ClassVar, Callable
 from abc import ABC, abstractmethod
 from flipper_training.configs import RobotModelConfig, WorldConfig
-from flipper_training.engine.engine_state import AuxEngineInfo, PhysicsState, PhysicsStateDer
+from flipper_training.engine.engine_state import PhysicsState, PhysicsStateDer
 
 
 @dataclass
@@ -12,14 +12,12 @@ class BaseObjective(ABC):
     Base class for an objective that manages the generation of start/goal positions for the robots in the environment, as well as the reward function and termination condition.
 
     Attributes:
-    - reward_func: Callable[[PhysicsState, torch.Tensor, PhysicsStateDer, AuxEngineInfo, PhysicsState], torch.Tensor] - reward function to use. It must accept the current state, action, state derivative, auxiliary engine information, and next state as input and return a tensor of (batched) rewards.
     - min_dist_to_goal: float - minimum distance from start to goal in meters
     - max_dist_to_goal: float - maximum distance from start to goal in meters
     - max_goal_generation_attempts: int - maximum number of attempts to generate a goal
     - feasability_thresh: float - threshold for feasibility check of start/goal positions, used to avoid floating point errors
     """
 
-    reward_func: Callable[[PhysicsState, torch.Tensor, PhysicsStateDer, AuxEngineInfo, PhysicsState], torch.Tensor]
     min_dist_to_goal: float = 1.  # meters
     max_dist_to_goal: float = torch.inf  # meters
     max_goal_generation_attempts: ClassVar[int] = 1000
@@ -35,7 +33,7 @@ class BaseObjective(ABC):
             - world_config: WorldConfig object containing the configuration of the world.
             - robot_model: RobotModelConfig object containing the configuration of the robot.
             - rng: Random number generator.
-            = skip_mask: Tensor containing a mask which robots to skip (for example if they haven't reached the previous goal yet).
+            - skip_mask: Tensor containing a mask which robots to skip (for example if they haven't reached the previous goal yet).
 
             Returns:
             - A tuple of PhysicsState objects containing the start and goal positions for the robots.
@@ -54,14 +52,14 @@ class BaseObjective(ABC):
                     starts[i] = start
                     goals[i] = goal
                     break
-        start_state = PhysicsState.empty_dummy(x=starts)
-        goal_state = PhysicsState.empty_dummy(x=goals)
+        start_state = PhysicsState.dummy(x=starts, robot_model=robot_model)
+        goal_state = PhysicsState.dummy(x=goals, robot_model=robot_model)
         return start_state, goal_state
 
     @abstractmethod
-    def check_reached_goal(self, state: PhysicsState, goal: PhysicsState) -> torch.Tensor:
+    def check_reached_goal_or_terminate(self, state: PhysicsState, goal: PhysicsState) -> torch.Tensor:
         """
-        Check if the robots have reached the goal.
+        Check if the robots have reached the goal or if the episode should be terminated due to an illegal state.
 
         This function should be as efficient as possible, as it is called every iteration.
 
@@ -110,16 +108,38 @@ class BaseObjective(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    def compute_iteration_limits(self, start_state: PhysicsState, goal_state: PhysicsState, dt: float) -> torch.Tensor:
+    def compute_iteration_limits(self, start_state: PhysicsState, goal_state: PhysicsState, robot_model: RobotModelConfig, dt: float) -> torch.Tensor:
         """
         Compute the iteration limits for the robots in the environment.
 
         Args:
         - start_state: PhysicsState object containing the start state of the robots.
         - goal_state: PhysicsState object containing the goal state of the robots.
+        - robot_model: RobotModelConfig object containing the configuration of the robot.
         - dt: Time step.
 
         Returns:
         - Tensor containing the iteration limits for the robots.
+        """
+        raise NotImplementedError
+
+    @abstractmethod
+    def compute_reward(self,
+                       prev_state: PhysicsState,
+                       action: torch.Tensor,
+                       curr_state: PhysicsState,
+                       goal: PhysicsState,
+                       ) -> torch.Tensor:
+        """
+        Compute the reward for the given state and goal.
+
+        Args:
+        - prev_state: PhysicsState object containing the previous state of the robots.
+        - action: Tensor containing the action taken by the robots.
+        - curr_state: PhysicsState object containing the current state of the robots.
+        - goal: PhysicsState object containing the goal state of the robots
+
+        Returns:
+            The reward for the given state and goal.
         """
         raise NotImplementedError

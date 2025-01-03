@@ -1,15 +1,14 @@
-import re
 import numpy as np
 import torch
 import matplotlib.pyplot as plt
 from typing import Iterable, Any
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
-import plotly.io as pio
 from matplotlib.collections import LineCollection
 from flipper_training.configs import WorldConfig
-from flipper_training.engine.engine_state import PhysicsState, vectorize_iter_of_tensor_tuples, AuxEngineInfo
+from flipper_training.engine.engine_state import PhysicsState, vectorize_iter_of_states, AuxEngineInfo
 from flipper_training.utils.geometry import yaw_from_R
+
 
 START_COLOR = "blue"
 END_COLOR = "green"
@@ -148,7 +147,7 @@ def plot_birdview_trajectory(world_config: WorldConfig,
     z_grid_arr = world_config.z_grid[robot_idx].cpu().numpy()
 
     # vectorize states
-    states_vec: PhysicsState = vectorize_iter_of_tensor_tuples(states)
+    states_vec = vectorize_iter_of_states(states)
 
     # create figure w/ main axis and a separate colorbar axis
     fig = plt.figure(figsize=(11, 10), dpi=200, **fig_opts)
@@ -206,8 +205,8 @@ def plot_3d_trajectory(world_config: WorldConfig,
     y_grid_arr = world_config.y_grid[robot_idx].cpu().numpy()
     z_grid_arr = world_config.z_grid[robot_idx].cpu().numpy()
     # Vectorize states
-    states_vec: PhysicsState = vectorize_iter_of_tensor_tuples(states)
-    aux_vec: AuxEngineInfo = vectorize_iter_of_tensor_tuples(auxs)
+    states_vec = vectorize_iter_of_states(states)
+    aux_vec = vectorize_iter_of_states(auxs)
     fig = make_subplots(rows=1, cols=1, specs=[[{'type': 'surface'}]], **fig_opts)
     # World
     fig.add_trace(

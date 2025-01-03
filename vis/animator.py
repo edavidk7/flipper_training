@@ -1,8 +1,7 @@
-import torch
 import time
 from typing import Iterable, Dict
 import mayavi.mlab as mlab
-from flipper_training.engine.engine_state import PhysicsState, AuxEngineInfo, vectorize_iter_of_tensor_tuples
+from flipper_training.engine.engine_state import PhysicsState, AuxEngineInfo, vectorize_iter_of_states
 from flipper_training.configs import WorldConfig, PhysicsEngineConfig
 
 
@@ -13,8 +12,8 @@ def animate_trajectory(world_config: WorldConfig,
                        robot_index: int = 0,
                        vis_opts: Dict = {}):
     # vectorize states
-    states_vec = vectorize_iter_of_tensor_tuples(states)
-    aux_info_vec = vectorize_iter_of_tensor_tuples(aux_info)
+    states_vec = vectorize_iter_of_states(states)
+    aux_info_vec = vectorize_iter_of_states(aux_info)
 
     # basic settings
     window_size = vis_opts.get("window_size", (1280, 720))

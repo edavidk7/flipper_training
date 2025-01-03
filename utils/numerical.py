@@ -97,3 +97,19 @@ def integrate_rotation(R: torch.Tensor, omega: torch.Tensor, dt: float, eps: flo
     omega_skew_squared = torch.bmm(omega_skew, omega_skew)
     delta_R = I + sin_term * omega_skew + cos_term * omega_skew_squared
     return torch.bmm(delta_R, R)
+
+
+def condition_rotation_matrices(R: torch.Tensor) -> torch.Tensor:
+    """
+    Condition the rotation matrices to prevent numerical instability.
+    This is done by performing SVD on the rotation matrices and then reconstructing them.
+
+    Parameters:
+        - R: Rotation matrices. Shape [B, 3, 3].
+
+    Returns:
+        - torch.Tensor: Conditioned rotation matrices. Shape [B, 3, 3].
+    """
+    U, _, V = torch.svd(R)
+    R = torch.bmm(U, V.transpose(-2, -1))
+    return R

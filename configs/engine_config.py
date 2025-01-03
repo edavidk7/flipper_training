@@ -15,6 +15,7 @@ class PhysicsEngineConfig(BaseConfig):
         gravity (float): acceleration due to gravity. Default is 9.81 m/s^2.
         torque_limit (float): torque limit that can be generated on CoG. The physics engine clips it to this value. Default is 500.0 Nm.
         damping_alpha (float): damping coefficient modifier, should be between 0 and 2. Default is 1.0 (damping is critical damping)
+        condition_rotations (bool): whether to condition the rotation matrices to prevent numerical instability. Default is False.
     """
     num_robots: int
     integration_mode: IntegrationMode = "rk4"
@@ -22,3 +23,4 @@ class PhysicsEngineConfig(BaseConfig):
     gravity: float = 9.81
     torque_limit: float = 500.0
     damping_alpha: float = 1.0
+    condition_rotations: bool = False

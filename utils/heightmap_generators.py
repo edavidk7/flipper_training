@@ -10,14 +10,15 @@ class BaseHeightmapGenerator(ABC):
     Base class for heightmap generators.
 
     Attributes:
-    - returns_suitability_mask: Whether the heightmap generator also returns a suitability mask. A suitability mask is a binary mask that indicates which parts of the heightmap are suitable for start/goal positions.
+    - add_random_noise: bool - whether to add random noise to the heightmap
+    - noise_std: float - standard deviation of the Gaussian noise in meters
+    - noise_mu: float - mean of the Gaussian noise in meters
     """
-    returns_suitability_mask: ClassVar[bool] = False
     add_random_noise: bool = False
     noise_std: float = 0.01  # Standard deviation of the Gaussian noise in meters
     noise_mu: float = 0.0  # Mean of the Gaussian noise in meters
 
-    def __call__(self, x: torch.Tensor, y: torch.Tensor, max_coord: float, rng: torch.Generator | None = None) -> torch.Tensor | tuple[torch.Tensor, torch.Tensor]:
+    def __call__(self, x: torch.Tensor, y: torch.Tensor, max_coord: float, rng: torch.Generator | None = None) -> tuple[torch.Tensor, torch.Tensor]:
         """
         Generates a heightmap.
 
@@ -30,22 +31,13 @@ class BaseHeightmapGenerator(ABC):
         Returns:
         - Heightmap tensor of shape (D, D) or a tuple of heightmap tensor and suitability mask tensor.
         """
-        r = self._generate_heightmap(x, y, max_coord, rng)
-        if isinstance(r, tuple):
-            z, mask = r
-        elif isinstance(r, torch.Tensor):
-            z = r
-            mask = None
-        else:
-            raise ValueError(f"Invalid return type from generate_heightmap: {type(r)}")
+        z, mask = self._generate_heightmap(x, y, max_coord, rng)
         if self.add_random_noise:
             z = self._add_noise_to_heightmap(z, rng)
-        if mask is not None:
-            return z, mask
-        return z
+        return z, mask
 
     @abstractmethod
-    def _generate_heightmap(self, x: torch.Tensor, y: torch.Tensor, max_coord: float, rng: torch.Generator | None = None) -> torch.Tensor | tuple[torch.Tensor, torch.Tensor]:
+    def _generate_heightmap(self, x: torch.Tensor, y: torch.Tensor, max_coord: float, rng: torch.Generator | None = None) -> tuple[torch.Tensor, torch.Tensor]:
         """
         Generates a heightmap.
 
@@ -56,7 +48,7 @@ class BaseHeightmapGenerator(ABC):
         - rng: Random number generator.
 
         Returns:
-        - Heightmap tensor of shape (D, D) or a tuple of heightmap tensor and suitability mask tensor.
+        - Heightmap tensor of shape (D, D) and a suitability mask tensor of shape (D, D).
         """
         raise NotImplementedError
 
@@ -81,17 +73,17 @@ class MultiGaussianHeightmapGenerator(BaseHeightmapGenerator):
     Generates a heightmap using multiple gaussians.
     """
     returns_suitability_mask: ClassVar[bool] = False
-    min_gaussians: int = 5
-    max_gaussians: int = 10
+    min_gaussians: int = 30
+    max_gaussians: int = 50
     max_height_fraction: float = 0.1
-    min_std_fraction: float = 0.2
-    max_std_fraction: float = 0.5
-    min_sigma_ratio: float = 0.5
+    min_std_fraction: float = 0.05
+    max_std_fraction: float = 0.3
+    min_sigma_ratio: float = 0.8
 
     def _generate_heightmap(self, x: torch.Tensor,
                             y: torch.Tensor,
                             max_coord: float,
-                            rng: torch.Generator | None = None) -> torch.Tensor:
+                            rng: torch.Generator | None = None) -> tuple[torch.Tensor, torch.Tensor]:
         D, D = x.shape
         z = torch.zeros((D, D), device=x.device)
         # Generate random number of gaussians
@@ -107,4 +99,4 @@ class MultiGaussianHeightmapGenerator(BaseHeightmapGenerator):
         heights = torch.rand((num_gaussians,), device=x.device) * self.max_height_fraction * max_coord  # from 0 to max_height_fraction * max_coord
         for i in range(num_gaussians):
             z += heights[i] * torch.exp(-((x - mus[i, 0])**2 / (2 * sigmas[i, 0]**2) + (y - mus[i, 1])**2 / (2 * sigmas[i, 1]**2)))
-        return z
+        return z, torch.ones_like(x)

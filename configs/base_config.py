@@ -1,16 +1,13 @@
 from abc import ABC
-from dataclasses import dataclass
-from torch import device, Tensor
+import torch
 
 
-@dataclass
 class BaseConfig(ABC):
     """
     Base configuration class. This class is used to store the configuration of the simulation.
     """
-    pass
 
-    def move_all_tensors_to_device(self, device: device | str) -> None:
+    def to(self, device: torch.device | str) -> "BaseConfig":
         """
         Moves all tensors to the specified device.
 
@@ -21,5 +18,7 @@ class BaseConfig(ABC):
             None
         """
         for attr, val in self.__dict__.items():
-            if isinstance(val, Tensor):
+            if isinstance(val, torch.Tensor):
                 setattr(self, attr, val.to(device))
+
+        return self

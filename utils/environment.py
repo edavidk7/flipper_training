@@ -39,14 +39,10 @@ def generate_heightmaps(x: torch.Tensor, y: torch.Tensor, heightmap_gen: BaseHei
     """
     B, D, _ = x.shape
     z = torch.zeros((B, D, D), device=x.device)
-    mask = torch.ones((B, D, D), device=x.device)
+    mask = torch.zeros((B, D, D), device=x.device)
     max_coord = x.max().item()
     for i in range(B):
-        genret = heightmap_gen(x[i], y[i], max_coord, rng)
-        if isinstance(genret, tuple):
-            z[i], mask[i] = genret
-        else:
-            z[i] = genret
+        z[i], mask[i] = heightmap_gen(x[i], y[i], max_coord, rng)
     return z, mask
 
 

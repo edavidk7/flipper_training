@@ -1,12 +1,16 @@
 import torch
-from dataclasses import dataclass
-from typing import Literal, Callable, Optional
+from dataclasses import dataclass, field
+from typing import Literal, Optional
 from torchrl.envs import EnvBase
-from torchrl.data import Composite, Bounded, Unbounded
+from torchrl.data import Composite, Unbounded, Bounded
 from tensordict import TensorDict
 from flipper_training.environment.base_env import BaseDPhysicsEnv
-from flipper_training.engine.engine_state import PhysicsState, PhysicsStateDer
+from flipper_training.engine.engine_state import PhysicsState
 from flipper_training.configs import *
+from flipper_training.rl_objectives import *
+from flipper_training.utils.heightmap_generators import *
+
+DEFAULT_SEED = 0
 
 
 @dataclass
@@ -15,35 +19,43 @@ class TorchRLEnvConfig(EnvConfig):
     Configuration for the TorchRL environment, derived from the base environment configuration
 
     Extra attributes:
-    reward_func: Callable[[torch.Tensor, torch.Tensor, torch.Tensor], torch.Tensor] - reward function to use, defaults to L2 norm of angular velocity in radians (roll, pitch)
-    control_type: Literal["per-track","lon_ang"] = "lon_ang" - control type for the environment, either per-track or lon_ang
-    dist_to_goal: float = 0.1 - distance to goal for termination condition in meters
+        objective: BaseObjective = SimpleDrivingObjective() - the objective to use for the environment
+        control_type: Literal["per-track","lon_ang"] = "lon_ang" - control type for the environment, either per-track or lon_ang
     """
-    reward_func: Callable[[PhysicsState, PhysicsStateDer, torch.Tensor, PhysicsState], torch.Tensor] = lambda x, xd, u, xn: x.omega[..., :2].norm(dim=-1)
+    objective: BaseObjective = field(default_factory=SimpleDrivingObjective)
     control_type: Literal["per-track", "lon_ang"] = "lon_ang"
-    
+
 
 class TorchRLEnv(EnvBase):
     _batch_locked = True
 
     def __init__(self, env_config: TorchRLEnvConfig,
+                 world_config: WorldConfig,
                  physics_config: PhysicsEngineConfig,
                  robot_model_config: RobotModelConfig,
-                 device: torch.device | str):
-        super().__init__(device=device)
+                 device: torch.device | str = "cpu",
+                 **kwargs):
+        super().__init__(device=device, **kwargs)
+        self._env = BaseDPhysicsEnv(env_config, physics_config, robot_model_config, device)
         # action spec
         self.n_robots = physics_config.num_robots
         self.action_spec = self._make_action_spec(robot_model_config, env_config.control_type)
         # observation spec
-        dummy_state = PhysicsState.dummy(self.n_robots, robot_model_config.robot_points)
-        self.observation_spec = self._make_observation_spec(dummy_state, env_config)
+        self.observation_spec = self._make_observation_spec(env_config)
         # reward
         self.reward_spec = self._make_reward_spec()
         # done
         self.done_spec = self._make_done_spec()
-        self._env = BaseDPhysicsEnv(env_config, physics_config, robot_model_config, device)
+        self.objective = env_config.objective
+        self.config = env_config
+        self.world_config = world_config
+        self.rng = torch.manual_seed(DEFAULT_SEED)
 
-    def _make_action_spec(self, robot_model: RobotModelConfig, control_type: Literal["per-track", "lon_ang"]) -> Bounded:
+    def set_world_config(self, world_config: WorldConfig):
+        assert world_config.suitable_mask is not None, "Suitable mask is required for the world configuration"
+        self.world_config = world_config
+
+    def _make_action_spec(self, robot_model: RobotModelConfig, control_type: Literal["per-track", "lon_ang"]) -> Composite:
         match control_type:
             case "per-track":
                 track_low = torch.full((self.n_robots, robot_model.num_joints), -robot_model.vel_max).repeat(self.n_robots, 1)
@@ -58,12 +70,13 @@ class TorchRLEnv(EnvBase):
         return Bounded(
             low=torch.cat([track_low, joint_low], dim=-1),
             high=torch.cat([track_high, joint_high], dim=-1),
-            shape=(self.n_robots, track_low.shape[1] + robot_model.num_joints),
+            shape=(self.n_robots, robot_model.num_joints + track_low.shape[1]),
             device=self.device,
             dtype=torch.float32,
         )
 
-    def _make_observation_spec(self, dummy_state: PhysicsState, env_config: TorchRLEnvConfig) -> Composite:
+    def _make_observation_spec(self, env_config: TorchRLEnvConfig) -> Composite:
+        dummy_state = PhysicsState.dummy(batch_size=self.n_robots, robot_model=self._env.robot_cfg)
         match env_config.percep_type:
             case "heightmap":
                 percep_shape = (self.n_robots, 1, env_config.percep_dim, env_config.percep_dim)
@@ -75,60 +88,51 @@ class TorchRLEnv(EnvBase):
             "perception": Unbounded(  # perception data
                 shape=percep_shape,
                 dtype=torch.float32,
-                device=self.device
+                device=self.device,
             ),
             "velocity": Unbounded(  # velocity of the robot
                 shape=dummy_state.xd.shape,
                 dtype=torch.float32,
-                device=self.device
+                device=self.device,
             ),
             "rotation": Unbounded(  # rotation matrix of the robot
                 shape=dummy_state.R.shape,
                 dtype=torch.float32,
-                device=self.device
+                device=self.device,
             ),
             "omega": Unbounded(  # angular velocity of the robot
                 shape=dummy_state.omega.shape,
                 dtype=torch.float32,
-                device=self.device
+                device=self.device,
             ),
             "thetas": Unbounded(  # joint angles of the robot
                 shape=dummy_state.thetas.shape,
                 dtype=torch.float32,
                 device=self.device,
             ),
-            "direction": Unbounded(  # direction to the goal
+            "goal_vec": Unbounded(  # goal vector in the robot's frame
                 shape=(self.n_robots, 3),
                 dtype=torch.float32,
                 device=self.device,
-            )
-        })
+            ),
+
+        }, shape=(self.n_robots,))
 
     def _make_reward_spec(self) -> Unbounded:
         return Unbounded(
             shape=(self.n_robots,),
             dtype=torch.float32,
-            device=self.device
+            device=self.device,
         )
 
     def _make_done_spec(self) -> Bounded:
         return Bounded(
             low=0,
             high=1,
-            shape=(self.num_robots,),
+            shape=(self.n_robots,),
             dtype=torch.bool,
-            device=self.device
+            device=self.device,
         )
-
-    def _reset_and_generate_goals(self):
-        raise NotImplementedError
-
-    def init(self, world_config: WorldConfig, seed: Optional[int] = None):
-        """
-        Initialize the environment with the given seed and world configuration
-        """
-        self._set_seed(seed)
-        self._env.init(**kwargs)
 
     def compile(self, **kwargs):
         """
@@ -141,36 +145,41 @@ class TorchRLEnv(EnvBase):
         rng = torch.manual_seed(seed)
         self.rng = rng
 
-    def _reset(self, tensordict=None, **kwargs):
-        state, percep_data = self._env.reset(**kwargs)
-        self.goals = torch.zeros((self.n_robots, 3), device=device)
-        self.done = torch.zeros((self.n_robots,), device=device, dtype=torch.bool)
-        self.terminated = torch.zeros((self.n_robots,), device=device, dtype=torch.bool)
-        self.step_count = torch.zeros((self.n_robots,), device=device, dtype=torch.int32)
-        tensordict = TensorDict({
-            "perception": percep_data.to(self.device),
-            "reward": torch.zeros(self.reward_spec.shape, device=self.device),
-            "done": torch.zeros(self.done_spec.shape, device=self.device)
-        }, batch_size=[self._env.phys_cfg.num_robots])
+    def _state_ret_to_obs_tensordict(self, state: PhysicsState, percep_data: torch.Tensor) -> TensorDict:
+        goal_vecs = torch.bmm((self.goal.x - state.x).unsqueeze(1), state.R).squeeze(dim=1)  # transposed matmul with rotation means transforming the goal vector to the robot's frame
+        return TensorDict({
+            "perception": percep_data,
+            "velocity": state.xd,
+            "rotation": state.R,
+            "omega": state.omega,
+            "thetas": state.thetas,
+            "goal_vec": goal_vecs
+        }, batch_size=[self.n_robots])
 
-        return tensordict
+    def _reset(self, tensordict=None, **kwargs):
+        world_config = kwargs.get("world_config", None) or self.world_config
+        self.world_config = world_config
+        # Generate start and goal states, iteration limits
+        self.start, self.goal = self.objective.generate_start_goal_states(world_config, self._env.robot_cfg, self.rng)
+        self.iteration_limits = self.objective.compute_iteration_limits(self.start, self.goal, self._env.robot_cfg, self._env.phys_cfg.dt)
+        # Reset indicators
+        self.done_or_terminated = torch.zeros((self.n_robots,), device=self.device, dtype=torch.bool)
+        self.step_count = torch.zeros((self.n_robots,), device=self.device, dtype=torch.int32)
+        # Reset the environment
+        state, percep_data = self._env.reset(world_config, x=self.start.x)
+        obs_td = self._state_ret_to_obs_tensordict(state, percep_data)
+        obs_td["action"] = self.action_spec.ones()
+        return obs_td
 
     def _step(self, tensordict):
+        self.step_count += 1
         action = tensordict.get("action").to(self.device)
+        prev_state = self._env.state
         next_state, state_der, aux_info, percep_data = self._env.step(action, sample_percep=True)
-        reward = self.compute_reward(next_state, action)
-        done = self.check_done(next_state)
-        next_tensordict = TensorDict({
-            "perception": percep_data.to(self.device),
-            "reward": reward,
-            "done": done
-        }, batch_size=[self._env.phys_cfg.num_robots])
-        return next_tensordict
-
-    def compute_reward(self, state, action):
-        # implement your reward function
-        return torch.zeros(self.reward_spec.shape, device=self.device)
-
-    def check_done(self, state):
-        # implement your termination condition
-        return torch.zeros(self.done_spec.shape, device=self.device, dtype=torch.bool)
+        reward = self.objective.compute_reward(prev_state, action, next_state, self.goal)
+        self.done_or_terminated |= self.objective.check_reached_goal_or_terminate(next_state, self.goal)
+        self.done_or_terminated |= self.step_count >= self.iteration_limits
+        obs_td = self._state_ret_to_obs_tensordict(next_state, percep_data)
+        obs_td["reward"] = reward
+        obs_td["done"] = self.done_or_terminated
+        return obs_td

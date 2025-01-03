@@ -6,7 +6,7 @@ from flipper_training.configs.world_config import WorldConfig
 from flipper_training.utils.geometry import normalized, local_to_global, rot_Y
 from flipper_training.utils.dynamics import inertia_tensor, cog
 from flipper_training.engine.engine_state import PhysicsState, PhysicsStateDer, AuxEngineInfo
-from flipper_training.utils.numerical import get_integrator_fn, integrate_rotation
+from flipper_training.utils.numerical import get_integrator_fn, integrate_rotation, condition_rotation_matrices
 from flipper_training.utils.environment import surface_normals, interpolate_grid
 
 
@@ -17,6 +17,9 @@ class DPhysicsEngine(torch.nn.Module):
         self.device = device
         self.robot_model = robot_model
         self.integrator_fn = get_integrator_fn(self.config.integration_mode)
+        self.rotation_conditioning = condition_rotation_matrices if self.config.condition_rotations else lambda x: x
+        self._all_robot_points = self.robot_model.batched_points(self.config.num_robots).to(self.device)
+        self._all_robot_points.requires_grad = False
 
     def forward(self, state: PhysicsState,
                 controls: torch.Tensor,
@@ -33,7 +36,8 @@ class DPhysicsEngine(torch.nn.Module):
                            world_config: WorldConfig) -> Tuple[PhysicsStateDer,
                                                                AuxEngineInfo]:
 
-        global_robot_points, global_I, cog_corrected_points, global_cogs = self.construct_global_robot_points(state)
+        local_robot_points, global_robot_points = self.construct_global_robot_points(state)
+        global_cogs, cog_corrected_points, global_I = self.compute_inertia_cog(global_robot_points)
 
         # find the contact points
         in_contact, dh_points = self.find_contact_points(global_robot_points, world_config)
@@ -76,8 +80,9 @@ class DPhysicsEngine(torch.nn.Module):
                                  F_friction=F_friction,
                                  in_contact=in_contact,
                                  normals=n,
-                                 global_robot_points=global_robot_points,
                                  torque=torque,
+                                 local_robot_points=local_robot_points,
+                                 global_robot_points=global_robot_points,
                                  global_cog_coords=global_cogs,
                                  cog_corrected_points=cog_corrected_points,
                                  I_global=global_I)
@@ -137,6 +142,7 @@ class DPhysicsEngine(torch.nn.Module):
         kN = k_friction * N  # friction force magnitude
         F_friction = torch.zeros_like(F_normal)  # initialize friction forces
         thrust_dir = normalized(R[..., 0])  # thrust direction in the global frame
+        controls = controls.clamp(-self.robot_model.vel_max, self.robot_model.vel_max)
         for i in range(self.robot_model.num_joints):
             u = controls[:, i].unsqueeze(1)  # control input
             v_cmd = u * thrust_dir  # commanded velocity
@@ -171,46 +177,65 @@ class DPhysicsEngine(torch.nn.Module):
         """
         Integrates the states of the rigid body for the next time step.
         """
-        x, xd, R, local_robot_points, omega, thetas = state
-        _, xdd, omega_d, thetas_d = dstate
-        xd = xd + self.integrator_fn(xdd, self.config.dt)
-        x = x + self.integrator_fn(xd, self.config.dt)
-        delta_thetas = self.integrator_fn(thetas_d, self.config.dt)
-        local_robot_points = self.rotate_joints(local_robot_points, delta_thetas)
-        thetas = thetas + delta_thetas
-        thetas = thetas.clamp(self.robot_model.joint_limits[0], self.robot_model.joint_limits[1])
-        omega = omega + self.integrator_fn(omega_d, self.config.dt)
-        R = integrate_rotation(R, omega, self.config.dt, integrator=self.integrator_fn)
-        return PhysicsState(x, xd, R, local_robot_points, omega, thetas)
+        new_state = state.clone()
+        # basic kinematics
+        new_state.x += self.integrator_fn(dstate.xd, self.config.dt)
+        new_state.xd += self.integrator_fn(dstate.xdd, self.config.dt)
+        new_state.omega += self.integrator_fn(dstate.omega_d, self.config.dt)
+        # joint kinematics
+        new_state.thetas += self.integrator_fn(dstate.thetas_d, self.config.dt)
+        new_state.thetas = new_state.thetas.clamp(self.robot_model.joint_limits[0], self.robot_model.joint_limits[1])
+        # rotation kinematics
+        new_state.R = self.rotation_conditioning(integrate_rotation(new_state.R, new_state.omega, self.config.dt, integrator=self.integrator_fn))
+        return new_state
 
-    def construct_global_robot_points(self, state: PhysicsState) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+    def construct_global_robot_points(self, state: PhysicsState) -> tuple[torch.Tensor, torch.Tensor]:
         """
         Construct the global robot points from the default local robot points.
         Also compute the global, CoG corrected robot points. Use them to compute the inertia tensor in the global frame.
         """
-        robot_points = local_to_global(state.x, state.R, state.local_robot_points)  # global robot points
-        global_cogs = cog(self.robot_model.pointwise_mass, robot_points)  # center of gravity in global coordinates
-        cog_corrected_points = robot_points - global_cogs.unsqueeze(1)  # CoG corrected robot points in global coordinates (CoG at origin, same rotation as global frame)
+        local_robot_points = self.rotate_joints(self._all_robot_points, state.thetas)
+        robot_points = local_to_global(state.x, state.R, local_robot_points)  # global robot points
+        return local_robot_points, robot_points
+
+    def compute_inertia_cog(self, global_robot_points: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        """
+        Compute the center of gravity and the inertia tensor of the robot in the global frame.
+
+        Args:
+            global_robot_points: The robot points in GLOBAL coordinates.
+
+        Returns:
+            global_cogs: The center of gravity in the global frame.
+            cog_corrected_points: The CoG corrected robot points in global coordinates.
+            I_global: The inertia tensor in the global frame.
+        """
+        global_cogs = cog(self.robot_model.pointwise_mass, global_robot_points)
+        cog_corrected_points = global_robot_points - global_cogs.unsqueeze(1)
         I_global = inertia_tensor(self.robot_model.pointwise_mass, cog_corrected_points)
-        return robot_points, I_global, cog_corrected_points, global_cogs
+        return global_cogs, cog_corrected_points, I_global
 
     def rotate_joints(self, robot_points: torch.Tensor, thetas: torch.Tensor) -> torch.Tensor:
         """
-        Rotate points on the robot pointcloud corresponding to the joints based on the joint angles. The rotation is done in LOCAL coordinates.
+        Rotate points on the robot pointcloud corresponding to the joints based on the joint angles. The rotation is done in LOCAL coordinates. The transformation is not done in place.
 
         This function replaces naive boolean masking with multiplication and addition, which is faster and doesn't break threads on a GPU.
 
         Args:
             robot_points: The robot points in LOCAL coordinates.
             thetas: The joint angles to rotate by.
+
+        Returns:
+            new_robot_points: The rotated robot points in LOCAL coordinates.
         """
         new_robot_points = torch.zeros_like(robot_points)
         for i in range(self.robot_model.num_joints):
             rot_Ys = rot_Y(thetas[:, i])
             joint_pos = self.robot_model.joint_positions[i]
             flippter_coord_system_pts = robot_points - joint_pos
-            rotated_pts = torch.bmm(flippter_coord_system_pts, rot_Ys) + joint_pos
+            torch.bmm(flippter_coord_system_pts, rot_Ys, out=flippter_coord_system_pts)  # in-place operation
+            flippter_coord_system_pts += joint_pos
             part_mask = self.robot_model.driving_part_masks[i].unsqueeze(-1)  # Shape (n_pts,1)
-            new_robot_points += part_mask * rotated_pts
+            new_robot_points += part_mask * flippter_coord_system_pts
         new_robot_points += self.robot_model.body_mask.unsqueeze(-1) * robot_points
         return new_robot_points
