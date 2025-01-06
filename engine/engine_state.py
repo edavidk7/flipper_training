@@ -57,6 +57,7 @@ class PhysicsState:
             R=torch.eye(3).expand(batch_size, 3, 3),
             omega=torch.zeros(batch_size, 3),
             thetas=torch.zeros(batch_size, robot_model.num_joints),
+            batch_size=[batch_size],
         )
         return PhysicsState(**base | kwargs)
 

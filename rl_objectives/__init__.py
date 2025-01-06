@@ -1,5 +1,5 @@
 from .base_objective import BaseObjective
-from .simple_driving_objective import SimpleDrivingObjective
+from .simple_stab import SimpleStabilizationObjective
 
 
-__all__ = ["BaseObjective", "SimpleDrivingObjective"]
+__all__ = ["BaseObjective", "SimpleStabilizationObjective"]

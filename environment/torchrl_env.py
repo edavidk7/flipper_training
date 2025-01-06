@@ -23,14 +23,15 @@ class TorchRLEnvConfig(EnvConfig):
         objective: BaseObjective = SimpleDrivingObjective() - the objective to use for the environment
         control_type: Literal["per-track","lon_ang"] = "lon_ang" - control type for the environment, either per-track or lon_ang
     """
-    objective: BaseObjective = field(default_factory=SimpleDrivingObjective)
     control_type: Literal["per-track", "lon_ang"] = "lon_ang"
 
 
 class TorchRLEnv(EnvBase):
     _batch_locked = True
 
-    def __init__(self, env_config: TorchRLEnvConfig,
+    def __init__(self,
+                 objective,
+                 env_config: TorchRLEnvConfig,
                  world_config: WorldConfig,
                  physics_config: PhysicsEngineConfig,
                  robot_model_config: RobotModelConfig,
@@ -47,14 +48,19 @@ class TorchRLEnv(EnvBase):
         self.reward_spec = self._make_reward_spec()
         # done
         self.done_spec = self._make_done_spec()
-        self.objective = env_config.objective
         self.config = env_config
-        self.set_world_config(world_config)
+        self.objective = objective
+        self.world_config = world_config
         self.rng = torch.manual_seed(DEFAULT_SEED)
 
-    def set_world_config(self, world_config: WorldConfig):
+    @property
+    def world_config(self) -> WorldConfig:
+        return self._world_config
+
+    @world_config.setter
+    def world_config(self, world_config: WorldConfig):
         assert world_config.suitable_mask is not None, "Suitable mask is required for the world configuration"
-        self.world_config = world_config
+        self._world_config = world_config
 
     def _make_action_spec(self, robot_model: RobotModelConfig, control_type: Literal["per-track", "lon_ang"]) -> Composite:
         match control_type:
@@ -150,9 +156,18 @@ class TorchRLEnv(EnvBase):
         """
         Visualize the current state of the environment
         """
-        aux = self._env.last_step_misc["aux_info"]
+        if self._env.last_step_misc:
+            aux = self._env.last_step_misc["aux_info"]
+        else:
+            aux = None
         for i in range(self.n_robots):
-            plot_heightmap_3d(self.world_config.x_grid[i], self.world_config.y_grid[i], self.world_config.z_grid[i], start=self.start.x[i], end=self.goal.x[i], robot_points=aux.global_robot_points[i]).show()
+            kwargs = {
+                "start": self.start.x[i],
+                "end": self.goal.x[i],
+            }
+            if aux is not None:
+                kwargs["robot_points"] = aux.global_robot_points[i]
+            plot_heightmap_3d(self.world_config.x_grid[i], self.world_config.y_grid[i], self.world_config.z_grid[i], **kwargs).show()
 
     def _state_ret_to_obs_tensordict(self, state: PhysicsState, percep_data: torch.Tensor) -> TensorDict:
         goal_vecs = torch.bmm((self.goal.x - state.x).unsqueeze(1), state.R).squeeze(dim=1)  # transposed matmul with rotation means transforming the goal vector to the robot's frame
@@ -174,7 +189,7 @@ class TorchRLEnv(EnvBase):
         self.done_or_terminated = torch.zeros((self.n_robots,), device=self.device, dtype=torch.bool)
         self.step_count = torch.zeros((self.n_robots,), device=self.device, dtype=torch.int32)
         # Reset the environment
-        state, percep_data = self._env.reset(self.world_config, x=self.start.x)
+        state, percep_data = self._env.reset(self.world_config, state=self.start)
         obs_td = self._state_ret_to_obs_tensordict(state, percep_data)
         obs_td["action"] = self.action_spec.ones()
         return obs_td
@@ -184,7 +199,7 @@ class TorchRLEnv(EnvBase):
         action = tensordict.get("action").to(self.device)
         prev_state = self._env.state
         next_state, state_der, aux_info, percep_data = self._env.step(action, sample_percep=True)
-        reward = self.objective.compute_reward(prev_state, action, next_state, self.goal)
+        reward = self.objective.compute_reward(prev_state, action, state_der, next_state, self.goal)
         self.done_or_terminated |= self.objective.check_reached_goal_or_terminate(next_state, self.goal)
         self.done_or_terminated |= self.step_count >= self.iteration_limits
         obs_td = self._state_ret_to_obs_tensordict(next_state, percep_data)

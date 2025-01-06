@@ -60,8 +60,14 @@ class BaseDPhysicsEnv():
 
         """
         world_cfg.to(self.device)
-        self.state = PhysicsState.dummy(**kwargs, batch_size=self.phys_cfg.num_robots, device=self.device, robot_model=self.robot_cfg)
+        if "state" in kwargs:
+            self.state = kwargs["state"]
+            assert isinstance(self.state, PhysicsState), "Invalid state type. Expected PhysicsState."
+            assert self.state.batch_size[0] == self.phys_cfg.num_robots, f"Invalid batch size for state: {self.state.batch_size}. Expected {self.phys_cfg.num_robots}."
+        else:
+            self.state = PhysicsState.dummy(**kwargs, batch_size=self.phys_cfg.num_robots, device=self.device, robot_model=self.robot_cfg)
         self.last_reset_data = {"state": self.state.clone(), "world_cfg": world_cfg}
+        self.last_step_misc = {}
         return self.state, self._sample_percep_data()
 
     def _sample_heightmap(self, state: PhysicsState) -> torch.Tensor:

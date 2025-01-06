@@ -181,4 +181,9 @@ sim_validation
 .vscode
 .cache
 .robot_cache
-.pdf
+*.aux
+*.log
+*.synctex.gz
+*.toc
+*.out
+report.pdf

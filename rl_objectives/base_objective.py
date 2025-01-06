@@ -1,15 +1,20 @@
 import torch
 from dataclasses import dataclass
-from typing import ClassVar, Callable
+from typing import TypeVar, Generic, Union, List, ClassVar
 from abc import ABC, abstractmethod
 from flipper_training.configs import RobotModelConfig, WorldConfig
 from flipper_training.engine.engine_state import PhysicsState, PhysicsStateDer
 
 
+ObjectiveLike = TypeVar("ObjectiveLike", bound=Union[torch.Tensor, PhysicsState])
+
+
 @dataclass
-class BaseObjective(ABC):
+class BaseObjective(ABC, Generic[ObjectiveLike]):
     """
     Base class for an objective that manages the generation of start/goal positions for the robots in the environment, as well as the reward function and termination condition.
+
+    The class is generic over the type of the start/goal positions used internally by the generators.
 
     Attributes:
     - min_dist_to_goal: float - minimum distance from start to goal in meters
@@ -40,21 +45,50 @@ class BaseObjective(ABC):
             """
         B = world_config.z_grid.shape[0]
         device = world_config.z_grid.device
-        starts = torch.zeros((B, 3), device=device)
-        goals = torch.zeros((B, 3), device=device)
+        starts = []
+        goals = []
+        dummy = self._get_dummy_objective_like(device)
         for i in range(B):
             if skip_mask is not None and skip_mask[i]:
+                starts.append(dummy)
+                goals.append(dummy)
                 continue
             while True:
                 start = self._generate_start(i, world_config, robot_model, device, rng)
                 goal, succ = self._generate_goal(start, i, world_config, robot_model, device, rng)
                 if succ:
-                    starts[i] = start
-                    goals[i] = goal
+                    starts.append(start)
+                    goals.append(goal)
                     break
-        start_state = PhysicsState.dummy(x=starts, robot_model=robot_model)
-        goal_state = PhysicsState.dummy(x=goals, robot_model=robot_model)
-        return start_state, goal_state
+        return self._construct_full_start_goal_states(starts, goals, robot_model)
+
+    @abstractmethod
+    def _get_dummy_objective_like(self, device: str | torch.device) -> ObjectiveLike:
+        """
+        Returns a dummy objective-like object that can be used to skip the generation of start/goal states for a robot.
+
+        Args:
+        - device: Device on which to generate the dummy object. 
+        Returns:
+        - A dummy objective-like object.
+        """
+        raise NotImplementedError
+
+    @abstractmethod
+    def _construct_full_start_goal_states(self, partial_starts: List[ObjectiveLike], partial_goals: List[ObjectiveLike], robot_model: RobotModelConfig) -> tuple[PhysicsState, PhysicsState]:
+        """
+        Constructs full start/goal states from partial start/goal states. 
+        This is for e.g. computing the rotation matrices to orient the robot towards the goal.
+
+        Args:
+        - partial_starts: List of partial start states.
+        - partial_goals: List of partial goal states.
+        - robot_model: RobotModelConfig object containing the configuration of the robot.
+
+        Returns:
+        - A tuple of PhysicsState objects containing the full start and goal states.
+        """
+        raise NotImplementedError
 
     @abstractmethod
     def check_reached_goal_or_terminate(self, state: PhysicsState, goal: PhysicsState) -> torch.Tensor:
@@ -73,29 +107,29 @@ class BaseObjective(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    def _generate_start(self, robot_idx: int, world_config: WorldConfig, robot_model: RobotModelConfig, device: torch.device | str, rng: torch.Generator | None = None) -> torch.Tensor:
+    def _generate_start(self, robot_idx: int, world_config: WorldConfig, robot_model: RobotModelConfig, device: torch.device | str, rng: torch.Generator | None = None) -> ObjectiveLike:
         """
-        Generates the start position for the robot in the environment.
+            Generates the start state for the robot in the environment.
 
-        Args:
-        - robot_idx: Index of the robot.
-        - world_config: WorldConfig object containing the configuration of the world.
-        - robot_model: RobotModelConfig object containing the configuration of the robot.
-        - device: Device on which to generate the start.
-        - rng: Random number generator.
+            Args:
+            - robot_idx: Index of the robot.
+            - world_config: WorldConfig object containing the configuration of the world.
+            - robot_model: RobotModelConfig object containing the configuration of the robot.
+            - device: Device on which to generate the start.
+            - rng: Random number generator.
 
-        Returns:
-        - tensor containing the start position.
-        """
+            Returns:
+            - The start state for the robot.
+            """
         raise NotImplementedError
 
     @abstractmethod
-    def _generate_goal(self, start: torch.Tensor, robot_idx: int, world_config: WorldConfig, robot_model: RobotModelConfig, device: torch.device | str, rng: torch.Generator | None = None) -> tuple[torch.Tensor, bool]:
+    def _generate_goal(self, start: ObjectiveLike, robot_idx: int, world_config: WorldConfig, robot_model: RobotModelConfig, device: torch.device | str, rng: torch.Generator | None = None) -> tuple[ObjectiveLike, bool]:
         """
         Generates the goal position for the robot in the environment.
 
         Args:
-        - start: tensor containing the start position.
+        - start: Start state of the robot.
         - robot_idx: Index of the robot.
         - world_config: WorldConfig object containing the configuration of the world.
         - robot_model: RobotModelConfig object containing the configuration of the robot.
@@ -103,7 +137,7 @@ class BaseObjective(ABC):
         - rng: Random number generator.
 
         Returns:
-        - tuple containing the goal position and a boolean indicating whether the goal is feasible.
+        - tuple containing the goal state and a boolean indicating whether the goal is feasible.
         """
         raise NotImplementedError
 
@@ -127,6 +161,7 @@ class BaseObjective(ABC):
     def compute_reward(self,
                        prev_state: PhysicsState,
                        action: torch.Tensor,
+                       state_der: PhysicsStateDer,
                        curr_state: PhysicsState,
                        goal: PhysicsState,
                        ) -> torch.Tensor:
@@ -136,6 +171,7 @@ class BaseObjective(ABC):
         Args:
         - prev_state: PhysicsState object containing the previous state of the robots.
         - action: Tensor containing the action taken by the robots.
+        - state_der: PhysicsStateDer object containing the state derivatives of the robots.
         - curr_state: PhysicsState object containing the current state of the robots.
         - goal: PhysicsState object containing the goal state of the robots
 
