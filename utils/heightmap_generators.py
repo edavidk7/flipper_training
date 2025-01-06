@@ -75,10 +75,11 @@ class MultiGaussianHeightmapGenerator(BaseHeightmapGenerator):
     returns_suitability_mask: ClassVar[bool] = False
     min_gaussians: int = 30
     max_gaussians: int = 50
+    min_height_fraction: float = 0.05
     max_height_fraction: float = 0.1
     min_std_fraction: float = 0.05
     max_std_fraction: float = 0.3
-    min_sigma_ratio: float = 0.8
+    min_sigma_ratio: float = 0.3
 
     def _generate_heightmap(self, x: torch.Tensor,
                             y: torch.Tensor,
@@ -96,7 +97,7 @@ class MultiGaussianHeightmapGenerator(BaseHeightmapGenerator):
         higher_indices = torch.randint(0, 2, (num_gaussians,), device=x.device)  # whether the x or y component has the  higher standard deviation
         sigmas = sigmas.repeat(1, 2)
         sigmas[torch.arange(num_gaussians), higher_indices] *= ratios
-        heights = torch.rand((num_gaussians,), device=x.device) * self.max_height_fraction * max_coord  # from 0 to max_height_fraction * max_coord
+        heights = torch.rand((num_gaussians,), device=x.device) * (self.max_height_fraction - self.min_height_fraction) + self.min_height_fraction
         for i in range(num_gaussians):
             z += heights[i] * torch.exp(-((x - mus[i, 0])**2 / (2 * sigmas[i, 0]**2) + (y - mus[i, 1])**2 / (2 * sigmas[i, 1]**2)))
         return z, torch.ones_like(x)

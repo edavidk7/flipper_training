@@ -75,7 +75,7 @@ def plot_single_heightmap(x: torch.Tensor, y: torch.Tensor, z: torch.Tensor, sta
     return ax
 
 
-def plot_heightmap_3d(x: torch.Tensor, y: torch.Tensor, z: torch.Tensor, start: torch.Tensor | None = None, end: torch.Tensor | None = None) -> go.Figure:
+def plot_heightmap_3d(x: torch.Tensor, y: torch.Tensor, z: torch.Tensor, **kwargs) -> go.Figure:
     """
     Plot the 3D heightmap.
 
@@ -90,22 +90,9 @@ def plot_heightmap_3d(x: torch.Tensor, y: torch.Tensor, z: torch.Tensor, start: 
         - Plotly figure.
     """
     fig = go.Figure(data=[go.Surface(z=z.cpu().numpy(), x=x.cpu().numpy(), y=y.cpu().numpy())])
-    fig.update_layout(scene=dict(
-        xaxis_title='X',
-        yaxis_title='Y',
-        zaxis_title='Height (Z)',
-        camera_eye=dict(x=1., y=1., z=0.5),
-        aspectmode='manual',
-        aspectratio=dict(
-            x=1.,
-            y=1.,
-            z=z.max().item() / (2 * x.max().item())
-        ),),
-        width=1000,
-        height=500,
-        margin=dict(l=20, r=20, t=20, b=20)
-    )
-    if start is not None:
+    max_z = z.max().item()
+    if "start" in kwargs:
+        start = kwargs["start"]
         fig.add_trace(go.Scatter3d(
             x=[start[0].item()],
             y=[start[1].item()],
@@ -117,8 +104,10 @@ def plot_heightmap_3d(x: torch.Tensor, y: torch.Tensor, z: torch.Tensor, start: 
             textposition='top center',
             showlegend=False,
         ))
+        max_z = max(max_z, start[2].item())
 
-    if end is not None:
+    if "end" in kwargs:
+        end = kwargs["end"]
         fig.add_trace(go.Scatter3d(
             x=[end[0].item()],
             y=[end[1].item()],
@@ -130,6 +119,33 @@ def plot_heightmap_3d(x: torch.Tensor, y: torch.Tensor, z: torch.Tensor, start: 
             textposition='top center',
             showlegend=False,
         ))
+        max_z = max(max_z, end[2].item())
+    if "robot_points" in kwargs:
+        robot_points = kwargs["robot_points"]
+        fig.add_trace(go.Scatter3d(
+            x=robot_points[:, 0].cpu().numpy(),
+            y=robot_points[:, 1].cpu().numpy(),
+            z=robot_points[:, 2].cpu().numpy(),
+            mode='markers',
+            marker=dict(size=2, color='black'),
+            showlegend=False,
+        ))
+        max_z = max(max_z, robot_points[:, 2].max().item())
+    fig.update_layout(scene=dict(
+        xaxis_title='X',
+        yaxis_title='Y',
+        zaxis_title='Height (Z)',
+        camera_eye=dict(x=1., y=1., z=0.5),
+        aspectmode='manual',
+        aspectratio=dict(
+            x=1.,
+            y=1.,
+            z=max_z / (2 * x.max().item())
+        ),),
+        width=1000,
+        height=500,
+        margin=dict(l=20, r=20, t=20, b=20)
+    )
     return fig
 
 

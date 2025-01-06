@@ -233,7 +233,7 @@ class DPhysicsEngine(torch.nn.Module):
             rot_Ys = rot_Y(thetas[:, i])
             joint_pos = self.robot_model.joint_positions[i]
             flippter_coord_system_pts = robot_points - joint_pos
-            torch.bmm(flippter_coord_system_pts, rot_Ys, out=flippter_coord_system_pts)  # in-place operation
+            flippter_coord_system_pts = torch.bmm(flippter_coord_system_pts, rot_Ys)  # in-place operation
             flippter_coord_system_pts += joint_pos
             part_mask = self.robot_model.driving_part_masks[i].unsqueeze(-1)  # Shape (n_pts,1)
             new_robot_points += part_mask * flippter_coord_system_pts

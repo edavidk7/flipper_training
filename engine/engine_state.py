@@ -54,7 +54,7 @@ class PhysicsState:
         base = dict(
             x=torch.zeros(batch_size, 3),
             xd=torch.zeros(batch_size, 3),
-            R=torch.zeros(batch_size, 3, 3),
+            R=torch.eye(3).expand(batch_size, 3, 3),
             omega=torch.zeros(batch_size, 3),
             thetas=torch.zeros(batch_size, robot_model.num_joints),
         )

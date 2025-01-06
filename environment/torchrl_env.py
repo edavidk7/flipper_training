@@ -9,6 +9,7 @@ from flipper_training.engine.engine_state import PhysicsState
 from flipper_training.configs import *
 from flipper_training.rl_objectives import *
 from flipper_training.utils.heightmap_generators import *
+from flipper_training.vis.static_vis import plot_heightmap_3d
 
 DEFAULT_SEED = 0
 
@@ -48,7 +49,7 @@ class TorchRLEnv(EnvBase):
         self.done_spec = self._make_done_spec()
         self.objective = env_config.objective
         self.config = env_config
-        self.world_config = world_config
+        self.set_world_config(world_config)
         self.rng = torch.manual_seed(DEFAULT_SEED)
 
     def set_world_config(self, world_config: WorldConfig):
@@ -145,6 +146,14 @@ class TorchRLEnv(EnvBase):
         rng = torch.manual_seed(seed)
         self.rng = rng
 
+    def visualize_curr_state(self):
+        """
+        Visualize the current state of the environment
+        """
+        aux = self._env.last_step_misc["aux_info"]
+        for i in range(self.n_robots):
+            plot_heightmap_3d(self.world_config.x_grid[i], self.world_config.y_grid[i], self.world_config.z_grid[i], start=self.start.x[i], end=self.goal.x[i], robot_points=aux.global_robot_points[i]).show()
+
     def _state_ret_to_obs_tensordict(self, state: PhysicsState, percep_data: torch.Tensor) -> TensorDict:
         goal_vecs = torch.bmm((self.goal.x - state.x).unsqueeze(1), state.R).squeeze(dim=1)  # transposed matmul with rotation means transforming the goal vector to the robot's frame
         return TensorDict({
@@ -157,16 +166,15 @@ class TorchRLEnv(EnvBase):
         }, batch_size=[self.n_robots])
 
     def _reset(self, tensordict=None, **kwargs):
-        world_config = kwargs.get("world_config", None) or self.world_config
-        self.world_config = world_config
+        self.world_config = kwargs.get("world_config", None) or self.world_config
         # Generate start and goal states, iteration limits
-        self.start, self.goal = self.objective.generate_start_goal_states(world_config, self._env.robot_cfg, self.rng)
+        self.start, self.goal = self.objective.generate_start_goal_states(self.world_config, self._env.robot_cfg, self.rng)
         self.iteration_limits = self.objective.compute_iteration_limits(self.start, self.goal, self._env.robot_cfg, self._env.phys_cfg.dt)
         # Reset indicators
         self.done_or_terminated = torch.zeros((self.n_robots,), device=self.device, dtype=torch.bool)
         self.step_count = torch.zeros((self.n_robots,), device=self.device, dtype=torch.int32)
         # Reset the environment
-        state, percep_data = self._env.reset(world_config, x=self.start.x)
+        state, percep_data = self._env.reset(self.world_config, x=self.start.x)
         obs_td = self._state_ret_to_obs_tensordict(state, percep_data)
         obs_td["action"] = self.action_spec.ones()
         return obs_td

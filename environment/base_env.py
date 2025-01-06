@@ -1,10 +1,9 @@
-from numpy import full
+from typing import Any
 import torch
-from copy import deepcopy
 from flipper_training.engine.engine_state import PhysicsState, PhysicsStateDer, AuxEngineInfo
 from flipper_training.engine.engine import DPhysicsEngine
 from flipper_training.configs import PhysicsEngineConfig, WorldConfig, EnvConfig, RobotModelConfig
-from flipper_training.utils.geometry import planar_rot_from_R3, local_to_global, global_to_local
+from flipper_training.utils.geometry import local_to_global, global_to_local
 from flipper_training.utils.environment import interpolate_grid
 
 
@@ -23,6 +22,7 @@ class BaseDPhysicsEnv():
         self.engine = DPhysicsEngine(physics_config, robot_model_config, device)
         self.initialize_perception_grid()
         self.state: PhysicsState | None = None
+        self.last_step_misc: dict[str, Any] = {}
         self.last_reset_data: dict[str, torch.Tensor | WorldConfig] = {}
 
     def initialize_perception_grid(self) -> None:
@@ -142,4 +142,5 @@ class BaseDPhysicsEnv():
         # Perception data
         percep_data = self._sample_percep_data() if sample_percep else None
         self.state = next_state
+        self.last_step_misc = {"controls": controls, "full_controls": full_controls, "state_der": state_der, "aux_info": aux_info}
         return next_state, state_der, aux_info, percep_data
