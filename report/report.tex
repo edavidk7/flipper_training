@@ -1,6 +1,9 @@
 \documentclass[a4paper,12pt]{article}
 
 \usepackage{tocloft}
+\usepackage{algorithmic}
+\usepackage{algorithm}
+
 \setlength{\cftbeforesecskip}{0.2cm}
 % Enter the inputs below
 %-------------------------------------------------------------------------------
@@ -32,7 +35,8 @@
 \label{sec:abbreviations}
 \addcontentsline{toc}{section}{Abbreviations}
 
-\textbf{The abstract must not exceed one page of A4.} The abstract must be self-contained and the main results should be clearly summarised. \textbf{Keep the text in the third person.} If you use abbreviations you should spell it out first in full, e.g. Finite Element Method (FEM), etc. The abstract should not contain references.
+\textbf{MPC} - Model Predictive Control \\ 
+\textbf{RL} - Reinforcement Learning
 %------------------------------------------------------------------------
 
 
@@ -54,9 +58,13 @@
 \section{Introduction}
 \label{sec:introduction}
 
-This is an extremely important section. A good introduction should leave the reader with a clear idea of the problem to be tackled and looking forward to the more detailed chapters to follow. An essential part of the introduction is to define clearly the overall aim and objectives of the research project and to describe where these are addressed in the report.
+In many robotics applications, simulation is a key component of development, testing, and in some particular cases, the deployment. Control and planning algorithms benefit greatly from high simulation accuracy, however, the computational cost of such simulations can be prohibitive. Certain methods requiring high number of time steps or large sample sizes can become infeasible to run and quickly iterate over. 
 
-Below you can find some examples of sub-sections.
+Two such areas are Model Predictive Control (MPC) and Reinforcement Learning (RL). MPC performs optimization over a finite horizon, requiring multiple simulation rollouts to find the optimal control sequence. RL, on the other hand, requires a large number of samples to learn the optimal policy. Both of these methods are known for leading to state-of-the-art results. In particular, they can solve complex, high-DoF control problems with relatively little manual engieering or tuning, mostly through an appropriate penalty (reward) function. Therefore, it makes sense to investigate and optimize the simulation pipeline to make these methods more accessible and more widely applicable.
+
+The aim of this project is to enable the use of these methods on tracked robots used by the Vision for Robotics and Autonomous Systems group by developing a GPU-based simulation pipeline, capable of running multiple times faster than real-time. The underlying simulation engine will be based on formulation proposed by \citet{Agishev_2024}. The engine will be integrated into a PyTorch-native \citep{paszke2019pytorchimperativestylehighperformance} simulation and reinforcement learning toolkit based on TorchRL \citep{bou2023torchrldatadrivendecisionmakinglibrary}. The pipeline will be evaluated on throughput (performance scaling with respect to the number of robots simulated at once) and numerical stability over time.
+
+
 
 
 
@@ -90,10 +98,149 @@ and here is the equation for irrotational 2D flows
 \clearpage
 
 
-% METHODOLOGY
-%------------------------------------------------------------------------
-\section{Methodology}
-\label{sec:methodology}
+\section{Simulation of tracked robots}
+\label{sec:robots_props}
+
+\subsection{Tracked robots}
+\label{sec:robots}
+
+The Vision for Robotics and Autonomous Systems group utilises 2 kinds of tracked robots, each with a different propulsion setup. The first robot is \textbf{MARV} (Mobile Advanced Robotic Vehicle), developed by \href{https://jettyvision.cz/servisni-robot-marv/}{JettyVision}. It is a battery-powered robot with 4 independent tracks, each driven by a separate motor. Each of the tracks is capable of rotating around its main motor axis on a 180-degree arc, allowing the robot to conform to uneven terrain. In the rest of the report, these rotating tracks will be referred to as \textit{flippers}.
+
+\begin{figure}[!h]
+  \centering
+  \includegraphics[width=0.4\textwidth]{fig/marv.jpg}
+  \caption{MARV robot}
+  \label{fig:marv}
+\end{figure}
+
+The second robot, codenamed \textbf{TRADR}, was developed within the \href{https://www.tradr-project.eu/}{TRADR project}. Designed as a disaster-response robot, it is equipped with a more elaborate traction setup than \textit{MARV}. It features 4 flippers and adds a wide, fixed track along the robot's entire length on each side. The flippers share their rotation axes with the fixed track's wheels. 
+
+\begin{figure}[!h]
+  \centering
+  \includegraphics[width=0.4\textwidth]{fig/tradr.jpg}
+  \caption{TRADR robot}
+  \label{fig:tradr}
+\end{figure}
+
+Both robots can reach speeds of up to 1 m/s and are capable of off-road operation.
+
+\clearpage
+
+\subsection{Robot modeling}
+\label{sec:modeling}
+\subsubsection{Simplification of robot geometry}
+For each of the robots, high-resolution triangular meshes are available. However, they are highly detailed and contain many unnecessary vertices, especially in details such as the cameras, LiDAR, or other small components. Because these parts of the robot never come into contact with the environment, they can be removed. Further details such as battery trays are not relevant either. This allows for a significant reduction in the number of vertices in the irrelevant parts of the robot. Overall, the most crucial component for collision detection and contact force computation is the flipper itself. Therefore, an elaborate process of simplifying the flippers' geometry and extracting their surface is used, while the rest of the robot is simplified by voxelization of a delaunay-triangulated envelope. The entire process of simplifying the robot geometry is shown in Algorithm~\ref{alg:mesh_simplification}.
+
+\begin{algorithm}[H]
+  \caption{Simplification of Robot Geometry  - see \href{https://github.com/edavidk7/tracked_sim_rl/blob/main/configs/robot_config.py\#L143}{code}}
+  \label{alg:mesh_simplification}
+  \begin{algorithmic}
+    \vspace{0.25cm}
+    \STATE \textbf{Procedure} ExtractSurfaceFromMesh(\textit{mesh}, \textit{n\_points}, \textit{clus\_opts})
+        \STATE Perform Delaunay 3D triangulation on \textit{mesh}
+        \STATE Extract the surface geometry
+        \STATE Cluster surface points to \textit{n\_points}
+        \RETURN Clustered centroids as \textit{Tensor}
+    \vspace{0.25cm}
+
+    \STATE \textbf{Procedure} SimplifyDrivingPart(\textit{mesh}, \textit{n\_points}, \textit{clus\_opts}, \textit{voxel\_size})
+        \STATE Subsample points using ClusterPoints(\textit{mesh.points}, \textit{n\_points}, \textit{clus\_opts})
+        \STATE Voxelize subsampled mesh using VoxelizeMesh(\textit{mesh}, \textit{voxel\_size})
+        \RETURN Simplified mesh for driving part
+        \vspace{0.25cm}
+    \STATE \textbf{Procedure} SimplifyRobotBody(\textit{mesh}, \textit{n\_points}, \textit{clus\_opts}, \textit{voxel\_size})
+        \STATE Extract \textit{surface} from \textit{mesh} using Delaunay3D
+        \STATE Voxelize surface using VoxelizeMesh(\textit{surface}, \textit{voxel\_size})
+        \RETURN Voxel centroids 
+      \vspace{0.25cm}
+    \STATE \textbf{Procedure} SimplifyRobotGeometry(\textit{body\_mesh}, \textit{part\_meshes}, \textit{n\_points}, \textit{clus\_opts}, \textit{voxel\_size})
+
+      \STATE Simplify the body mesh using SimplifyRobotBody(\textit{body\_mesh}, \textit{n\_points}, \textit{clus\_opts}, \textit{voxel\_size})
+
+        \FOR{\textbf{each} \textit{part\_mesh} in \textit{part\_meshes}}
+            \STATE Simplify \textit{part\_mesh} using SimplifyDrivingPart(\textit{part\_mesh}, \textit{n\_points}, \textit{clus\_opts}, \textit{voxel\_size})
+        \ENDFOR
+        \RETURN Simplified robot geometry
+        \vspace{0.25cm}
+    \end{algorithmic}
+    
+  \end{algorithm}
+
+
+\clearpage
+
+\begin{figure}
+  \centering
+  \includegraphics[width=0.6\textwidth]{fig/full_marv_mesh.png}
+  \caption{Full MARV mesh}
+  \label{fig:full_marv_mesh}
+\end{figure}
+
+\begin{figure}[H]
+  \centering
+  % row 1
+  \begin{subfigure}[t]{0.45\textwidth}
+      \centering
+      \includegraphics[width=\textwidth]{fig/full_flipper_mesh.png} % replace with your image path
+      \caption{Full flipper mesh.}
+      \label{fig:fig1}
+  \end{subfigure}
+  \hfill
+  \begin{subfigure}[t]{0.45\textwidth}
+      \centering
+      \includegraphics[width=\textwidth]{fig/flipper_delaunay.png} % replace with your image path
+      \caption{3D Delaunay triangulation of the flipper mesh.}
+      \label{fig:fig2}
+  \end{subfigure}
+
+  \vspace{0.5cm} % spacing between rows
+
+  % row 2
+  \begin{subfigure}[t]{0.45\textwidth}
+      \centering
+      \includegraphics[width=\textwidth]{fig/flipper_surface_points.png} % replace with your image path
+      \caption{Extracted surface points.}
+      \label{fig:fig3}
+  \end{subfigure}
+  \hfill
+  \begin{subfigure}[t]{0.45\textwidth}
+      \centering
+      \includegraphics[width=\textwidth]{fig/flipper_clustered.png} % replace with your image paths
+      \caption{Clustered surface points.}
+      \label{fig:fig4}
+  \end{subfigure}
+
+  \caption{Simplification of the flipper geometry.}
+  \label{fig:4figures}
+\end{figure}
+
+\clearpage
+
+\subsubsection{Inertial properties} 
+The robots' inertial properties are crucial for the simulation's accuracy, especially the force interactions. Here, we improve greatly over \citet{Agishev_2024}, where the robot's mass was distributed uniformly across the robot's points (globally simplified by voxelization). This is not realistic, as the robot's mass is concentrated in the robot's body (due to the presence of batteries, onboard computer, and sensors). Futher, the difference in point-per-unit-volume between the flippers and body parts of the mesh would lead to erroneous Center-of-Gravity placement and moment of inertia.
+
+We address this with a simple modification. We model the discrepancy in volumetric density between the body and the flippers by assigning a lower relative mass to points in the flippers. The body's density is set to 1, while the flippers' density $\rho_\text{driving parts} \in \left(0.1,0.5\right)$. Using this modification, we distribute the mass of the robot in a pointwise fashion. Let $m$ be the total mass of the robot. Then, the mass of each point $i$ is given by Equation~\ref{eq:mass_distribution}, \href{https://github.com/edavidk7/tracked_sim_rl/blob/main/configs/robot_config.py\#L173}{code}.
+
+\begin{equation}
+  \label{eq:mass_distribution}
+  m_i = \begin{cases}
+    \frac{1}{Z} \cdot m & \text{if } i \in \text{body} \\
+    \frac{\rho_\text{driving parts}}{Z} \cdot m & \text{if } i \in \text{driving parts}
+  \end{cases} 
+\end{equation}
+
+where $Z = \sum_{i} \llbracket {i \in \text{body}} \rrbracket + \rho_\text{driving parts} \cdot \sum_{i} \llbracket {i \in \text{driving parts}} \rrbracket$ is the normalization constant. 
+
+\subsubsection{Controls and kinematics}
+
+To model the robot's propulsion, we relax the accuracy of the simulation and use a very simplified setup. The control velocity modeled by four scalar velocities, each corresponding to the speed of the track at the point of contact with the ground. Velocity vectors of each track are acting the robot's local x-coordinate, or its forward-facing direction (positive x). The robot's rotational velocity is generated by varying the speeds of the tracks between the left and right side. This is the simplest possible model of a tracked robot's kinematics, and it is part of our future work to improve it. As mentioned in Section \ref{sec:background}, none of the widely used simulation toolkits support tracked robots, as it is a very complex problem to solve, \href{https://github.com/edavidk7/tracked_sim_rl/blob/main/engine/engine.py#L147}{code}.
+
+The control input for the flippers' articulation is a tuple of 4 scalar values, each representing the rotational velocity of the flipper around its y-axis, \href{https://github.com/edavidk7/tracked_sim_rl/blob/main/engine/engine.py#L92}{code}.
+
+Overall, our control vector is $\mathbf{u} = \left(v_1, v_2, v_3, v_4, \omega_1, \omega_2, \omega_3, \omega_4\right)$, where $v_i$ is the velocity of the $i$-th track and $\omega_i$ is the rotational velocity of the $i$-th flipper.
+
+\section{Physics simulation engine}
+\label{sec:engine}
 
 
 This should describe the general basis of the research approach – such as the form of hypotheses, general methods of statistical analysis, analytical framework, experimental procedures, numerical setup, etc... Your methodology needs to be adequately described and its use fully justified.
@@ -130,7 +277,7 @@ Here is an example of how to use figures within the dissertation:
 
 \begin{figure}[!h]
   \centering
-  \includegraphics[width=0.6\textwidth]{fig/wave_breaking_lab_measurements.png}
+  \includegraphics[width=0.6\textwidth]{ctu_lion.pdf}
   \caption{Breaker index, $\gamma$, versus Irribarren number, $N_I$, fit to experimental measurements \citep{Battjes1974}.}
   \label{fig:wave_breaking_lab_measurements}
 \end{figure}
@@ -191,7 +338,7 @@ This section does not count towards your 50-page upper limit.
 
 % REFERENCES
 %------------------------------------------------------------------------
-\bibliographystyle{Fluids_MSc_Dissertation}
+\bibliographystyle{report_template}
 \bibliography{references}
 \addcontentsline{toc}{section}{References} %Add this to the contents page
 

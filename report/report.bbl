@@ -1,0 +1,26 @@
+\begin{thebibliography}{3}
+\providecommand{\natexlab}[1]{#1}
+
+\bibitem[{Agishev \emph{et~al.}(2024)Agishev, Zimmermann, Kubelka, Pecka \&
+  Svoboda}]{Agishev_2024}
+Agishev R, Zimmermann K, Kubelka V, Pecka M \& Svoboda T (2024) Monoforce:
+  Self-supervised learning of physics-informed model for predicting
+  robot-terrain interaction.
+\newblock In \emph{2024 IEEE/RSJ International Conference on Intelligent Robots
+  and Systems (IROS)}, page 12896–12903. IEEE.
+
+\bibitem[{Bou \emph{et~al.}(2023)Bou, Bettini, Dittert, Kumar, Sodhani, Yang,
+  Fabritiis \& Moens}]{bou2023torchrldatadrivendecisionmakinglibrary}
+Bou A, Bettini M, Dittert S, Kumar V, Sodhani S, Yang X, Fabritiis GD \& Moens
+  V (2023) Torchrl: A data-driven decision-making library for pytorch.
+
+\bibitem[{Paszke \emph{et~al.}(2019)Paszke, Gross, Massa, Lerer, Bradbury,
+  Chanan, Killeen, Lin, Gimelshein, Antiga, Desmaison, Köpf, Yang, DeVito,
+  Raison, Tejani, Chilamkurthy, Steiner, Fang, Bai \&
+  Chintala}]{paszke2019pytorchimperativestylehighperformance}
+Paszke A, Gross S, Massa F, Lerer A, Bradbury J, Chanan G, Killeen T, Lin Z,
+  Gimelshein N, Antiga L, Desmaison A, Köpf A, Yang E, DeVito Z, Raison M,
+  Tejani A, Chilamkurthy S, Steiner B, Fang L, Bai J \& Chintala S (2019)
+  Pytorch: An imperative style, high-performance deep learning library.
+
+\end{thebibliography}
