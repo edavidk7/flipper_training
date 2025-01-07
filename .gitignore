@@ -187,3 +187,4 @@ sim_validation
 *.toc
 *.out
 report.pdf
+*.blg

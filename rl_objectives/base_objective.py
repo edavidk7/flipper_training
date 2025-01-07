@@ -160,7 +160,6 @@ class BaseObjective(ABC, Generic[ObjectiveLike]):
     @abstractmethod
     def compute_reward(self,
                        prev_state: PhysicsState,
-                       action: torch.Tensor,
                        state_der: PhysicsStateDer,
                        curr_state: PhysicsState,
                        goal: PhysicsState,
@@ -170,7 +169,6 @@ class BaseObjective(ABC, Generic[ObjectiveLike]):
 
         Args:
         - prev_state: PhysicsState object containing the previous state of the robots.
-        - action: Tensor containing the action taken by the robots.
         - state_der: PhysicsStateDer object containing the state derivatives of the robots.
         - curr_state: PhysicsState object containing the current state of the robots.
         - goal: PhysicsState object containing the goal state of the robots

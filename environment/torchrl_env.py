@@ -26,11 +26,27 @@ class TorchRLEnvConfig(EnvConfig):
     control_type: Literal["per-track", "lon_ang"] = "lon_ang"
 
 
+@dataclass
+class JointOnlyActionCombiner:
+    def __init__(self, lon: torch.Tensor, ang: torch.Tensor) -> None:
+        self.lon = lon
+        self.ang = ang
+
+    def __call__(self, tensordict):
+        # Extract the policy's output
+        joint_actions = tensordict['action']
+        # Combine with the current longitudinal velocity
+        full_action = torch.cat([self.lon, self.ang, joint_actions], dim=-1)
+        # Update the tensordict with the full action
+        tensordict['action'] = full_action
+        return tensordict
+
+
 class TorchRLEnv(EnvBase):
     _batch_locked = True
 
     def __init__(self,
-                 objective,
+                 objective: BaseObjective,
                  env_config: TorchRLEnvConfig,
                  world_config: WorldConfig,
                  physics_config: PhysicsEngineConfig,
@@ -48,10 +64,17 @@ class TorchRLEnv(EnvBase):
         self.reward_spec = self._make_reward_spec()
         # done
         self.done_spec = self._make_done_spec()
+        # vars
         self.config = env_config
         self.objective = objective
         self.world_config = world_config
         self.rng = torch.manual_seed(DEFAULT_SEED)
+        # state vars
+        self.done_or_terminated = torch.zeros((self.n_robots,), device=self.device, dtype=torch.bool)
+        self.step_count = torch.zeros((self.n_robots,), device=self.device, dtype=torch.int32)
+        self.iteration_limits = torch.zeros((self.n_robots,), device=self.device, dtype=torch.int32)
+        self.start = PhysicsState.dummy(batch_size=self.n_robots, robot_model=robot_model_config)
+        self.goal = PhysicsState.dummy(batch_size=self.n_robots, robot_model=robot_model_config)
 
     @property
     def world_config(self) -> WorldConfig:
@@ -74,6 +97,24 @@ class TorchRLEnv(EnvBase):
                 raise ValueError(f"Invalid control type: {control_type}")
         joint_low = robot_model.joint_limits[0].repeat(self.n_robots, 1)
         joint_high = robot_model.joint_limits[1].repeat(self.n_robots, 1)
+        # match control_type:
+        #     # case "per-track":
+        #     #     track_low = torch.full((self.n_robots, robot_model.num_joints), -robot_model.vel_max).repeat(self.n_robots, 1)
+        #     #     track_high = -track_low
+        #     # case "lon_ang":
+        #     #     track_low = torch.tensor([-robot_model.vel_max, -robot_model.omega_max]).repeat(self.n_robots, 1)
+        #     #     track_high = -track_low
+        #     case "joint_only":
+        #         return Bounded(
+        #             low=joint_low,
+        #             high=joint_high,
+        #             shape=joint_low.shape,
+        #             device=self.device,
+        #             dtype=torch.float32,
+        #         )
+        #     case _:
+        #         raise ValueError(f"Invalid control type: {control_type}")
+
         return Bounded(
             low=torch.cat([track_low, joint_low], dim=-1),
             high=torch.cat([track_high, joint_high], dim=-1),
@@ -81,6 +122,22 @@ class TorchRLEnv(EnvBase):
             device=self.device,
             dtype=torch.float32,
         )
+        # return Composite({
+        #     "track": Bounded(
+        #         low=track_low,
+        #         high=track_high,
+        #         shape=track_low.shape,
+        #         device=self.device,
+        #         dtype=torch.float32,
+        #     ),
+        #     "joint": Bounded(
+        #         low=joint_low,
+        #         high=joint_high,
+        #         shape=joint_low.shape,
+        #         device=self.device,
+        #         dtype=torch.float32,
+        #     ),
+        # }, shape=(self.n_robots,))
 
     def _make_observation_spec(self, env_config: TorchRLEnvConfig) -> Composite:
         dummy_state = PhysicsState.dummy(batch_size=self.n_robots, robot_model=self._env.robot_cfg)
@@ -180,26 +237,31 @@ class TorchRLEnv(EnvBase):
             "goal_vec": goal_vecs
         }, batch_size=[self.n_robots])
 
-    def _reset(self, tensordict=None, **kwargs):
+    def _reset(self, tensordict=None, **kwargs) -> TensorDict:
         self.world_config = kwargs.get("world_config", None) or self.world_config
-        # Generate start and goal states, iteration limits
-        self.start, self.goal = self.objective.generate_start_goal_states(self.world_config, self._env.robot_cfg, self.rng)
-        self.iteration_limits = self.objective.compute_iteration_limits(self.start, self.goal, self._env.robot_cfg, self._env.phys_cfg.dt)
-        # Reset indicators
-        self.done_or_terminated = torch.zeros((self.n_robots,), device=self.device, dtype=torch.bool)
-        self.step_count = torch.zeros((self.n_robots,), device=self.device, dtype=torch.int32)
+        # Reset only the robots that are not done or terminated
+        reset_mask = ~self.done_or_terminated
+        # Generate start and goal states, iteration limits for done/terminated robots
+        new_start, new_goal = self.objective.generate_start_goal_states(self.world_config, self._env.robot_cfg, self.rng, skip_mask=reset_mask)
+        new_iteration_limits = self.objective.compute_iteration_limits(self.start, self.goal, self._env.robot_cfg, self._env.phys_cfg.dt)
+        # Update the state variables
+        self.start[self.done_or_terminated] = new_start[self.done_or_terminated]
+        self.goal[self.done_or_terminated] = new_goal[self.done_or_terminated]
+        self.iteration_limits[self.done_or_terminated] = new_iteration_limits[self.done_or_terminated]
+        self.done_or_terminated[self.done_or_terminated] = 0
+        self.step_count[self.done_or_terminated] = 0
         # Reset the environment
         state, percep_data = self._env.reset(self.world_config, state=self.start)
         obs_td = self._state_ret_to_obs_tensordict(state, percep_data)
         obs_td["action"] = self.action_spec.ones()
         return obs_td
 
-    def _step(self, tensordict):
+    def _step(self, tensordict) -> TensorDict:
         self.step_count += 1
         action = tensordict.get("action").to(self.device)
         prev_state = self._env.state
         next_state, state_der, aux_info, percep_data = self._env.step(action, sample_percep=True)
-        reward = self.objective.compute_reward(prev_state, action, state_der, next_state, self.goal)
+        reward = self.objective.compute_reward(prev_state, state_der, next_state, self.goal)
         self.done_or_terminated |= self.objective.check_reached_goal_or_terminate(next_state, self.goal)
         self.done_or_terminated |= self.step_count >= self.iteration_limits
         obs_td = self._state_ret_to_obs_tensordict(next_state, percep_data)

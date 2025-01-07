@@ -1,3 +1,4 @@
+from tracemalloc import start
 import torch
 from typing import List
 from dataclasses import dataclass
@@ -5,7 +6,7 @@ from flipper_training.configs import RobotModelConfig, WorldConfig
 from flipper_training.utils.environment import interpolate_grid
 from flipper_training.engine.engine_state import PhysicsState, PhysicsStateDer
 from flipper_training.rl_objectives.base_objective import BaseObjective
-from flipper_training.utils.geometry import rot_Z
+from flipper_training.utils.geometry import rot_Z, yaw_from_R
 
 
 @dataclass
@@ -18,8 +19,10 @@ class SimpleStabilizationObjective(BaseObjective[torch.Tensor]):
     - higher_allowed: Maximum height difference between the start and goal positions.
     - min_dist_to_goal: Minimum distance between the start and goal positions.
     - start_drop: Height of the start position above the ground.
-    - distance_weight: Weight for the distance reward component.
     - roll_rate_weight: Weight for the roll rate reward component.
+    - pitch_rate_weight: Weight for the pitch rate reward component.
+    - orientation_weight: Weight for the orientation reward component.
+    - iteration_limit_factor: Factor to multiply the time to reach the furthest goal by to get the iteration limit.
     """
 
     higher_allowed: float = 0.5  # meters
@@ -82,16 +85,21 @@ class SimpleStabilizationObjective(BaseObjective[torch.Tensor]):
     def compute_iteration_limits(self, start_state: PhysicsState, goal_state: PhysicsState, robot_model: RobotModelConfig, dt: float) -> torch.Tensor:
         dists = torch.linalg.norm(goal_state.x - start_state.x, dim=-1)  # distances from starts to goals
         furthest = dists.max() / (robot_model.vel_max * dt)  # time to reach the furthest goal
-        return (furthest * self.iteration_limit_factor).ceil() * torch.ones((start_state.x.shape[0],), device=start_state.x.device, dtype=torch.int32)
+        steps = (furthest * self.iteration_limit_factor).ceil()
+        return torch.full(start_state.batch_size, steps, device=start_state.x.device, dtype=torch.int32)
 
     @torch.no_grad()
     def compute_reward(self,
                        prev_state: PhysicsState,
-                       action: torch.Tensor,
                        state_der: PhysicsStateDer,
                        curr_state: PhysicsState,
                        goal: PhysicsState,
                        ) -> torch.Tensor:
+        # angular velocity penalty
         roll_pitch_rates_sq = curr_state.omega[..., :2].pow(2)  # shape (batch_size, 2)
         roll_pitch_penalties = torch.tensor([self.roll_rate_weight, self.pitch_rate_weight], device=roll_pitch_rates_sq.device) * roll_pitch_rates_sq
-        return -roll_pitch_penalties.sum(dim=-1)
+        # deviation from correct orientation penalty
+        goal_diff = goal.x - curr_state.x
+        vec_ori = torch.atan2(goal_diff[..., 1], goal_diff[..., 0])
+        robot_ori = yaw_from_R(curr_state.R)
+        return -roll_pitch_penalties.sum(dim=-1) - self.orientation_weight * (robot_ori - vec_ori)**2
