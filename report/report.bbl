@@ -1,4 +1,4 @@
-\begin{thebibliography}{3}
+\begin{thebibliography}{4}
 \providecommand{\natexlab}[1]{#1}
 
 \bibitem[{Agishev \emph{et~al.}(2024)Agishev, Zimmermann, Kubelka, Pecka \&
@@ -22,5 +22,13 @@ Paszke A, Gross S, Massa F, Lerer A, Bradbury J, Chanan G, Killeen T, Lin Z,
   Gimelshein N, Antiga L, Desmaison A, Köpf A, Yang E, DeVito Z, Raison M,
   Tejani A, Chilamkurthy S, Steiner B, Fang L, Bai J \& Chintala S (2019)
   Pytorch: An imperative style, high-performance deep learning library.
+
+\bibitem[{Towers \emph{et~al.}(2024)Towers, Kwiatkowski, Terry, Balis, Cola,
+  Deleu, Goulão, Kallinteris, Krimmel, KG, Perez-Vicente, Pierré, Schulhoff,
+  Tai, Tan \& Younis}]{towers2024gymnasiumstandardinterfacereinforcement}
+Towers M, Kwiatkowski A, Terry J, Balis JU, Cola GD, Deleu T, Goulão M,
+  Kallinteris A, Krimmel M, KG A, Perez-Vicente R, Pierré A, Schulhoff S, Tai
+  JJ, Tan H \& Younis OG (2024) Gymnasium: A standard interface for
+  reinforcement learning environments.
 
 \end{thebibliography}

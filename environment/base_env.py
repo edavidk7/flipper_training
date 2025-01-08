@@ -92,8 +92,9 @@ class BaseDPhysicsEnv():
         """
         world_cfg: WorldConfig = self.last_reset_data["world_cfg"]
         global_percep_points = local_to_global(state.x, state.R, self.percep_grid_points)
-        global_percep_points[..., 2] = interpolate_grid(world_cfg.z_grid, global_percep_points[..., :2], world_cfg.max_coord)
-        local_percep_points = global_to_local(global_percep_points, state.R, state.x)
+        z = interpolate_grid(world_cfg.z_grid, global_percep_points[..., :2], world_cfg.max_coord)
+        global_percep_points[..., 2] = z.squeeze(-1)
+        local_percep_points = global_to_local(state.x, state.R, global_percep_points)
         return local_percep_points
 
     def _sample_percep_data(self) -> torch.Tensor:

@@ -62,7 +62,7 @@ In many robotics applications, simulation is a key component of development, tes
 
 Two such areas are Model Predictive Control (MPC) and Reinforcement Learning (RL). MPC performs optimization over a finite horizon, requiring multiple simulation rollouts to find the optimal control sequence. RL, on the other hand, requires a large number of samples to learn the optimal policy. Both of these methods are known for leading to state-of-the-art results. In particular, they can solve complex, high-DoF control problems with relatively little manual engieering or tuning, mostly through an appropriate penalty (reward) function. Therefore, it makes sense to investigate and optimize the simulation pipeline to make these methods more accessible and more widely applicable.
 
-The aim of this project is to enable the use of these methods on tracked robots used by the Vision for Robotics and Autonomous Systems group by developing a GPU-based simulation pipeline, capable of running multiple times faster than real-time. The underlying simulation engine will be based on formulation proposed by \citet{Agishev_2024}. The engine will be integrated into a PyTorch-native \citep{paszke2019pytorchimperativestylehighperformance} simulation and reinforcement learning toolkit based on TorchRL \citep{bou2023torchrldatadrivendecisionmakinglibrary}. The pipeline will be evaluated on throughput (performance scaling with respect to the number of robots simulated at once) and numerical stability over time.
+The aim of this project is to enable the use of these methods on tracked robots used by the Vision for Robotics and Autonomous Systems group by developing a GPU-based simulation pipeline, capable of running multiple times faster than real-time. The underlying simulation engine will be based on formulation proposed by \citet{Agishev_2024}. The engine will be integrated into a PyTorch-native \citep{paszke2019pytorchimperativestylehighperformance} simulation and reinforcement learning toolkit based on TorchRL \citep{bou2023torchrldatadrivendecisionmakinglibrary}. The pipeline will be evaluated on throughput (performance scaling with respect to the number of robots simulated at once) and the corresponding speedup over real time with respect to the length of integration step.
 
 
 
@@ -242,71 +242,184 @@ Overall, our control vector is $\mathbf{u} = \left(v_1, v_2, v_3, v_4, \omega_1,
 \section{Physics simulation engine}
 \label{sec:engine}
 
-
-This should describe the general basis of the research approach – such as the form of hypotheses, general methods of statistical analysis, analytical framework, experimental procedures, numerical setup, etc... Your methodology needs to be adequately described and its use fully justified.
-%------------------------------------------------------------------------
+The key idea of the physics engine is to use a pointcloud representing the robot to perform all collision and environment interactions. This deviates from the standard practice of general engines computing collisions between triangular meshes with algorithms such as BVH. However, as described in Section \ref{sec:terrain}, it is sufficient to model the robot as a pointcloud in our case.
 
 
-\clearpage
 
+\subsection{Terrain modeling}
+\label{sec:terrain}
+We represent the terrain by an $N \times N$ grid $\mathbf{T}$ of metric height values. Formally, this corresponds to the discretization of some parameterized surface $\tau$ representing the real continuous terrain, into cells of size $d_c \times d_c$ where $d_c$ is a configurable metric value. The terrain grid is, of course, finite, with the origin $(0,0)$ located in the middle and the maximum absolute coordinate given by $d_{\text{max}}$. The grid size $N$ is given by $\lfloor {2\cdot \frac{d_{\text{max}}}{d_c}} \rfloor$.
 
-% RESULTS AND DISCUSSION
-%------------------------------------------------------------------------
-\section{Results and Discussion}
-\label{sec:results-discussion}
-
-Describe results in a logical order, which is not necessarily the order in which you performed the project. It is a common failing to assume that the reader knows the project as well as you do. He or she must not be expected to use the arts of a detective to find and decipher the important information. Therefore, refer appropriately to figures or tables and remember to emphasise and perhaps quote significant results. Do not deluge the reader with data and figures; use appendices for details if necessary and concentrate on key results in the body of the text. Briefly summarise the main results at the end of each main sequence of experiments/simulations.
-
-Analysis of your results should include, for example, clear graphical representations, and, when necessary, appropriate statistical analysis.
-
-The Discussion part should attempt to tie together the results and what they indicate in a broader
-context, including discussion in relation to the literature and implications beyond the immediate
-confines of your specific project. It should also illustrate the extent to which the original aims
-have been satisfied, any difficulties you have identified and what future work is suggested.
-\textbf{Great care is needed with this with this part of the dissertation.} 
-
-\clearpage
-
-Here is an example of how to use figures within the dissertation:
-
-\begin{quote}
-  Figure~\ref{fig:wave_breaking_lab_measurements} illustrates the breaker index as a function of the
-  Irribarren number $N_I$, as found by the experimental investigations undertaken by
-  \citet{Battjes1974}.
-\end{quote}
-
-\begin{figure}[!h]
+\begin{figure}[H]
   \centering
-  \includegraphics[width=0.6\textwidth]{ctu_lion.pdf}
-  \caption{Breaker index, $\gamma$, versus Irribarren number, $N_I$, fit to experimental measurements \citep{Battjes1974}.}
-  \label{fig:wave_breaking_lab_measurements}
+  \includegraphics[width=0.8\textwidth]{fig/terrain.png}
+  \caption{Example of 3D surface representing the terrain.}
+  \label{fig:terrain}
 \end{figure}
 
-Here is an example of using tables within the dissertation:
+Then the cell at position $(i,j)$ in the grid represents the terrain height given as $\tau(i \cdot d_c + \frac{d_c}{2} - d_{\text{max}}, j \cdot d_c + \frac{d_c}{2} - d_{\text{max}}, \mathbf{T}\left[i,j\right])$. It is important to note that in this simulation, the terrain is the only other object in the world, and it is not moving. This allows us to greatly simplify the collision detection. We can detect whether the robot has penetrated the terrain simply by comparing the z-coordinate of its points with the height of the terrain at the same $x,y$ coordinates. The height of the terrain at those coordinates may be obtained by e.g. simple bilinear interpolation of the discrete grid. See \href{https://github.com/edavidk7/tracked_sim_rl/blob/main/configs/world_config.py}{code 1}, \href{https://github.com/edavidk7/tracked_sim_rl/blob/main/utils/environment.py}{code 2}. 
 
-\begin{quote}
-  The wave conditions within the coastal zone are dependent on the water depth regime in which the
-  waves propagate. Table~\ref{tab:water-depth-regimes} presents the values of the relative water
-  depth and group velocity for each water depth regime.
-\end{quote}
-
-\begin{table}[!h] 
+\begin{figure}[H]
   \centering
-    \begin{tabular}{| l | c | c |}
-     \bf Regime              &  \bf Relative water depth           &  \bf Group velocity        \\
-        \hline
-         Deep water          &  $kd > 4$                       &  $c_g = 0.5c$  \\
-         Intermediate water  &  $0.3\leqslant kd \leqslant 4$    &  $c_g=\frac{c}{2}\left( 1 + \frac{2kd}{\sinh{(2kd)}}\right)$  \\
-         Shallow water       &  $kd < 0.3$                     &  $c_g = c$\\
-    \end{tabular}
-    \caption{The relative water depth, $kd$, and group velocity, $c_g$, in terms of the phase velocity, $c$, for the various water depth regimes.}
-    \label{tab:water-depth-regimes}
-\end{table}
+  \includegraphics[width=0.5\textwidth]{fig/terrain_grid.png}
+  \caption{Heightmap grid representing the terrain from Figure~\ref{fig:terrain}.}
+  \label{fig:terrain_grid}
+\end{figure}
+
+\subsection{Robot-terrain interaction}
+\label{sec:interaction}
+
+To model the force interaction between the robot pointcloud and the terrain, we use a spring-damper system. If the robot were represented by a single point mass, the complete reaction force would be presented by just a single spring-damper. However, because we have a multi-point robot and compute the reaction forces pointwise, it is necessary to distribute the overall force magnitude across all of the interaction points. This can be achieved by normalizing by the total number of contact points. The force at continous world coordinates $(x,y,z)$ is computed as the reaction of the spring-damper system in the direction of the terrain normal at that point. 
+
+Overall, we obtain a matrix of terrain reaction forces $\mathbf{F}_{\text{terrain}} = \left[\mathbf{f}_1 \, , \, \mathbf{f}_2 \, , \, \ldots \, , \, \mathbf{f}_N \right]$, where $\mathbf{f}_i$ is the force acting on the $i$-th point of the robot.
+ given by Equation~\ref{eq:terrain_reaction}.
+
+\begin{equation}
+  \label{eq:terrain_reaction}
+  \mathbf{f}_i = \llbracket z_i \leq 0\rrbracket \frac{\left[ -k \left(z_i - z_{\text{terrain}}\right) - b \left(\mathbf{v}_i \cdot \mathbf{n}_i\right) \right]}{C} \mathbf{n}_i
+\end{equation}
+
+where $k$ is the spring constant, $b$ is the damping constant, $z_i$ is the height of the $i$-th point, $z_{\text{terrain}}$ is the height of the terrain at the $i$-th point, $\mathbf{v}_i$ is the velocity of the $i$-th point, $\mathbf{n}_i$ is the terrain normal at coordinates $(x_i, y_i)$ ($\mathbf{p}_i = \left[ x_i , y_i , z_i\right]$). $C = \max (1, \sum_{i} \llbracket z_i \leq 0\rrbracket)$.
+See \href{https://github.com/edavidk7/tracked_sim_rl/blob/d7b59702c6411e1dbda3be214524a2e22cceaac6/engine/engine.py#L55}{the implementation}.
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.8\textwidth]{fig/contact_forces.png}
+  \caption{Terrain reaction force vectors during simulation.}
+  \label{fig:terrain_reaction}
+\end{figure}
+
+\subsection{Friction and thrust calculation}
+Having obtained the normal forces acting on each point of the robot in \ref{sec:interaction}, we can now compute the friction forces that generate the robot's thrust. We calculate the friction force's magnitude in a standard fashion as $\mu \left\| \mathbf{f}_i \right\|$, where $\mu$ is the friction coefficient. The direction of the friction force for a point is given by the difference between the commanded velocity of the robot's driving part and the current velocity of that point. We the project this difference onto the terrain's tanget plane at that point to obtain the friction force direction. The magnitude of the velocity difference is saturated using $\text{tanh}(\mathbf{x})$. The resulting friction force acting on the $i$-th point is given by Equation~\ref{eq:friction_force}.
+
+\begin{equation}
+  \label{eq:friction_force}
+  \mathbf{f}_{\text{friction},i} = \mu \left\| \mathbf{f}_i \right\| \cdot \text{tanh}\left(  \Delta \mathbf{v}_i -  \left( \Delta \mathbf{v}_i\cdot \mathbf{n}_i \right) \mathbf{n}_i \right) 
+\end{equation}
+
+where $\Delta \mathbf{v}_i = \mathbf{v}_{i,\text{commanded}} - \mathbf{v}_i$. The use of tanh saturation means that whenever the difference in velocities grows large (e.g. robot is sliding down a slope), the friction force is saturated to a constant value. This is largely because when the robot is sliding perpendicularly to it's commanded velocity, the available friction is limited. This computation is implemented \href{https://github.com/edavidk7/tracked_sim_rl/blob/d7b59702c6411e1dbda3be214524a2e22cceaac6/engine/engine.py#L124}{here}.
+
+\subsection{Simulating robot dynamics}
+\label{sec:dynamics}
+
+To simulate the robot's dynamics, we employ standard 6DoF rigid body model introduced by \citet{Agishev_2024}.
+
+\begin{equation}
+\label{eq:dynamics}
+\begin{aligned}
+    \dot{\mathbf{x}} &= \mathbf{v} \\
+    \dot{\mathbf{v}} &= \frac{1}{M} \left( \mathbf{f}_g + \sum_i  \mathbf{f}_{i, \text{ext}}  \right)  \\
+    \dot{\mathbf{R}} &= \boldsymbol{\omega} \times \mathbf{R} \\
+    \dot{\boldsymbol{\omega}} &= \mathbf{I}^{-1} \sum_i \hat{\mathbf{p}}_i\times \mathbf{f}_{i, \text{ext}}
+\end{aligned}
+\end{equation}
+
+where $\mathbf{x}$ is the robot's position, $\mathbf{v}$ is the robot's velocity, $\mathbf{R}$ is the robot's orientation, $\boldsymbol{\omega}$ is the robot's angular velocity, $M$ is the robot's mass, $\mathbf{I}$ is the robot's inertia tensor, $\mathbf{f}_{i, \text{ext}}$ is the external force acting on the $i$-th point, and $\hat{\mathbf{p}}_i$ is the vector from the robot's center of mass to the $i$-th point.
+
+Implementation-wise, all variables are kept within the global world frame. This makes computation of the forces acting on the robot's points computationally less demanding because they are generated in the world frame,  see \href{https://github.com/edavidk7/tracked_sim_rl/blob/a6cfea8836db27df2154c90051075746729694d0/engine/engine.py#L48-L49}{code 1}, \href{https://github.com/edavidk7/tracked_sim_rl/blob/a6cfea8836db27df2154c90051075746729694d0/engine/engine.py#L65-L73}{code 2}.
+
+A notable change, necessitated by the robot's changing geometry due to flipper articulation, is the computation of the robot's intertia tensor $\mathbf{I}$ and CoG. These have to be dynamically computed at each time step, as the robot's geometry changes, see \href{https://github.com/edavidk7/tracked_sim_rl/blob/a6cfea8836db27df2154c90051075746729694d0/engine/engine.py#L201}{code}.
+
+
+\subsection{Simulation pipeline}
+\label{sec:pipeline}
+
+Putting all previously described steps together, we obtain the simulation pipeline. The pipeline is shown in Algorithm~\ref{alg:simulation_pipeline}.
+
+\begin{algorithm}[H]
+  \caption{Simulation Pipeline - see \href{tracked_sim_rl/blob/a6cfea8836db27df2154c90051075746729694d0/engine/engine.py}{code}}
+  \label{alg:simulation_pipeline}
+  \begin{algorithmic}
+    \vspace{0.25cm}
+    \STATE \textbf{Procedure} SimulateRobot(\textit{robot}, \textit{terrain}, \
+    \textit{robot\_state}, \textit{control}, \textit{dt}, \textit{spring\_const}, \textit{damping\_const}, \textit{friction\_const})
+        \STATE Compute terrain reaction forces $\mathbf{F}_{\text{terrain}}$ using Equation~\ref{eq:terrain_reaction}
+        \STATE Compute friction forces $\mathbf{F}_{\text{friction}}$ using Equation~\ref{eq:friction_force}
+        \STATE Compute robot dynamics using Equation~\ref{eq:dynamics}
+        \RETURN Updated robot state
+    \vspace{0.25cm}
+    \end{algorithmic}
+
+  \end{algorithm}
+
+\clearpage
+% RESULTS AND DISCUSSION
 %------------------------------------------------------------------------
+\section{Optimized implementation}
+\label{sec:opt-impl}
+
+\subsection{Computational complexity}
+
+When viewed from a conventional standpoint, the simulation engine described above is still quite computationally demanding, especially for CPUs that perform mostly serial execution of instructions and have limited core counts. This is because of many matrix-vector and matrix-matrix multiplications, and sampling/interpolation from the terrain grid. When used with high-resolution robot geometry ($\sim$ 1000 points) and high-resolution terrain maps ($\sim$ 512x512), the simulation can become prohibitively slow, especially for larger number of simultanously simulated robots. Vector-matrix operations are in orders of $O(mn)$, where $m$, $n$ are the matrix dimensions. Matrix-matrix operations are in orders of $O(mnp)$. 
+
+\subsection{GPU acceleration}
+
+When viewed from the perspective of modern deep learning, the operations used in the simulation engine are ones widely used and supported when training deep neural networks. This means they are implemented in highly optimized libraries such as PyTorch \citep{paszke2019pytorchimperativestylehighperformance} with support for GPU acceleration, and modern GPUs contain hardware tailored for these operations. Furthermore, advanced algorithmic methods for optimizing sequences of such operations exist and are capable of generating highly optimized application-specific code. In our implementation we will leverage this and modify the standard code to optimize it for GPU execution.
+
+\subsection{Conditions and branching}
+A crucial step in optimizing the code for GPU is to avoid any sort of conditional branching. GPUs are designed for highly parallel execution of (identical) instructions, and any sort of deviation mid-execution leads to significant slowdowns, because the thread management has to stop and serialize execution on different branches. This doesn't impact only GPUs, even some superscalar modern CPUs benefit from conditionless code, assuming the problem size does not increase too much.
+
+In the PyTorch-based implementation of the engine, special care had to be taken when implementing the masks of points that are in contact with the terrain and masks of points that belong to the robot's driving parts (tracks). Conventionally, one would use indexing with boolean masking such as \texttt{points[points[:,2] < 0]} to select points that are below the terrain. However, this would lead to a conditional branch, as well as a different shape of the resulting tensor in every iteration. All instances of such boolean masking were replaced by a very GPU-friendly operations of multiplication and addition. So, instead of \texttt{contact\_points = points[points[:,2] < 0]}, we use \texttt{contact\_points = points * (points[:,2] < 0).float()}, retaining the same shape and performing only an elementwise multiplication.
+
+\subsection{Kernel compilation with PyTorch}
+Since the release version 2.0, a new \texttt{compile} functionality is available in PyTorch. It allows for automatic tracing, optimization, and compilation of the code into a computational kernel which is able to perform the computation significantly faster by optimizations such as fusion of consecutive operations or avoiding repeated memory load/stores. On GPUs, it can also specifically split and benchmark different matrix multiplication algorithms based on the data's specific shape.
+
+A slight downside is the necessity of fixed-shape data, however, after optimization performed in the previous section, this holds true for our simulation engine. With the torch compiler, we are able to achieve even more significant speedups than with the standard PyTorch operations.
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.6\textwidth]{fig/graph_diagram.pdf}
+  \caption{Computation graph of the engine traced by PyTorch.}
+  \label{fig:speedup}
+\end{figure}
 
 \clearpage
 
+\section{Performance evaluation}
 
+\clearpage
+
+\section{Reinforcement learning environment}
+
+As a part of the project, we have developed a generic reinforcement learning environment based on the TorchRL library \citep{bou2023torchrldatadrivendecisionmakinglibrary}. TorchRL provides native interop with PyTorch's Tensor datatype as well as the use of various accelerators (torch "devices"). As our pipeline was designed to operate completely on the GPU, this improves efficiency by avoiding data transfers between GPU VRAM and system RAM. Libraries such as the Gymnasium \citep{towers2024gymnasiumstandardinterfacereinforcement} are meant to run and output numpy arrays, forcing the use of a CPU. TorchRL comes preimplemented with a number of deep reinforcement learning algorithms and offers a relatively lightweight interface for defining custom environments.
+
+\subsection{Observations and actions}
+To simulate possible perception inputs for the robot, we implemented two basic sensor types. The first is a bird-view "camera", which provides a 2D image of the robot's surroundings. The image is centered on top of the robot and provides a 360-view of the surrounding environment. The values of the pixels are,however, not RGB values but rather the metric height of the terrain at that point. 
+
+The second sensor is a 3D LiDAR, which provides a 360 degree pointcloud of the robot's surroundings. It is in essence similar to the camera, except the data are not structured in a grid and contain the x,y,z coordinates of the points in robot's local frame.
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.9\textwidth]{fig/robot_on_terrain.png}
+  \caption{Robot during an environment rollout.}
+\end{figure}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.6\textwidth]{fig/birdview_camera.png}
+  \caption{Bird-view camera sensor output.}
+\end{figure}
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.9\textwidth]{fig/pointcloud.png}
+  \caption{LiDAR sensor output.}
+\end{figure}
+
+\clearpage
+\subsection{Terrain generation}
+To allow for training in diverse, unseen environments, we implemented a simple terrain generator. The generator is based on addition of randomly generated gaussian functions. The generator is parameterized in way that allows for both smooth and rough terrains controlled by interpretable parameters. See the \href{https://github.com/edavidk7/tracked_sim_rl/blob/d7b59702c6411e1dbda3be214524a2e22cceaac6/utils/heightmap_generators.py#L71}{code}.
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.9\textwidth]{fig/rough_terrain.png}
+  \caption{Generated terrain with rough preset.}
+\end{figure}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.9\textwidth]{fig/smooth_terrain.png}
+  \caption{Generated terrain with smooth preset.}
+\end{figure}
 % CONCLUSIONS
 %------------------------------------------------------------------------
 \section{Conclusions}
