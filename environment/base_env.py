@@ -29,8 +29,9 @@ class BaseDPhysicsEnv():
         """
         Initialize the perception grid points.
         """
-        space = torch.linspace(self.env_cfg.percep_coord, -self.env_cfg.percep_coord, self.env_cfg.percep_dim)
-        px, py = torch.meshgrid(space, space, indexing="ij")  # TODO check this, but we want the first coordinate to be the vertical one on the grid. The robot's (1,1) should be the top left corner.
+        x_space = torch.linspace(self.env_cfg.percep_extent[0], self.env_cfg.percep_extent[2], self.env_cfg.percep_shape[0])
+        y_space = torch.linspace(self.env_cfg.percep_extent[1], self.env_cfg.percep_extent[3], self.env_cfg.percep_shape[1])
+        px, py = torch.meshgrid(x_space, y_space, indexing="ij")  # TODO check this, but we want the first coordinate to be the vertical one on the grid.
         percep_grid_points = torch.dstack([px, py, torch.zeros_like(px)]).reshape(-1, 3)  # add the z coordinate (0)
         self.percep_grid_points = percep_grid_points.unsqueeze(0).repeat(self.phys_cfg.num_robots, 1, 1).to(self.device)
 
@@ -41,12 +42,10 @@ class BaseDPhysicsEnv():
         assert self.state is not None, "State is not initialized! Call reset with proper arguments first."
         # Call compile on all methods
         self.engine.compile(**compile_kwargs)
-        self._rotate_percep_grid = torch.compile(self._rotate_percep_grid, **compile_kwargs)
         self._sample_heightmap = torch.compile(self._sample_heightmap, **compile_kwargs)
         self._sample_pointcloud = torch.compile(self._sample_pointcloud, **compile_kwargs)
         # Run the forward passes to trigger the compilation
-        _ = self.engine(PhysicsState.dummy_like(self.state), torch.zeros(self.phys_cfg.num_robots, 2 * self.robot_cfg.num_joints, device=self.device), self.last_reset_data["world_cfg"])
-        _ = self._rotate_percep_grid(self.state.R)
+        _ = self.engine(self.state.new_zeros(), torch.zeros(self.phys_cfg.num_robots, 2 * self.robot_cfg.num_joints, device=self.device), self.last_reset_data["world_cfg"])
         _ = self._sample_heightmap(self.state)
         _ = self._sample_pointcloud(self.state)
 
@@ -81,7 +80,7 @@ class BaseDPhysicsEnv():
         world_cfg: WorldConfig = self.last_reset_data["world_cfg"]
         global_percep_points = local_to_global(state.x, state.R, self.percep_grid_points)
         z_coords = interpolate_grid(world_cfg.z_grid, global_percep_points[..., :2], world_cfg.max_coord)
-        return z_coords.reshape(-1, 1, self.env_cfg.percep_dim, self.env_cfg.percep_dim)
+        return z_coords.reshape(-1, 1, self.env_cfg.percep_shape[0], self.env_cfg.percep_shape[1])
 
     def _sample_pointcloud(self, state: PhysicsState) -> torch.Tensor:
         """

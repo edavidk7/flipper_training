@@ -1,4 +1,5 @@
 import torch
+import math
 from dataclasses import dataclass, field
 from typing import Literal, Optional
 from torchrl.envs import EnvBase
@@ -24,22 +25,6 @@ class TorchRLEnvConfig(EnvConfig):
         control_type: Literal["per-track","lon_ang"] = "lon_ang" - control type for the environment, either per-track or lon_ang
     """
     control_type: Literal["per-track", "lon_ang"] = "lon_ang"
-
-
-@dataclass
-class JointOnlyActionCombiner:
-    def __init__(self, lon: torch.Tensor, ang: torch.Tensor) -> None:
-        self.lon = lon
-        self.ang = ang
-
-    def __call__(self, tensordict):
-        # Extract the policy's output
-        joint_actions = tensordict['action']
-        # Combine with the current longitudinal velocity
-        full_action = torch.cat([self.lon, self.ang, joint_actions], dim=-1)
-        # Update the tensordict with the full action
-        tensordict['action'] = full_action
-        return tensordict
 
 
 class TorchRLEnv(EnvBase):
@@ -70,9 +55,9 @@ class TorchRLEnv(EnvBase):
         self.world_config = world_config
         self.rng = torch.manual_seed(DEFAULT_SEED)
         # state vars
-        self.done_or_terminated = torch.zeros((self.n_robots,), device=self.device, dtype=torch.bool)
-        self.step_count = torch.zeros((self.n_robots,), device=self.device, dtype=torch.int32)
-        self.iteration_limits = torch.zeros((self.n_robots,), device=self.device, dtype=torch.int32)
+        self.done_or_terminated = torch.zeros((self.n_robots, ), device=self.device, dtype=torch.bool)
+        self.step_count = torch.zeros((self.n_robots, ), device=self.device, dtype=torch.int32)
+        self.iteration_limits = torch.zeros((self.n_robots, ), device=self.device, dtype=torch.int32)
         self.start = PhysicsState.dummy(batch_size=self.n_robots, robot_model=robot_model_config)
         self.goal = PhysicsState.dummy(batch_size=self.n_robots, robot_model=robot_model_config)
 
@@ -88,64 +73,30 @@ class TorchRLEnv(EnvBase):
     def _make_action_spec(self, robot_model: RobotModelConfig, control_type: Literal["per-track", "lon_ang"]) -> Composite:
         match control_type:
             case "per-track":
-                track_low = torch.full((self.n_robots, robot_model.num_joints), -robot_model.vel_max).repeat(self.n_robots, 1)
+                track_low = torch.full((self.n_robots, robot_model.num_joints), -robot_model.vel_max)
                 track_high = -track_low
             case "lon_ang":
-                track_low = torch.tensor([-robot_model.vel_max, -robot_model.omega_max]).repeat(self.n_robots, 1)
+                track_low = torch.tensor([-robot_model.vel_max, -robot_model.omega_max]).repeat(1, self.n_robots)
                 track_high = -track_low
             case _:
                 raise ValueError(f"Invalid control type: {control_type}")
         joint_low = robot_model.joint_limits[0].repeat(self.n_robots, 1)
         joint_high = robot_model.joint_limits[1].repeat(self.n_robots, 1)
-        # match control_type:
-        #     # case "per-track":
-        #     #     track_low = torch.full((self.n_robots, robot_model.num_joints), -robot_model.vel_max).repeat(self.n_robots, 1)
-        #     #     track_high = -track_low
-        #     # case "lon_ang":
-        #     #     track_low = torch.tensor([-robot_model.vel_max, -robot_model.omega_max]).repeat(self.n_robots, 1)
-        #     #     track_high = -track_low
-        #     case "joint_only":
-        #         return Bounded(
-        #             low=joint_low,
-        #             high=joint_high,
-        #             shape=joint_low.shape,
-        #             device=self.device,
-        #             dtype=torch.float32,
-        #         )
-        #     case _:
-        #         raise ValueError(f"Invalid control type: {control_type}")
-
         return Bounded(
-            low=torch.cat([track_low, joint_low], dim=-1),
-            high=torch.cat([track_high, joint_high], dim=-1),
+            low=torch.cat([track_low, joint_low], dim=1),
+            high=torch.cat([track_high, joint_high], dim=1),
             shape=(self.n_robots, robot_model.num_joints + track_low.shape[1]),
             device=self.device,
             dtype=torch.float32,
         )
-        # return Composite({
-        #     "track": Bounded(
-        #         low=track_low,
-        #         high=track_high,
-        #         shape=track_low.shape,
-        #         device=self.device,
-        #         dtype=torch.float32,
-        #     ),
-        #     "joint": Bounded(
-        #         low=joint_low,
-        #         high=joint_high,
-        #         shape=joint_low.shape,
-        #         device=self.device,
-        #         dtype=torch.float32,
-        #     ),
-        # }, shape=(self.n_robots,))
 
     def _make_observation_spec(self, env_config: TorchRLEnvConfig) -> Composite:
         dummy_state = PhysicsState.dummy(batch_size=self.n_robots, robot_model=self._env.robot_cfg)
         match env_config.percep_type:
             case "heightmap":
-                percep_shape = (self.n_robots, 1, env_config.percep_dim, env_config.percep_dim)
+                percep_shape = (self.n_robots, 1, *env_config.percep_shape)
             case "pointcloud":
-                percep_shape = (self.n_robots, env_config.percep_dim**2, 3)
+                percep_shape = (self.n_robots, math.prod(env_config.percep_shape), 3)
             case _:
                 raise ValueError(f"Invalid perception type: {env_config.percep_type}")
         return Composite({
@@ -239,17 +190,19 @@ class TorchRLEnv(EnvBase):
 
     def _reset(self, tensordict=None, **kwargs) -> TensorDict:
         self.world_config = kwargs.get("world_config", None) or self.world_config
+        reset_all = kwargs.get("reset_all", False)
         # Reset only the robots that are not done or terminated
-        reset_mask = ~self.done_or_terminated
+        reset_mask = self.done_or_terminated | reset_all
+        skip_mask = ~reset_mask
         # Generate start and goal states, iteration limits for done/terminated robots
-        new_start, new_goal = self.objective.generate_start_goal_states(self.world_config, self._env.robot_cfg, self.rng, skip_mask=reset_mask)
+        new_start, new_goal = self.objective.generate_start_goal_states(self.world_config, self._env.robot_cfg, self.rng, skip_mask=skip_mask)
         new_iteration_limits = self.objective.compute_iteration_limits(self.start, self.goal, self._env.robot_cfg, self._env.phys_cfg.dt)
         # Update the state variables
-        self.start[self.done_or_terminated] = new_start[self.done_or_terminated]
-        self.goal[self.done_or_terminated] = new_goal[self.done_or_terminated]
-        self.iteration_limits[self.done_or_terminated] = new_iteration_limits[self.done_or_terminated]
-        self.done_or_terminated[self.done_or_terminated] = 0
-        self.step_count[self.done_or_terminated] = 0
+        self.start[reset_mask] = new_start[reset_mask]
+        self.goal[reset_mask] = new_goal[reset_mask]
+        self.iteration_limits[reset_mask] = new_iteration_limits[reset_mask]
+        self.done_or_terminated[reset_mask] = False
+        self.step_count[reset_mask] = 0
         # Reset the environment
         state, percep_data = self._env.reset(self.world_config, state=self.start)
         obs_td = self._state_ret_to_obs_tensordict(state, percep_data)

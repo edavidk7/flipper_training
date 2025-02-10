@@ -89,10 +89,13 @@ def plot_heightmap_3d(x: torch.Tensor, y: torch.Tensor, z: torch.Tensor, **kwarg
     Returns:
         - Plotly figure.
     """
+    x = x.detach().cpu()
+    y = y.detach().cpu()
+    z = z.detach().cpu()
     fig = go.Figure(data=[go.Surface(z=z.cpu().numpy(), x=x.cpu().numpy(), y=y.cpu().numpy())])
     max_z = z.abs().max().item()
     if "start" in kwargs:
-        start = kwargs["start"]
+        start = kwargs["start"].detach().cpu()
         fig.add_trace(go.Scatter3d(
             x=[start[0].item()],
             y=[start[1].item()],
@@ -107,7 +110,7 @@ def plot_heightmap_3d(x: torch.Tensor, y: torch.Tensor, z: torch.Tensor, **kwarg
         max_z = max(max_z, start[2].abs().item())
 
     if "end" in kwargs:
-        end = kwargs["end"]
+        end = kwargs["end"].detach().cpu()
         fig.add_trace(go.Scatter3d(
             x=[end[0].item()],
             y=[end[1].item()],
@@ -121,7 +124,7 @@ def plot_heightmap_3d(x: torch.Tensor, y: torch.Tensor, z: torch.Tensor, **kwarg
         ))
         max_z = max(max_z, end[2].abs().item())
     if "robot_points" in kwargs:
-        robot_points = kwargs["robot_points"]
+        robot_points = kwargs["robot_points"].detach().cpu()
         fig.add_trace(go.Scatter3d(
             x=robot_points[:, 0].cpu().numpy(),
             y=robot_points[:, 1].cpu().numpy(),

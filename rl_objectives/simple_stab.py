@@ -13,25 +13,30 @@ from flipper_training.utils.geometry import rot_Z, yaw_from_R
 class SimpleStabilizationObjective(BaseObjective[torch.Tensor]):
     """
     Objective manager that generates start/goal positions for the robots in the environment. The start position is generated randomly within the suitable area of the world, while the goal position is generated randomly within the suitable area of the world and at a minimum distance from the start position, but not further than the maximum distance. It is ensured that the goal position is not too high above the start position (to avoid unreachable goals).
-    The robot is rewarded for minimizing the rotational velocities and for keeping itself oriented towards the goal position.
+    The robot is rewarded for minimizing the rotational velocities and for moving towards the goal position.
 
     Attributes:
     - higher_allowed: Maximum height difference between the start and goal positions.
     - min_dist_to_goal: Minimum distance between the start and goal positions.
     - start_drop: Height of the start position above the ground.
     - roll_rate_weight: Weight for the roll rate reward component.
+    - goal_reached_reward: Reward for reaching the goal.
+    - goal_reached_threshold: Distance threshold for reaching the goal.
     - pitch_rate_weight: Weight for the pitch rate reward component.
-    - orientation_weight: Weight for the orientation reward component.
+    - goal_weight: Weight for the goal reward component.
     - iteration_limit_factor: Factor to multiply the time to reach the furthest goal by to get the iteration limit.
     """
 
     higher_allowed: float = 0.5  # meters
-    min_dist_to_goal: float = 0.1  # meters
+    min_dist_to_goal: float = 0.5  # meters
+    max_dist_to_goal: float = 1.0  # meters
+    goal_reached_reward: float = 1000.0
+    goal_reached_threshold: float = 0.05  # meters
     start_drop: float = 0.1  # meters
-    iteration_limit_factor: float = 1.5
+    iteration_limit_factor: float = 10
     roll_rate_weight: float = 1.0
     pitch_rate_weight: float = 1.0
-    orientation_weight: float = 1.0
+    goal_weight: float = 1.0
 
     def _generate_start(self, robot_idx: int,
                         world_config: WorldConfig,
@@ -76,7 +81,7 @@ class SimpleStabilizationObjective(BaseObjective[torch.Tensor]):
         diff_vecs = goals[..., :2] - starts[..., :2]
         ori = torch.atan2(diff_vecs[..., 1], diff_vecs[..., 0])
         rots = rot_Z(ori)
-        return PhysicsState.dummy(x=starts, R=rots, robot_model=robot_model), PhysicsState.dummy(x=goals, R=rots, robot_model=robot_model)
+        return PhysicsState.dummy(x=starts, R=rots, robot_model=robot_model), PhysicsState.dummy(x=goals, robot_model=robot_model)
 
     def check_reached_goal_or_terminate(self, state: PhysicsState, goal: PhysicsState) -> torch.Tensor:
         reached_goal = torch.norm(state.x - goal.x, dim=-1) <= self.min_dist_to_goal
@@ -88,7 +93,6 @@ class SimpleStabilizationObjective(BaseObjective[torch.Tensor]):
         steps = (furthest * self.iteration_limit_factor).ceil()
         return torch.full(start_state.batch_size, steps, device=start_state.x.device, dtype=torch.int32)
 
-    @torch.no_grad()
     def compute_reward(self,
                        prev_state: PhysicsState,
                        state_der: PhysicsStateDer,
@@ -97,9 +101,12 @@ class SimpleStabilizationObjective(BaseObjective[torch.Tensor]):
                        ) -> torch.Tensor:
         # angular velocity penalty
         roll_pitch_rates_sq = curr_state.omega[..., :2].pow(2)  # shape (batch_size, 2)
-        roll_pitch_penalties = torch.tensor([self.roll_rate_weight, self.pitch_rate_weight], device=roll_pitch_rates_sq.device) * roll_pitch_rates_sq
+        roll_pitch_rates_sq[..., 0] *= self.roll_rate_weight
+        roll_pitch_rates_sq[..., 1] *= self.pitch_rate_weight
         # deviation from correct orientation penalty
-        goal_diff = goal.x - curr_state.x
-        vec_ori = torch.atan2(goal_diff[..., 1], goal_diff[..., 0])
-        robot_ori = yaw_from_R(curr_state.R)
-        return -roll_pitch_penalties.sum(dim=-1) - self.orientation_weight * (robot_ori - vec_ori)**2
+        goal_diff_curr = (goal.x - curr_state.x).norm(dim=-1)
+        if (goal_diff_curr < self.goal_reached_threshold).all():
+            return torch.full_like(goal_diff_curr, self.goal_reached_reward)  # goal reached
+        goal_diff_prev = (goal.x - prev_state.x).norm(dim=-1)
+        diff_delta = goal_diff_curr.norm(dim=-1) - goal_diff_prev.norm(dim=-1)
+        return -roll_pitch_rates_sq.sum(dim=-1) + self.goal_weight * diff_delta  # goal not reached, return reward

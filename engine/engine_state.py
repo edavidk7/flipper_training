@@ -23,19 +23,6 @@ class PhysicsState:
     thetas: torch.Tensor
 
     @staticmethod
-    def dummy_like(s: "PhysicsState") -> "PhysicsState":
-        """Create a dummy PhysicsState object with zero tensors.
-
-        Args:
-            s (PhysicsState): PhysicsState object to mimic.
-
-        Returns:
-            PhysicsState: Dummy PhysicsState object with zero tensors.
-
-        """
-        return s.new_zeros()
-
-    @staticmethod
     def dummy(**kwargs) -> "PhysicsState":
         """Create an empty dummy PhysicsState object with zero tensors.
            Some fields can be overridden by passing them as keyword arguments.
@@ -54,7 +41,7 @@ class PhysicsState:
         base = dict(
             x=torch.zeros(batch_size, 3),
             xd=torch.zeros(batch_size, 3),
-            R=torch.eye(3).expand(batch_size, 3, 3),
+            R=torch.eye(3).repeat(batch_size, 1, 1),
             omega=torch.zeros(batch_size, 3),
             thetas=torch.zeros(batch_size, robot_model.num_joints),
             batch_size=[batch_size],

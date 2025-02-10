@@ -36,7 +36,18 @@
 \addcontentsline{toc}{section}{Abbreviations}
 
 \textbf{MPC} - Model Predictive Control \\ 
-\textbf{RL} - Reinforcement Learning
+\textbf{RL} - Reinforcement Learning \\
+\textbf{MARV} - Mobile Advanced Robotic Vehicle \\
+\textbf{TRADR} - Tracked Disaster Response Robot \\
+\textbf{DoF} - Degrees of Freedom \\
+\textbf{LiDAR} - Light Detection and Ranging \\
+\textbf{CoG} - Center of Gravity \\
+\textbf{GPU} - Graphics Processing Unit \\
+\textbf{CPU} - Central Processing Unit \\
+\textbf{RAM} - Random Access Memory \\
+\textbf{VRAM} - Video Random Access Memory \\
+\textbf{BVH} - Bounding Volume Hierarchy \\
+\textbf{API} - Application Programming Interface \\
 %------------------------------------------------------------------------
 
 
@@ -76,22 +87,11 @@ The aim of this project is to enable the use of these methods on tracked robots 
 \section{Background}
 \label{sec:background}
 
-This should consist of a relevant background to the subject. This will involve a literature survey, which need not be exhaustive but should be critical and concentrate on the most relevant, (possibly controversial aspects) to the work described in the report. It should not occupy a large part of the dissertation, unless it in some way forms the core of the work. The primary objective of the literature review is to establish the ‘state-of-science’ and to demonstrate, through critique of existing work, why the approaches to be outlined subsequently are worth pursuing.
+Due to the popularity of Reinforcement Learning (RL) and Model Predictive Control (MPC) in robotics, there is a growing selection of simulation environments that are designed to be used with these methods. Honorable mentions include Farama's Gymnasium (continuation of the OpenAI gym) \citep{towers2024gymnasiumstandardinterfacereinforcement}, Google DeepMind's MuJoCo \citep{todorov2012mujoco} and DM Control suites, Google's BRAX \citep{brax2021github}, and the recently-released Genesis \citep{Genesis}.
 
-\textbf{All equations must be numbered}. For example here is the 2D mass continuity equation for incompressible fluids
+While these engines are highly optimized, in some cases provide native interop with accelerator-friendly computation libraries such a JAX or PyTorch, and offer great flexibility for modeling of robots, none of them natively support robots with tracked (or wheeled) propulsion. They are designed for robotics with flexible joints and rigid bodies.
 
-
-\begin{equation}
-  \label{eq:mass-continuity}
-  \frac{\partial u}{\partial x} + \frac{\partial w}{\partial z} = 0
-\end{equation}
-
-and here is the equation for irrotational 2D flows
-
-\begin{equation}
-  \label{eq:irrotationality}
-  \frac{\partial w}{\partial x} - \frac{\partial u}{\partial z} = 0
-\end{equation}
+It is therefore necessary to develop a custom simulation engine capable of simulating tracked robots.
 %------------------------------------------------------------------------
 
 
@@ -109,7 +109,7 @@ The Vision for Robotics and Autonomous Systems group utilises 2 kinds of tracked
 \begin{figure}[!h]
   \centering
   \includegraphics[width=0.4\textwidth]{fig/marv.jpg}
-  \caption{MARV robot}
+  \caption{MARV robot \citep{MARVphoto}}
   \label{fig:marv}
 \end{figure}
 
@@ -118,7 +118,7 @@ The second robot, codenamed \textbf{TRADR}, was developed within the \href{https
 \begin{figure}[!h]
   \centering
   \includegraphics[width=0.4\textwidth]{fig/tradr.jpg}
-  \caption{TRADR robot}
+  \caption{TRADR robot \citep{TRADRphoto}}
   \label{fig:tradr}
 \end{figure}
 
@@ -377,8 +377,36 @@ A slight downside is the necessity of fixed-shape data, however, after optimizat
 
 \section{Performance evaluation}
 
+For the evaluation, we have used the MARV robot with 1000 points and a 256x256 terrain grid. The integration time step was set to 10 ms. We test the batch size in an exponential power-of-two fashion, starting from 1 robot up to 512 robots. 
+
+First, we perform an evaluation on the CPU. In this case, it is an Apple M1 Pro chip with 10 cores and 16 GB of unified memory.
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=1.\textwidth]{fig/benchmark_cpu_m1.pdf}
+  \caption{Simulation speed with respect to the number of robots simulated - CPU. Note the logarithmic scale on the x-axis.}
+  \label{fig:cpu_speedup}
+\end{figure}
+
+As expected, the simulation speed decreases with the number of robots. However, we notice slower increase in computation time for batch sizes of 8 or lower. This is possible due to the limited-size linear algebra units on the CPU, which have not yet been fully saturated. For the batch size of 128, a single iteration takes roughly 16 ms. This is slower than the real-time simulation, which is 10 ms. In comparison, however, a batch size of 1 takes around 1 ms. This gives us a (128 * 1 ms) / 16 ms = 8x speedup by batched parallelization instead of simulating robots one by one. If we were to compute the total robot simulation time compared to realtime driving, we get (128 * 10 ms) / 16 ms = 80x speedup.
+
 \clearpage
 
+
+Second, we perform the same evaluation on the GPU. In this case, it is an Nvidia A100 SXM4 with 40 GB of VRAM.
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=1.\textwidth]{fig/benchmark_cuda_2025-01-12_21-41-37_eager.pdf}
+  \caption{Simulation speed with respect to the number of robots simulated - GPU. Note the logarithmic scale on the x-axis.}
+  \label{fig:gpu_speedup}
+\end{figure}
+
+It is notable that the GPU slightly slower for batch sizes smaller than 8, likely due to synchronization and data overhead. However, the speedup is much more significant than on the CPU. Increasing the batch size up to 512 does not change the computation time significantly. The simulation time is constantly about 3.5 ms. This gives us a (512 * 10 ms) / 3.5 ms = 1462x speedup compared to real-time driving. Or about 10 ms / 3.5 ms = 2.8x speedup over realtime.
+
+As expected, the GPU is significantly faster than the CPU, especially for larger batch sizes.
+
+\clearpage
 \section{Reinforcement learning environment}
 
 As a part of the project, we have developed a generic reinforcement learning environment based on the TorchRL library \citep{bou2023torchrldatadrivendecisionmakinglibrary}. TorchRL provides native interop with PyTorch's Tensor datatype as well as the use of various accelerators (torch "devices"). As our pipeline was designed to operate completely on the GPU, this improves efficiency by avoiding data transfers between GPU VRAM and system RAM. Libraries such as the Gymnasium \citep{towers2024gymnasiumstandardinterfacereinforcement} are meant to run and output numpy arrays, forcing the use of a CPU. TorchRL comes preimplemented with a number of deep reinforcement learning algorithms and offers a relatively lightweight interface for defining custom environments.
@@ -422,76 +450,20 @@ To allow for training in diverse, unseen environments, we implemented a simple t
 \end{figure}
 % CONCLUSIONS
 %------------------------------------------------------------------------
-\section{Conclusions}
-\label{sec:conclusions}
+\section{Conclusion}
+\label{sec:conclusion}
 
+We developed and implemented a high-performance, GPU-compatible simulation engine for tracked robots used by the Vision for Robotics and Autonomous Systems group. The engine is capable of simulating multiple robots at once, and is optimized for GPU execution. We have also developed a reinforcement learning environment based on the TorchRL library with two types of sensors, a bird-view camera and a 3D LiDAR, and a terrain generator capable of generating diverse terrains.
 
-This chapter is important to summarise your overall conclusions. It should be brief, with the final
-conclusions and/or recommendations clearly identifiable without having to search for them. The use
-of bullet points might help if you have a large number of conclusions. It should not simply repeat
-what has been discussed in the preceding sections, but should summarise. It should not contain new information. It should then draw wider conclusions, including implications beyond the immediate case study or survey. The effective drawing out of these wider conclusions is what often marks out an excellent dissertation from a good or average dissertation. How does your research fit in the context of the existing literature you will already have reviewed: is it consistent or contradictory; have you found out anything `new'? This is also where you should clearly state any recommendations for future research.
-
-This section, however, is not the only place where conclusions can be drawn and presented.  Individual sections are likely to have their own summaries and conclusions that will lead into the more comprehensive discussion section and a final summary and conclusions section.
-%------------------------------------------------------------------------
-
+Unfortunately, due to initial problems with the implementation of the engine by \citet{Agishev_2024}, we were unable to complete RL training on the robots. However, the engine is fully functional and ready for use in future projects.
 
 \clearpage
-
-% Data, code and use of Generative AI tools (e.g. ChatGPT)
-%------------------------------------------------------------------------
-\section{Use of Third-party Data, Code and Generative AI Tools}
-\label{sec:DCG_Usaage}
-
-This section is where you are required to acknowledge and report the source of any third-party data and code used in your work. For example, you may have used data collected in a previous experiment (physical or numerical) and you may have used code written by others to process those data. In addition, if you have used Generative Artificial Intelligence tools (e.g. ChatGPT) in anyway you are required to state how you have used these tools.
-
-This section does not count towards your 50-page upper limit.
-
-\clearpage
-
 
 % REFERENCES
 %------------------------------------------------------------------------
 \bibliographystyle{report_template}
 \bibliography{references}
 \addcontentsline{toc}{section}{References} %Add this to the contents page
-
-\vspace*{10mm}
-
-\textbf{You will be penalised for incorrect referencing in your final dissertation.} Cite all references, with the name of the author(s) and year of publication in brackets. More than
-two authors are quoted as first author \textit{et al.} followed by the year.  Two or more publications within
-the same year by the same authors should be distinguished by the letters a, b, c, etc... Collect all
-references together at the end of the report and list them alphabetically in standard form; \textbf{an
-example of this is given above.} The \textbf{Harvard system} should be used and examples of it’s use in the body of text are given below:
-
-
-\begin{quote}
-This procedure is widely used \citep{Christou2009,Wu2016,Hughes2016a,Hughes2016b}. \citet{Christou2014} state that.... \citet{Spinneken2009a,Spinneken2009b} concluded that...
-\end{quote}
-
-
-Please note that it is important to have consistency in the style you use throughout your dissertation. \textbf{List only the references you cite in the text.} Any references not seen in the original language should be marked with an asterisk (*). If only seen as a translation, follow references with ``English translation''. Websites should be referenced in the main body of the text as other references (by author or organisation), with the final reference list containing details of the full URL the authority or organisation concerned, and the date at which it was accessed (since websites may change and may not be able to be accessed subsequently). You should avoid relying too heavily on websites – try to reinforce your referencing with sufficient academic literature. Journals accessed electronically are still journals and quoted as normal.
-%------------------------------------------------------------------------
-
-
-\clearpage
-
-
-% APPENDICES
-%------------------------------------------------------------------------
-\appendix
-
-\section{Appendix Title}
-\label{sec:appendix}
-
-Label your appendices alphabetically: A, B, C, etc... using the Heading Appendix style. Add as many as you require, however please make sure that their content is relevant to report and not just a dump of every single thing that you did during your project. You may be penalised if the Appendix is excessive and not relevant, e.g. if appendices appear unconnected with the main text.
-
-\textbf{Under no circumstances should important material be included in the Appendix, instead of the
-  main text, in order to stay within the word limit.}
-
-Large sets of relevant data (e.g., census results, "raw" experimental results) should be presented in an Appendix. Any useful parts of the study not directly relevant to the main theme may also be put in an Appendix, but should be clearly referenced in the text. 
-
-Computer programs: if the program has been published, give a reference to it and a brief outline of the methods it uses. If the program is original give a listing as an Appendix preceded by a single page description of the program or on a data stick, as recommended by your supervisor.
-%------------------------------------------------------------------------
 
 
 \end{document}
