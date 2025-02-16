@@ -94,9 +94,9 @@ class BaseObjective(ABC, Generic[ObjectiveLike]):
         raise NotImplementedError
 
     @abstractmethod
-    def check_reached_goal_or_terminate(self, state: PhysicsState, goal: PhysicsState) -> torch.Tensor:
+    def check_reached_goal(self, state: PhysicsState, goal: PhysicsState) -> torch.BoolTensor:
         """
-        Check if the robots have reached the goal or if the episode should be terminated due to an illegal state.
+        Check if the robots have reached the goal.
 
         This function should be as efficient as possible, as it is called every iteration.
 
@@ -106,6 +106,22 @@ class BaseObjective(ABC, Generic[ObjectiveLike]):
 
         Returns:
         - Tensor containing a boolean indicating whether each
+        """
+        raise NotImplementedError
+
+    @abstractmethod
+    def check_terminated_wrong(self, state: PhysicsState, goal: PhysicsState) -> torch.BoolTensor:
+        """
+        Check if the robots have terminated due to reaching an infeasible/illegal state.
+
+        This function should be as efficient as possible, as it is called every iteration.
+
+        Args:
+        - state: PhysicsState object containing the current state of the robot.
+        - goal: PhysicsState object containing the goal state of the robot.
+
+        Returns:
+        - Tensor containing a boolean indicating whether each robot has terminated.
         """
         raise NotImplementedError
 
@@ -157,26 +173,5 @@ class BaseObjective(ABC, Generic[ObjectiveLike]):
 
         Returns:
         - Tensor containing the iteration limits for the robots.
-        """
-        raise NotImplementedError
-
-    @abstractmethod
-    def compute_reward(self,
-                       prev_state: PhysicsState,
-                       state_der: PhysicsStateDer,
-                       curr_state: PhysicsState,
-                       goal: PhysicsState,
-                       ) -> torch.Tensor:
-        """
-        Compute the reward for the given state and goal.
-
-        Args:
-        - prev_state: PhysicsState object containing the previous state of the robots.
-        - state_der: PhysicsStateDer object containing the state derivatives of the robots.
-        - curr_state: PhysicsState object containing the current state of the robots.
-        - goal: PhysicsState object containing the goal state of the robots
-
-        Returns:
-            The reward for the given state and goal.
         """
         raise NotImplementedError

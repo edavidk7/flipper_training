@@ -40,10 +40,7 @@ class DPhysicsEngine(torch.nn.Module):
         global_cogs, cog_corrected_points, global_I = self.compute_inertia_cog(global_robot_points)
 
         # find the contact points
-        in_contact, dh_points = self.find_contact_points(global_robot_points, world_config)
-
-        # compute surface normals at the contact points
-        n = surface_normals(world_config.z_grid_grad, global_robot_points[..., :2], world_config.max_coord)
+        in_contact, dh_points, n = self.find_contact_points(global_robot_points, world_config)
 
         # Compute current point velocities based on CoG motion and rotation
         xd_points = state.xd.unsqueeze(1) + torch.cross(state.omega.unsqueeze(1), cog_corrected_points, dim=-1)
@@ -154,7 +151,8 @@ class DPhysicsEngine(torch.nn.Module):
             F_friction += kN * dv_tau_sat * mask
         return F_friction
 
-    def find_contact_points(self, robot_points: torch.Tensor, world_config: WorldConfig) -> Tuple[torch.Tensor, torch.Tensor]:
+
+    def find_contact_points(self, robot_points: torch.Tensor, world_config: WorldConfig) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """
         Find the contact points on the robot.
 
@@ -166,12 +164,13 @@ class DPhysicsEngine(torch.nn.Module):
             dh_points: The penetration depth of the points. Shape (B, n_pts, 1).
         """
         z_points = interpolate_grid(world_config.z_grid, robot_points[..., :2], world_config.max_coord)
-        dh_points = robot_points[..., 2:3] - z_points
+        n = surface_normals(world_config.z_grid_grad, robot_points[..., :2], world_config.max_coord)
+        dh_points = (robot_points[..., 2:3] - z_points) * n[..., 2:3]  # penetration depth as a signed distance from the tangent plane
         # This is a GPU-friendly hack for computing the on-grid points
         clamped_points = robot_points[..., :2].clamp(-world_config.max_coord, world_config.max_coord)
         on_grid = (clamped_points == robot_points[..., :2]).all(dim=-1, keepdim=True)
         in_contact = ((dh_points <= 0.0) & on_grid).float()
-        return in_contact, dh_points * in_contact
+        return in_contact, dh_points * in_contact, n
 
     def update_state(self, state: PhysicsState, dstate: PhysicsStateDer) -> PhysicsState:
         """

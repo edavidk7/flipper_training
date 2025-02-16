@@ -1,7 +1,8 @@
+from functools import partial
 from flipper_training.configs import *
 from flipper_training.rl_objectives import *
 from flipper_training.utils.heightmap_generators import *
-from torch.optim import *
+from torch.optim import lr_scheduler, Adam
 from flipper_training.observations import *
 
 train_config = {
@@ -70,8 +71,8 @@ train_config = {
         "differentiable": False,
     },
     "observations": {
-        "perception": (Heightmap, {"percep_shape": (128, 128), "percep_extent": (1.0, 1.0, -1.0, -1.0)}),
-        "observation": (RobotStateVector, {}),
+        "perception": partial(Heightmap, percep_shape=(128, 128), percep_extent=(1.0, 1.0, -1.0, -1.0)),
+        "observation": partial(RobotStateVector),
     },
     "policy_opts": {
         "hidden_dim": 64,
@@ -79,3 +80,12 @@ train_config = {
         "actor_mlp_layers": 2,
     },
 }
+
+
+if __name__ == "__main__":
+    import pprint
+    from flipper_training.utils.config_to_json import save_config, load_config
+    pprint.pprint(train_config)
+    save_config(train_config, "/tmp/train_config.json")
+    loaded_config = load_config("/tmp/train_config.json")
+    pprint.pprint(loaded_config)

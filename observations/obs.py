@@ -1,12 +1,14 @@
 import torch
 from dataclasses import dataclass
-from typing import Type, Any, TYPE_CHECKING
+from typing import TYPE_CHECKING, Callable
+from tensordict import TensorDict
 from flipper_training.engine.engine_state import PhysicsState, AuxEngineInfo, PhysicsStateDer
 from torchrl.data import Composite, Unbounded, Bounded
 from abc import ABC, abstractmethod
 
 if TYPE_CHECKING:
     from flipper_training.environment.env import Env
+
 
 @dataclass
 class Observation(ABC):
@@ -24,7 +26,7 @@ class Observation(ABC):
                  action: torch.Tensor,
                  state_der: PhysicsStateDer,
                  curr_state: PhysicsState,
-                 aux_info: AuxEngineInfo) -> torch.Tensor:
+                 aux_info: AuxEngineInfo) -> torch.Tensor | TensorDict:
         """
         Generate observations from the current state of the environment.
 

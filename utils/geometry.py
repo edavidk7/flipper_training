@@ -36,7 +36,8 @@ def normalized(x, eps=1e-6):
     - Normalized tensor.
     """
     norm = torch.norm(x, dim=-1, keepdim=True)
-    return x / torch.clamp(norm, min=eps)
+    norm.clamp_(min=eps)
+    return x / norm
 
 
 def skew_symmetric(v):

@@ -1,11 +1,12 @@
 import torch
-from typing import Any, TYPE_CHECKING
+from typing import Any, TYPE_CHECKING, Callable
 from torchrl.envs import EnvBase
 from torchrl.data import Composite, Unbounded, Bounded
 from tensordict import TensorDict
 from flipper_training.engine.engine_state import PhysicsState
 from flipper_training.configs import *
 from flipper_training.rl_objectives import *
+from flipper_training.rl_rewards.rewards import *
 from flipper_training.utils.heightmap_generators import *
 from flipper_training.vis.static_vis import plot_heightmap_3d
 from flipper_training.engine.engine_state import PhysicsState, PhysicsStateDer, AuxEngineInfo
@@ -23,7 +24,8 @@ class Env(EnvBase):
 
     def __init__(self,
                  objective: BaseObjective,
-                 observations: dict[str, tuple[type["Observation"], dict[str, Any]]],
+                 reward: Reward,
+                 observations: dict[str, Callable[["Env"], "Observation"],],
                  env_config: EnvConfig,
                  world_config: WorldConfig,
                  physics_config: PhysicsEngineConfig,
@@ -34,25 +36,27 @@ class Env(EnvBase):
         # Misc
         self._set_seed(kwargs.get("seed", None))
         self.n_robots = self.batch_size[0]
-        # Configs
+        # Physics configs
         self.phys_cfg = physics_config.to(device)
         self.robot_cfg = robot_model_config.to(device)
         self.env_cfg = env_config.to(device)
         self.world_cfg = world_config.to(device)
-        self.objective = objective
         # Engine
         self.engine = DPhysicsEngine(physics_config, robot_model_config, device)
-        # State vars
-        self.done_or_terminated = torch.ones((self.n_robots,), device=self.device, dtype=torch.bool)
+        # Engine state variables
+        self.state: PhysicsState | None = None
+        self.last_step_aux_info: AuxEngineInfo | None = None
+        self.last_step_der: PhysicsStateDer | None = None
+        # RL components
+        self.observations = {k: o(self) for k, o in observations.items()}
+        self.objective = objective
+        self.reward = reward
+        # RL State variables
+        self.done = torch.ones((self.n_robots,), device=self.device, dtype=torch.bool)
         self.step_count = torch.zeros((self.n_robots,), device=self.device, dtype=torch.int32)
         self.iteration_limits = torch.zeros((self.n_robots,), device=self.device, dtype=torch.int32)
         self.start = PhysicsState.dummy(batch_size=self.n_robots, robot_model=robot_model_config, device=self.device)
         self.goal = PhysicsState.dummy(batch_size=self.n_robots, robot_model=robot_model_config, device=self.device)
-        self.state: PhysicsState | None = None
-        self.last_step_aux_info: AuxEngineInfo | None = None
-        self.last_step_der: PhysicsStateDer | None = None
-        # Observations
-        self.observations = {k: o(env=self, **o_kwargs) for k, (o, o_kwargs) in observations.items()}
         # Specs
         self.action_spec = self._make_action_spec()
         self.observation_spec = self._make_observation_spec()
@@ -108,13 +112,18 @@ class Env(EnvBase):
         )
 
     def _make_done_spec(self) -> Bounded:
-        return Bounded(
+        bool_spec = Bounded(
             low=0,
             high=1,
             shape=(self.n_robots, 1),
             dtype=torch.bool,
             device=self.device,
         )
+        return Composite({
+            "done": bool_spec,
+            "truncated": bool_spec,
+            "terminated": bool_spec,
+        }, device=self.device, shape=(self.n_robots,))
 
     def _get_observations(self, prev_state: PhysicsState, action: torch.Tensor, state_der: PhysicsStateDer, curr_state: PhysicsState, aux_info: AuxEngineInfo) -> TensorDict:
         return TensorDict({
@@ -125,7 +134,15 @@ class Env(EnvBase):
         """
         Visualize the current state of the environment
         """
-        raise NotImplementedError
+        for i in range(self.n_robots):
+            plot_heightmap_3d(
+                self.world_cfg.x_grid[i],
+                self.world_cfg.y_grid[i],
+                self.world_cfg.z_grid[i],
+                start=self.start.x[i],
+                end=self.goal.x[i],
+                robot_points=self.last_step_aux_info.global_robot_points[i]
+            ).show()
 
     def _compute_full_controls(self, controls: torch.Tensor) -> torch.Tensor:
         """
@@ -155,16 +172,16 @@ class Env(EnvBase):
         self.world_cfg = kwargs.get("world_config", None) or self.world_cfg
         reset_all = kwargs.get("reset_all", False)
         # Reset only the robots that are not done or terminated
-        reset_mask = (self.done_or_terminated | reset_all).squeeze()
+        reset_mask = self.done | reset_all
         skip_mask = ~reset_mask
         # Generate start and goal states, iteration limits for done/terminated robots
-        new_start, new_goal = self.objective.generate_start_goal_states(self.world_cfg, self.robot_cfg, self.rng, skip_mask=skip_mask)
+        new_start, new_goal = self.objective.generate_start_goal_states(self.world_cfg, self.robot_cfg, self.rng, skip_mask=skip_mask.unsqueeze(-1))
         new_iteration_limits = self.objective.compute_iteration_limits(self.start, self.goal, self.robot_cfg, self.phys_cfg.dt)
         # Update the state variables
         self.start[reset_mask] = new_start[reset_mask]
         self.goal[reset_mask] = new_goal[reset_mask]
         self.iteration_limits[reset_mask] = new_iteration_limits[reset_mask]
-        self.done_or_terminated[reset_mask] = False
+        self.done[reset_mask] = False
         self.step_count[reset_mask] = 0
         # Reset the environment
         if self.state is None:
@@ -185,13 +202,27 @@ class Env(EnvBase):
 
     def _step(self, tensordict) -> TensorDict:
         action = tensordict.get("action").to(self.device)
+        # Step the engine
         prev_state, state_der, aux_info, next_state = self._step_engine(action)
         self.state = next_state
-        self.done_or_terminated |= self.objective.check_reached_goal_or_terminate(next_state, self.goal)
-        self.done_or_terminated |= self.step_count >= self.iteration_limits
+        self.last_step_aux_info = aux_info
+        self.last_step_der = state_der
+        # Check if the robots have reached the goal or terminated
+        reached_goal = self.objective.check_reached_goal(self.state, self.goal)
+        failed = self.objective.check_terminated_wrong(self.state, self.goal)
+        truncated = self.step_count >= self.iteration_limits
         # Output tensordict
         obs_td = self._get_observations(prev_state, action, state_der, next_state, aux_info)
-        obs_td["reward"] = self.objective.compute_reward(prev_state, state_der, next_state, self.goal).unsqueeze(-1)
-        obs_td["done"] = self.done_or_terminated.unsqueeze(-1)
+        obs_td["terminated"] = failed | reached_goal
+        obs_td["truncated"] = truncated
+        obs_td["done"] = failed | reached_goal | truncated
+        obs_td["reward"] = self.reward(prev_state,
+                                       action,
+                                       state_der,
+                                       next_state,
+                                       aux_info,
+                                       reached_goal,
+                                       failed,
+                                       self)
         self.step_count += 1
         return obs_td

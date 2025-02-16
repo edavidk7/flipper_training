@@ -506,3 +506,4 @@ TSWLatexianTemp*
 *.snm
 *.nav
 *.bbl
+torch_compile*

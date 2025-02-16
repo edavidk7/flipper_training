@@ -21,6 +21,6 @@ class PhysicsEngineConfig(BaseConfig):
     integration_mode: IntegrationMode = "rk4"
     dt: float = 0.01
     gravity: float = 9.81
-    torque_limit: float = 500.0
+    torque_limit: float = 200.0
     damping_alpha: float = 1.0
     condition_rotations: bool = False
