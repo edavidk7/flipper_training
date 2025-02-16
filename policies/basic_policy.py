@@ -1,6 +1,9 @@
 import torch
-from flipper_training.environment.torchrl_env import TorchRLEnv
+from flipper_training.environment.env import Env
 from tensordict.nn import TensorDictModule
+from torchrl.modules import NormalParamExtractor, ProbabilisticActor, TanhNormal, ValueOperator, ActorValueOperator
+
+__all__ = ["make_actor_value_policy"]
 
 
 class TerrainEncoder(torch.nn.Module):
@@ -9,20 +12,20 @@ class TerrainEncoder(torch.nn.Module):
         self.img_shape = img_shape
         self.output_size = output_size
         self.encoder = torch.nn.Sequential(
-            torch.nn.Conv2d(1, 8, 3, stride=2, padding=1),
+            torch.nn.Conv2d(img_shape[0], 8, 3, stride=2, padding=1),
             torch.nn.ReLU(),
-            torch.nn.BatchNorm2d(8),
+            torch.nn.BatchNorm2d(8, track_running_stats=False),
             torch.nn.Conv2d(8, 16, 3, stride=2, padding=1),
             torch.nn.ReLU(),
-            torch.nn.BatchNorm2d(16),
+            torch.nn.BatchNorm2d(16, track_running_stats=False),
             torch.nn.Conv2d(16, 32, 3, stride=2, padding=1),
             torch.nn.ReLU(),
-            torch.nn.BatchNorm2d(32),
+            torch.nn.BatchNorm2d(32, track_running_stats=False),
             torch.nn.Conv2d(32, 64, 3, stride=2, padding=1),
             torch.nn.ReLU(),
-            torch.nn.BatchNorm2d(64),
+            torch.nn.BatchNorm2d(64, track_running_stats=False),
             torch.nn.Flatten(),
-            torch.nn.Linear(64 * (img_shape[0] // 16) * (img_shape[1] // 16), output_size)
+            torch.nn.Linear(64 * (img_shape[1] // 16) * (img_shape[2] // 16), output_size)
         )
         self.forward = self.encoder.forward
 
@@ -30,9 +33,10 @@ class TerrainEncoder(torch.nn.Module):
 class PolicyObservationEncoder(torch.nn.Module):
     def __init__(self, obs_spec, hidden_dim):
         super(PolicyObservationEncoder, self).__init__()
-        self.ter_enc = TerrainEncoder(obs_spec["perception"].shape[2:], hidden_dim)
+        self.ter_enc = TerrainEncoder(obs_spec["perception"].shape[1:], hidden_dim)
+        self.hidden_dim = hidden_dim
         self.state_enc = torch.nn.Sequential(
-            torch.nn.Linear(3 + 9 + 3 + 4 + 3, hidden_dim),
+            torch.nn.Linear(obs_spec["observation"].shape[-1], hidden_dim),
             torch.nn.Tanh(),
             torch.nn.LayerNorm(hidden_dim),
             torch.nn.Linear(hidden_dim, hidden_dim),
@@ -49,50 +53,77 @@ class PolicyObservationEncoder(torch.nn.Module):
 
     def forward(self,
                 perception: torch.Tensor,
-                velocity: torch.Tensor,
-                rotation: torch.Tensor,
-                omega: torch.Tensor,
-                thetas: torch.Tensor,
-                goal_vec: torch.Tensor,
+                observation: torch.Tensor,
                 ):
-        y_ter = self.ter_enc.forward(perception)
-        x_state = torch.cat([velocity, rotation.flatten(start_dim=1), omega, thetas, goal_vec], dim=1)
-        y_state = self.state_enc(x_state)
-        y_shared = self.shared_state_enc(torch.cat([y_ter, y_state], dim=1))
+        if perception.ndim > 4:
+            B, T = perception.shape[:2]
+            perception = perception.flatten(0, 1)
+            y_ter = self.ter_enc.forward(perception)
+            y_ter = y_ter.reshape((B, T, -1))
+        else:
+            y_ter = self.ter_enc.forward(perception)
+        y_state = self.state_enc(observation)
+        y_shared = self.shared_state_enc(torch.cat([y_ter, y_state], dim=-1))
         return y_shared
 
 
-class Policy(torch.nn.Module):
+def make_mlp_layer_module(hidden_dim: int):
+    return torch.nn.Sequential(
+        torch.nn.Linear(hidden_dim, hidden_dim),
+        torch.nn.Tanh(),
+        torch.nn.LayerNorm(hidden_dim),
+    )
+
+
+class ActorPolicy(torch.nn.Module):
     """
     Policy network for the flipper task. The policy network takes in the observation and goal vector and outputs
     """
 
-    def __init__(self, obs_spec, act_spec, hidden_dim):
-        super(Policy, self).__init__()
-        self.encoder = PolicyObservationEncoder(obs_spec, hidden_dim)
+    def __init__(self, hidden_dim, act_spec, actor_mlp_layers):
+        super(ActorPolicy, self).__init__()
         self.policy = torch.nn.Sequential(
-            torch.nn.Linear(hidden_dim, hidden_dim),
-            torch.nn.Tanh(),
-            torch.nn.LayerNorm(hidden_dim),
-            torch.nn.Linear(hidden_dim, act_spec.shape[1]),
+            *[make_mlp_layer_module(hidden_dim) for _ in range(actor_mlp_layers)],  # hidden layers
+            torch.nn.Linear(hidden_dim, 2 * act_spec.shape[1]),
+        )
+        self.extractor = NormalParamExtractor()
+
+    def forward(self, y_shared):
+        mu_sigma = self.policy(y_shared)
+        return self.extractor(mu_sigma)
+
+
+class ValueFunction(torch.nn.Module):
+    def __init__(self, hidden_dim, value_mlp_layers):
+        super(ValueFunction, self).__init__()
+        self.value = torch.nn.Sequential(
+            *[make_mlp_layer_module(hidden_dim) for _ in range(value_mlp_layers)],  # hidden layers
+            torch.nn.Linear(hidden_dim, 1),
         )
 
-    def forward(self,
-                perception: torch.Tensor,
-                goal_vec: torch.Tensor,
-                velocity: torch.Tensor,
-                rotation: torch.Tensor,
-                omega: torch.Tensor,
-                thetas: torch.Tensor,
-                ):
-        y_shared = self.encoder.forward(perception, velocity, rotation, omega, thetas, goal_vec)
-        return self.policy(y_shared)
+    def forward(self, y_shared):
+        return self.value(y_shared)
 
 
-def make_policy(env: TorchRLEnv, hidden_dim: int) -> TensorDictModule:
-    net = Policy(env.observation_spec, env.action_spec, hidden_dim)
-    policy = TensorDictModule(net,
-                              in_keys=["perception", "goal_vec", "velocity", "rotation", "omega", "thetas"],
-                              out_keys=["action"]
-                              )
-    return policy
+def make_actor_value_policy(env: Env,
+                            hidden_dim: int,
+                            actor_mlp_layers: int,
+                            value_mlp_layers: int,
+                            ) -> ActorValueOperator:
+    encoder = PolicyObservationEncoder(env.observation_spec, hidden_dim)
+    encoder_module = TensorDictModule(encoder, in_keys=["perception", "observation"], out_keys=["y_shared"])
+    actor = ActorPolicy(hidden_dim, env.action_spec, actor_mlp_layers)
+    actor_td = TensorDictModule(actor, in_keys=["y_shared"], out_keys=["loc", "scale"])
+    actor_module = ProbabilisticActor(module=actor_td,
+                                      spec=env.action_spec,
+                                      in_keys=["loc", "scale"],
+                                      distribution_class=TanhNormal,
+                                      distribution_kwargs={
+                                          "low": env.action_spec.space.low[0],  # pass only the values without a batch dimension
+                                          "high": env.action_spec.space.high[0],  # pass only the values without a batch dimension
+                                      },
+                                      return_log_prob=True)
+    value = ValueFunction(hidden_dim, value_mlp_layers)
+    value_module = ValueOperator(value, in_keys=["y_shared"])
+    actor_value = ActorValueOperator(encoder_module, actor_module, value_module)
+    return actor_value

@@ -1,0 +1,81 @@
+from flipper_training.configs import *
+from flipper_training.rl_objectives import *
+from flipper_training.utils.heightmap_generators import *
+from torch.optim import *
+from flipper_training.observations import *
+
+train_config = {
+    "device": "cpu",
+    "num_robots": 8,  # represents the number of robots in the environment simulated in parallel
+    "grid_res": 0.05,  # cm per cell
+    "max_coord": 3.2,  # meters, the grid stretches from -max_coord to max_coord in x and y
+    "refresh_heightmap_every": 100,  # number of steps after which the heightmap is regenerated
+    "learning_rate": 1e-4,
+    "optimizer": Adam,
+    "scheduler": lr_scheduler.CosineAnnealingLR,
+    "epochs": 10000,
+    "sub_batch_size": 64,
+    "max_grad_norm": 1e3,
+    "gae_opts": {
+        "gamma": 0.99,
+        "lmbda": 0.95,
+        "average_gae": True,
+    },
+    "ppo_opts": {
+        "clip_epsilon": 0.2,
+        "entropy_bonus": True,
+        "entropy_coef": 0.01,
+        "critic_coef": 1.0,
+        "loss_critic_type": "smooth_l1",
+    },
+    "data_collector_opts": {
+        "frames_per_batch": 512,
+        "total_frames": 1_000_000,
+        "split_trajs": False,
+    },
+    "heightmap_gen": MultiGaussianHeightmapGenerator,
+    "heightmap_gen_opts": {
+        "min_gaussians": 400,
+        "max_gaussians": 600,
+        "min_height_fraction": 0.03,
+        "max_height_fraction": 0.12,
+        "min_std_fraction": 0.03,
+        "max_std_fraction": 0.08,
+        "min_sigma_ratio": 0.6
+    },
+    "robot_model_opts": {
+        "robot_type": "marv",
+        "voxel_size": 0.08,
+        "points_per_driving_part": 192,
+    },
+    "world_opts": {
+        "k_stiffness": 20_000,
+        "k_friction": 1.0,
+    },
+    "training_objective": SimpleStabilizationObjective,
+    "objective_opts": {
+        "higher_allowed": 0.5,
+        "min_dist_to_goal": 0.5,
+        "max_dist_to_goal": 0.8,
+        "goal_reached_reward": 1000.0,
+        "goal_reached_threshold": 0.05,
+        "start_drop": 0.1,
+        "iteration_limit_factor": 10,
+        "omega_weight": 1.0,
+        "goal_weight": 1.0,
+        "start_position_orientation": "towards_goal",
+    },
+    "rl_env_opts": {
+        "control_type": "per-track",
+        "differentiable": False,
+    },
+    "observations": {
+        "perception": (Heightmap, {"percep_shape": (128, 128), "percep_extent": (1.0, 1.0, -1.0, -1.0)}),
+        "observation": (RobotStateVector, {}),
+    },
+    "policy_opts": {
+        "hidden_dim": 64,
+        "value_mlp_layers": 2,
+        "actor_mlp_layers": 2,
+    },
+}

@@ -29,6 +29,7 @@ class PhysicsState:
         """
         batch_size = kwargs.pop("batch_size", None)
         robot_model = kwargs.pop("robot_model", None)
+        device = kwargs.pop("device", "cpu")
         assert robot_model is not None, "Robot model must be provided."
         if kwargs:
             t = next(iter(kwargs.values()))
@@ -46,7 +47,7 @@ class PhysicsState:
             thetas=torch.zeros(batch_size, robot_model.num_joints),
             batch_size=[batch_size],
         )
-        return PhysicsState(**base | kwargs)
+        return PhysicsState(**base | kwargs, device=device)
 
 
 @tensorclass

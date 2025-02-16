@@ -269,6 +269,38 @@ def yaw_from_R(R: torch.Tensor):
     return torch.atan2(R[..., 1, 0], R[..., 0, 0])
 
 
+def pitch_from_R(R: torch.Tensor):
+    return torch.arcsin(-R[..., 2, 0])
+
+
+def roll_from_R(R: torch.Tensor):
+    return torch.atan2(R[..., 2, 1], R[..., 2, 2])
+
+
+def rotation_matrix_to_euler_zyx(R: torch.Tensor, eps: float = 1e-6) -> torch.Tensor:
+    """
+    Convert batch of rotation matrices to ZYX Euler angles (yaw, pitch, roll)
+    Args:
+        R: (B, 3, 3) batch of rotation matrices
+    Returns:
+        angles: (B, 3) tensor of Euler angles in radians
+    """
+    pitch = torch.asin(-R[:, 2, 0].clamp(-1 + eps, 1 - eps))
+    # Safe cosine calculation
+    cos_pitch = torch.cos(pitch)
+    mask = torch.abs(cos_pitch) > eps
+    yaw = torch.zeros_like(pitch)
+    roll = torch.zeros_like(pitch)
+    # Non-degenerate case
+    yaw[mask] = torch.atan2(R[mask, 1, 0], R[mask, 0, 0])
+    roll[mask] = torch.atan2(R[mask, 2, 1], R[mask, 2, 2])
+    # Degenerate case (pitch near ±π/2)
+    if torch.any(~mask):
+        yaw[~mask] = 0.0
+        roll[~mask] = torch.atan2(-R[~mask, 0, 1], R[~mask, 1, 1])
+    return torch.stack([yaw, pitch, roll], dim=1)
+
+
 def planar_rot_from_R3(R: torch.Tensor):
     ang = yaw_from_R(R)  # Extract yaw angle (rotation around Z axis)
     # Create the 2D rotation matrix for each batch element

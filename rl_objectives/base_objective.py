@@ -60,7 +60,10 @@ class BaseObjective(ABC, Generic[ObjectiveLike]):
                     starts.append(start)
                     goals.append(goal)
                     break
-        return self._construct_full_start_goal_states(starts, goals, robot_model)
+        s, g = self._construct_full_start_goal_states(starts, goals, robot_model)
+        s = s.to(device)
+        g = g.to(device)
+        return s, g
 
     @abstractmethod
     def _get_dummy_objective_like(self, device: str | torch.device) -> ObjectiveLike:

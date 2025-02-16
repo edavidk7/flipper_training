@@ -33,8 +33,8 @@ class DPhysicsEngine(torch.nn.Module):
     def forward_kinematics(self,
                            state: PhysicsState,
                            controls: torch.Tensor,
-                           world_config: WorldConfig) -> Tuple[PhysicsStateDer,
-                                                               AuxEngineInfo]:
+                           world_config: WorldConfig
+                           ) -> Tuple[PhysicsStateDer, AuxEngineInfo]:
 
         local_robot_points, global_robot_points = self.construct_global_robot_points(state)
         global_cogs, cog_corrected_points, global_I = self.compute_inertia_cog(global_robot_points)
@@ -72,8 +72,8 @@ class DPhysicsEngine(torch.nn.Module):
         # joint rotational velocities, shape (B, n_joints)
         thetas_d = self.compute_joint_angular_velocities(controls)
 
-        # new state derivative
-        new_state_der = PhysicsStateDer(xd=state.xd, xdd=xdd, omega_d=omega_d, thetas_d=thetas_d)
+        # next state derivative
+        next_state_der = PhysicsStateDer(xd=state.xd, xdd=xdd, omega_d=omega_d, thetas_d=thetas_d)
 
         # auxiliary information (e.g. for visualization)
         aux_info = AuxEngineInfo(F_spring=F_spring,
@@ -87,7 +87,7 @@ class DPhysicsEngine(torch.nn.Module):
                                  cog_corrected_points=cog_corrected_points,
                                  I_global=global_I)
 
-        return new_state_der, aux_info
+        return next_state_der, aux_info
 
     def compute_joint_angular_velocities(self, controls: torch.Tensor) -> torch.Tensor:
         """
@@ -177,17 +177,17 @@ class DPhysicsEngine(torch.nn.Module):
         """
         Integrates the states of the rigid body for the next time step.
         """
-        new_state = state.clone()
+        next_state = state.clone()
         # basic kinematics
-        new_state.x += self.integrator_fn(dstate.xd, self.config.dt)
-        new_state.xd += self.integrator_fn(dstate.xdd, self.config.dt)
-        new_state.omega += self.integrator_fn(dstate.omega_d, self.config.dt)
+        next_state.x += self.integrator_fn(dstate.xd, self.config.dt)
+        next_state.xd += self.integrator_fn(dstate.xdd, self.config.dt)
+        next_state.omega += self.integrator_fn(dstate.omega_d, self.config.dt)
         # joint kinematics
-        new_state.thetas += self.integrator_fn(dstate.thetas_d, self.config.dt)
-        new_state.thetas = new_state.thetas.clamp(self.robot_model.joint_limits[0], self.robot_model.joint_limits[1])
+        next_state.thetas += self.integrator_fn(dstate.thetas_d, self.config.dt)
+        next_state.thetas.clamp_(self.robot_model.joint_limits[0], self.robot_model.joint_limits[1])
         # rotation kinematics
-        new_state.R = self.rotation_conditioning(integrate_rotation(new_state.R, new_state.omega, self.config.dt, integrator=self.integrator_fn))
-        return new_state
+        next_state.R = self.rotation_conditioning(integrate_rotation(next_state.R, next_state.omega, self.config.dt, integrator=self.integrator_fn))
+        return next_state
 
     def construct_global_robot_points(self, state: PhysicsState) -> tuple[torch.Tensor, torch.Tensor]:
         """

@@ -1,6 +1,6 @@
 from tracemalloc import start
 import torch
-from typing import List
+from typing import List, Literal
 from dataclasses import dataclass
 from flipper_training.configs import RobotModelConfig, WorldConfig
 from flipper_training.utils.environment import interpolate_grid
@@ -18,25 +18,25 @@ class SimpleStabilizationObjective(BaseObjective[torch.Tensor]):
     Attributes:
     - higher_allowed: Maximum height difference between the start and goal positions.
     - min_dist_to_goal: Minimum distance between the start and goal positions.
+    - max_dist_to_goal: Maximum distance between the start and goal positions.
     - start_drop: Height of the start position above the ground.
-    - roll_rate_weight: Weight for the roll rate reward component.
+    - omega_weight: Weight for the rotational velocity penalty.
     - goal_reached_reward: Reward for reaching the goal.
     - goal_reached_threshold: Distance threshold for reaching the goal.
-    - pitch_rate_weight: Weight for the pitch rate reward component.
     - goal_weight: Weight for the goal reward component.
     - iteration_limit_factor: Factor to multiply the time to reach the furthest goal by to get the iteration limit.
     """
 
     higher_allowed: float = 0.5  # meters
-    min_dist_to_goal: float = 0.5  # meters
+    min_dist_to_goal: float = 0.8  # meters
     max_dist_to_goal: float = 1.0  # meters
     goal_reached_reward: float = 1000.0
     goal_reached_threshold: float = 0.05  # meters
     start_drop: float = 0.1  # meters
     iteration_limit_factor: float = 10
-    roll_rate_weight: float = 1.0
-    pitch_rate_weight: float = 1.0
+    omega_weight: float = 1.0
     goal_weight: float = 1.0
+    start_position_orientation: Literal["random", "towards_goal"] = "towards_goal"
 
     def _generate_start(self, robot_idx: int,
                         world_config: WorldConfig,
@@ -78,10 +78,18 @@ class SimpleStabilizationObjective(BaseObjective[torch.Tensor]):
         """This class takes in the lists of start and goal position tensors and assembles them into full PhysicsState objects. Specifically, we rotate the robot to face the goal position."""
         starts = torch.stack(partial_starts, dim=0)
         goals = torch.stack(partial_goals, dim=0)
-        diff_vecs = goals[..., :2] - starts[..., :2]
-        ori = torch.atan2(diff_vecs[..., 1], diff_vecs[..., 0])
-        rots = rot_Z(ori)
+        rots = self._get_initial_orientation_matrix(starts, goals)
         return PhysicsState.dummy(x=starts, R=rots, robot_model=robot_model), PhysicsState.dummy(x=goals, robot_model=robot_model)
+
+    def _get_initial_orientation_matrix(self, starts: torch.Tensor, goals: torch.Tensor) -> torch.Tensor:
+        if self.start_position_orientation == "towards_goal":
+            diff_vecs = goals[..., :2] - starts[..., :2]
+            ori = torch.atan2(diff_vecs[..., 1], diff_vecs[..., 0])
+        elif self.start_position_orientation == "random":
+            ori = torch.rand(starts.shape[0], device=starts.device) * 2 * torch.pi  # random orientation
+        else:
+            raise ValueError(f"Invalid start_position_orientation: {self.start_position_orientation}")
+        return rot_Z(ori)
 
     def check_reached_goal_or_terminate(self, state: PhysicsState, goal: PhysicsState) -> torch.Tensor:
         reached_goal = torch.norm(state.x - goal.x, dim=-1) <= self.min_dist_to_goal
@@ -101,12 +109,10 @@ class SimpleStabilizationObjective(BaseObjective[torch.Tensor]):
                        ) -> torch.Tensor:
         # angular velocity penalty
         roll_pitch_rates_sq = curr_state.omega[..., :2].pow(2)  # shape (batch_size, 2)
-        roll_pitch_rates_sq[..., 0] *= self.roll_rate_weight
-        roll_pitch_rates_sq[..., 1] *= self.pitch_rate_weight
         # deviation from correct orientation penalty
         goal_diff_curr = (goal.x - curr_state.x).norm(dim=-1)
         if (goal_diff_curr < self.goal_reached_threshold).all():
             return torch.full_like(goal_diff_curr, self.goal_reached_reward)  # goal reached
         goal_diff_prev = (goal.x - prev_state.x).norm(dim=-1)
         diff_delta = goal_diff_curr.norm(dim=-1) - goal_diff_prev.norm(dim=-1)
-        return -roll_pitch_rates_sq.sum(dim=-1) + self.goal_weight * diff_delta  # goal not reached, return reward
+        return -self.omega_weight * roll_pitch_rates_sq.sum(dim=-1) + self.goal_weight * diff_delta  # goal not reached, return reward
