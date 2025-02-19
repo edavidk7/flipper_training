@@ -12,20 +12,21 @@ class PhysicsState:
     Attributes:
         x (torch.Tensor): Position of the robot in the world frame. Shape (num_robots, 3).
         xd (torch.Tensor): Velocity of the robot in the world frame. Shape (num_robots, 3).
-        R (torch.Tensor): Rotation matrix of the robot in the world frame. Shape (num_robots, 3, 3).
+        q (torch.Tensor): Orientation quaternion of the robot in the world frame. Shape (num_robots, 4).
         omega (torch.Tensor): Angular velocity of the robot in the world frame. Shape (num_robots, 3).
         thetas (torch.Tensor): Angles of the movable joints. Shape (num_robots, num_driving_parts).
     """
+
     x: torch.Tensor
     xd: torch.Tensor
-    R: torch.Tensor
+    q: torch.Tensor
     omega: torch.Tensor
     thetas: torch.Tensor
 
     @staticmethod
     def dummy(**kwargs) -> "PhysicsState":
         """Create an empty dummy PhysicsState object with zero tensors.
-           Some fields can be overridden by passing them as keyword arguments.
+        Some fields can be overridden by passing them as keyword arguments.
         """
         batch_size = kwargs.pop("batch_size", None)
         robot_model = kwargs.pop("robot_model", None)
@@ -42,7 +43,7 @@ class PhysicsState:
         base = dict(
             x=torch.zeros(batch_size, 3),
             xd=torch.zeros(batch_size, 3),
-            R=torch.eye(3).repeat(batch_size, 1, 1),
+            q=torch.tensor([1.0, 0.0, 0.0, 0.0] * batch_size).reshape(batch_size, 4),
             omega=torch.zeros(batch_size, 3),
             thetas=torch.zeros(batch_size, robot_model.num_joints),
             batch_size=[batch_size],
@@ -60,6 +61,7 @@ class PhysicsStateDer:
         omega_d (torch.Tensor): Derivative of the angular velocity of the robot in the world frame. Shape (num_robots, 3).
         thetas_d (torch.Tensor): Angular velocities of the movable joints. Shape (num_robots, num_driving_parts).
     """
+
     xd: torch.Tensor
     xdd: torch.Tensor
     omega_d: torch.Tensor

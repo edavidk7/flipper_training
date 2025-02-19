@@ -1,6 +1,6 @@
 import torch
 
-__all__ = ['inertia_tensor', "cog"]
+__all__ = ["inertia_tensor", "cog", "inertia_tensor_inv"]
 
 
 def cog(pointwise_mass: torch.Tensor, points: torch.Tensor):
@@ -20,17 +20,17 @@ def cog(pointwise_mass: torch.Tensor, points: torch.Tensor):
 
 def inertia_tensor(pointwise_mass: torch.Tensor, points: torch.Tensor):
     """
-        Compute the inertia tensor for a rigid body represented by point masses.
+    Compute the inertia tensor for a rigid body represented by point masses.
 
-        Parameters:
+    Parameters:
 
-            mass (torch.Tensor): masses of the points in shape (N).
-            points (torch.Tensor): A tensor of shape (B, N, 3) representing the points of the body.
-                                Each point contributes equally to the total mass.
+        mass (torch.Tensor): masses of the points in shape (N).
+        points (torch.Tensor): A tensor of shape (B, N, 3) representing the points of the body.
+                            Each point contributes equally to the total mass.
 
-        Returns:
-            torch.Tensor: A 3x3 inertia tensor matrix.
-        """
+    Returns:
+        torch.Tensor: A 3x3 inertia tensor matrix.
+    """
     points2mass = points * points * pointwise_mass[:, None]  # fuse this operation
     x = points[..., 0]
     y = points[..., 1]
@@ -45,27 +45,23 @@ def inertia_tensor(pointwise_mass: torch.Tensor, points: torch.Tensor):
     Ixz = -(pointwise_mass[None, :] * x * z).sum(dim=-1)
     Iyz = -(pointwise_mass[None, :] * y * z).sum(dim=-1)
     # Construct the inertia tensor matrix
-    I = torch.stack([
-        torch.stack([Ixx, Ixy, Ixz], dim=-1),
-        torch.stack([Ixy, Iyy, Iyz], dim=-1),
-        torch.stack([Ixz, Iyz, Izz], dim=-1)
-    ], dim=-2)  #
+    I = torch.stack([torch.stack([Ixx, Ixy, Ixz], dim=-1), torch.stack([Ixy, Iyy, Iyz], dim=-1), torch.stack([Ixz, Iyz, Izz], dim=-1)], dim=-2)  #
     return I
 
 
 def inertia_tensor_inv(pointwise_mass: torch.Tensor, points: torch.Tensor):
     """
-        Directly compute the inertia tensor inverse for a rigid body represented by point masses.
+    Directly compute the inertia tensor inverse for a rigid body represented by point masses.
 
-        Parameters:
+    Parameters:
 
-            mass (torch.Tensor): masses of the points in shape (N).
-            points (torch.Tensor): A tensor of shape (B, N, 3) representing the points of the body.
-                                Each point contributes equally to the total mass.
+        mass (torch.Tensor): masses of the points in shape (N).
+        points (torch.Tensor): A tensor of shape (B, N, 3) representing the points of the body.
+                            Each point contributes equally to the total mass.
 
-        Returns:
-            torch.Tensor: A 3x3 inverse inertia tensor matrix.
-        """
+    Returns:
+        torch.Tensor: A 3x3 inverse inertia tensor matrix.
+    """
     points2mass = points * points * pointwise_mass[:, None]  # fuse this operation
     x = points[..., 0]
     y = points[..., 1]
@@ -90,9 +86,5 @@ def inertia_tensor_inv(pointwise_mass: torch.Tensor, points: torch.Tensor):
     A32 = Ixy * Ixz - Iyz * Ixx
     A33 = Ixx * Iyy - Ixy * Ixy
     detA = Ixx * A11 + Ixy * A12 + Ixz * A13
-    I_inv = torch.stack([
-        torch.stack([A11, A12, A13], dim=-1),
-        torch.stack([A21, A22, A23], dim=-1),
-        torch.stack([A31, A32, A33], dim=-1)
-    ], dim=-2) / detA[:, None, None]
+    I_inv = torch.stack([torch.stack([A11, A12, A13], dim=-1), torch.stack([A21, A22, A23], dim=-1), torch.stack([A31, A32, A33], dim=-1)], dim=-2) / detA[:, None, None]
     return I_inv

@@ -6,8 +6,12 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 from matplotlib.collections import LineCollection
 from flipper_training.configs import WorldConfig
-from flipper_training.engine.engine_state import PhysicsState, vectorize_iter_of_states, AuxEngineInfo
-from flipper_training.utils.geometry import yaw_from_R
+from flipper_training.engine.engine_state import (
+    PhysicsState,
+    vectorize_iter_of_states,
+    AuxEngineInfo,
+)
+from flipper_training.utils.geometry import quaternion_to_yaw
 
 
 START_COLOR = "blue"
@@ -25,14 +29,14 @@ def plot_grids_xyz(x: torch.Tensor, y: torch.Tensor, z: torch.Tensor):
         - title: Title of the plot.
     """
     fig, ax = plt.subplots(1, 3, figsize=(20, 5), dpi=200)
-    x_im = ax[0].contourf(x, y, x, cmap='gray', levels=100)
+    x_im = ax[0].contourf(x, y, x, cmap="gray", levels=100)
     ax[0].set_title("X")
-    y_im = ax[1].contourf(x, y, y, cmap='gray', levels=100)
+    y_im = ax[1].contourf(x, y, y, cmap="gray", levels=100)
     ax[1].set_title("Y")
-    z_im = ax[2].contourf(x, y, z, cmap='inferno', levels=100)
+    z_im = ax[2].contourf(x, y, z, cmap="inferno", levels=100)
     ax[2].set_title("Z")
     for axis in ax:
-        axis.set_aspect('equal')
+        axis.set_aspect("equal")
     plt.colorbar(x_im, ax=ax[0])
     plt.colorbar(y_im, ax=ax[1])
     plt.colorbar(z_im, ax=ax[2])
@@ -40,7 +44,14 @@ def plot_grids_xyz(x: torch.Tensor, y: torch.Tensor, z: torch.Tensor):
     plt.show()
 
 
-def plot_single_heightmap(x: torch.Tensor, y: torch.Tensor, z: torch.Tensor, start: torch.Tensor | None = None, end: torch.Tensor | None = None, **fig_opts) -> plt.Axes:
+def plot_single_heightmap(
+    x: torch.Tensor,
+    y: torch.Tensor,
+    z: torch.Tensor,
+    start: torch.Tensor | None = None,
+    end: torch.Tensor | None = None,
+    **fig_opts,
+) -> plt.Axes:
     """
     Plot the heightmap.
 
@@ -59,19 +70,19 @@ def plot_single_heightmap(x: torch.Tensor, y: torch.Tensor, z: torch.Tensor, sta
     gs = fig.add_gridspec(ncols=2, width_ratios=[40, 1])
     ax = fig.add_subplot(gs[0])
     cax = fig.add_subplot(gs[1])  # colorbar axis
-    im = ax.contourf(x, y, z, cmap='inferno', levels=100)
-    ax.set_aspect('equal')
+    im = ax.contourf(x, y, z, cmap="inferno", levels=100)
+    ax.set_aspect("equal")
     cb = fig.colorbar(im, cax=cax)
     cb.ax.set_title("z")  # label
     cb.ax.tick_params(labelsize=10)
     cb.ax.locator_params(nbins=20)
     fig.tight_layout()
     if start is not None:
-        ax.plot(start[0], start[1], 'o', label='Start', color=START_COLOR)
-        ax.text(start[0], start[1], 'Start', fontsize=8, color='white')
+        ax.plot(start[0], start[1], "o", label="Start", color=START_COLOR)
+        ax.text(start[0], start[1], "Start", fontsize=8, color="white")
     if end is not None:
-        ax.plot(end[0], end[1], 'o', label='End', color=END_COLOR)
-        ax.text(end[0], end[1], 'End', fontsize=8, color='white')
+        ax.plot(end[0], end[1], "o", label="End", color=END_COLOR)
+        ax.text(end[0], end[1], "End", fontsize=8, color="white")
     return ax
 
 
@@ -96,67 +107,73 @@ def plot_heightmap_3d(x: torch.Tensor, y: torch.Tensor, z: torch.Tensor, **kwarg
     max_z = z.abs().max().item()
     if "start" in kwargs:
         start = kwargs["start"].detach().cpu()
-        fig.add_trace(go.Scatter3d(
-            x=[start[0].item()],
-            y=[start[1].item()],
-            z=[start[2].item()],
-            mode='markers+text',
-            marker=dict(size=5, color=START_COLOR),
-            textfont=dict(color='gray'),
-            text=['Start'],
-            textposition='top center',
-            showlegend=False,
-        ))
+        fig.add_trace(
+            go.Scatter3d(
+                x=[start[0].item()],
+                y=[start[1].item()],
+                z=[start[2].item()],
+                mode="markers+text",
+                marker=dict(size=5, color=START_COLOR),
+                textfont=dict(color="gray"),
+                text=["Start"],
+                textposition="top center",
+                showlegend=False,
+            )
+        )
         max_z = max(max_z, start[2].abs().item())
 
     if "end" in kwargs:
         end = kwargs["end"].detach().cpu()
-        fig.add_trace(go.Scatter3d(
-            x=[end[0].item()],
-            y=[end[1].item()],
-            z=[end[2].item()],
-            mode='markers+text',
-            marker=dict(size=5, color=END_COLOR),
-            textfont=dict(color='gray'),
-            text=['End'],
-            textposition='top center',
-            showlegend=False,
-        ))
+        fig.add_trace(
+            go.Scatter3d(
+                x=[end[0].item()],
+                y=[end[1].item()],
+                z=[end[2].item()],
+                mode="markers+text",
+                marker=dict(size=5, color=END_COLOR),
+                textfont=dict(color="gray"),
+                text=["End"],
+                textposition="top center",
+                showlegend=False,
+            )
+        )
         max_z = max(max_z, end[2].abs().item())
     if "robot_points" in kwargs:
         robot_points = kwargs["robot_points"].detach().cpu()
-        fig.add_trace(go.Scatter3d(
-            x=robot_points[:, 0].cpu().numpy(),
-            y=robot_points[:, 1].cpu().numpy(),
-            z=robot_points[:, 2].cpu().numpy(),
-            mode='markers',
-            marker=dict(size=2, color='black'),
-            showlegend=False,
-        ))
+        fig.add_trace(
+            go.Scatter3d(
+                x=robot_points[:, 0].cpu().numpy(),
+                y=robot_points[:, 1].cpu().numpy(),
+                z=robot_points[:, 2].cpu().numpy(),
+                mode="markers",
+                marker=dict(size=2, color="black"),
+                showlegend=False,
+            )
+        )
         max_z = max(max_z, robot_points[:, 2].abs().max().item())
-    fig.update_layout(scene=dict(
-        xaxis_title='X',
-        yaxis_title='Y',
-        zaxis_title='Height (Z)',
-        camera_eye=dict(x=1., y=1., z=0.5),
-        aspectmode='manual',
-        aspectratio=dict(
-            x=1.,
-            y=1.,
-            z=max_z / (2 * x.max().item())
-        ),),
+    fig.update_layout(
+        scene=dict(
+            xaxis_title="X",
+            yaxis_title="Y",
+            zaxis_title="Height (Z)",
+            camera_eye=dict(x=1.0, y=1.0, z=0.5),
+            aspectmode="manual",
+            aspectratio=dict(x=1.0, y=1.0, z=max_z / (2 * x.max().item())),
+        ),
         width=1000,
         height=500,
-        margin=dict(l=20, r=20, t=20, b=20)
+        margin=dict(l=20, r=20, t=20, b=20),
     )
     return fig
 
 
-def plot_birdview_trajectory(world_config: WorldConfig,
-                             states: Iterable[PhysicsState],
-                             robot_idx: int = 0,
-                             iter_step: int = 30,
-                             fig_opts: dict[str, Any] = {}) -> plt.Axes:
+def plot_birdview_trajectory(
+    world_config: WorldConfig,
+    states: Iterable[PhysicsState],
+    robot_idx: int = 0,
+    iter_step: int = 30,
+    fig_opts: dict[str, Any] = {},
+) -> plt.Axes:
     """
     plot the birdview trajectory of the robot.
     """
@@ -175,7 +192,7 @@ def plot_birdview_trajectory(world_config: WorldConfig,
     cax = fig.add_subplot(gs[1])  # colorbar axis
 
     # surface
-    cf = ax.contourf(x_grid_arr, y_grid_arr, z_grid_arr, cmap='gray', levels=20)
+    cf = ax.contourf(x_grid_arr, y_grid_arr, z_grid_arr, cmap="gray", levels=20)
     ax.set_xlabel("x")
     ax.set_ylabel("y")
     ax.set_title("Birdview of trajectory")
@@ -183,22 +200,30 @@ def plot_birdview_trajectory(world_config: WorldConfig,
     # direction arrows
     for i in range(0, len(states_vec.x), iter_step):
         pos = states_vec.x[i, robot_idx].cpu().numpy()
-        yaw = yaw_from_R(states_vec.R[i, robot_idx].cpu()).item()
-        ax.text(pos[0], pos[1], str(i), fontsize=8, color='white')
-        ax.arrow(pos[0], pos[1], 0.5 * np.cos(yaw), 0.5 * np.sin(yaw),
-                 head_width=0.1, head_length=0.1, fc='w', ec='w')
+        yaw = quaternion_to_yaw(states_vec.q[i, robot_idx].cpu()).item()
+        ax.text(pos[0], pos[1], str(i), fontsize=8, color="white")
+        ax.arrow(
+            pos[0],
+            pos[1],
+            0.5 * np.cos(yaw),
+            0.5 * np.sin(yaw),
+            head_width=0.1,
+            head_length=0.1,
+            fc="w",
+            ec="w",
+        )
 
     # heatmap line
     np_points = states_vec.x[:, robot_idx, :2].unsqueeze(1).cpu().numpy()
     segments = np.concatenate([np_points[:-1], np_points[1:]], axis=1)
     zs = states_vec.x[:, robot_idx, 2].cpu().numpy()
-    lc = LineCollection(segments, cmap='viridis', norm=plt.Normalize(zs.min(), zs.max()))
+    lc = LineCollection(segments, cmap="viridis", norm=plt.Normalize(zs.min(), zs.max()))
     lc.set_array(zs)
     lc.set_linewidth(3)
     ax.add_collection(lc)
 
     # aspect ratio
-    ax.set_aspect('equal', 'box')  # 'box' or 'box-forced' if older mpl
+    ax.set_aspect("equal", "box")  # 'box' or 'box-forced' if older mpl
 
     # colorbar w/ custom axis
     cb = fig.colorbar(lc, cax=cax)
@@ -211,11 +236,13 @@ def plot_birdview_trajectory(world_config: WorldConfig,
     return ax
 
 
-def plot_3d_trajectory(world_config: WorldConfig,
-                       states: Iterable[PhysicsState],
-                       auxs: Iterable[AuxEngineInfo],
-                       robot_idx: int = 0,
-                       fig_opts: dict[str, Any] = {}) -> go.Figure:
+def plot_3d_trajectory(
+    world_config: WorldConfig,
+    states: Iterable[PhysicsState],
+    auxs: Iterable[AuxEngineInfo],
+    robot_idx: int = 0,
+    fig_opts: dict[str, Any] = {},
+) -> go.Figure:
     """
     Plot the 3D trajectory of the robot interactively.
     """
@@ -226,18 +253,21 @@ def plot_3d_trajectory(world_config: WorldConfig,
     # Vectorize states
     states_vec = vectorize_iter_of_states(states)
     aux_vec = vectorize_iter_of_states(auxs)
-    fig = make_subplots(rows=1, cols=1, specs=[[{'type': 'surface'}]], **fig_opts)
+    fig = make_subplots(rows=1, cols=1, specs=[[{"type": "surface"}]], **fig_opts)
     # World
     fig.add_trace(
-        go.Surface(x=x_grid_arr, y=y_grid_arr, z=z_grid_arr, colorscale='Cividis', showscale=False),
-        row=1, col=1
+        go.Surface(x=x_grid_arr, y=y_grid_arr, z=z_grid_arr, colorscale="Cividis", showscale=False),
+        row=1,
+        col=1,
     )
     # Trajectory
     xs = states_vec.x[:, robot_idx, 0].cpu().numpy()
     ys = states_vec.x[:, robot_idx, 1].cpu().numpy()
     zs = states_vec.x[:, robot_idx, 2].cpu().numpy()
     fig.add_trace(
-        go.Scatter3d(x=xs, y=ys, z=zs, mode='lines', line=dict(color='lime', width=5), name='Trajectory'),
+        go.Scatter3d(
+            x=xs, y=ys, z=zs, mode="lines", line=dict(color="lime", width=5), name="Trajectory"
+        ),
     )
     # Robot pointcloud in last state with contact points and forces
     pts_global = aux_vec.global_robot_points[-1, robot_idx].cpu().numpy()
@@ -245,27 +275,37 @@ def plot_3d_trajectory(world_config: WorldConfig,
     not_contact = ~in_contact
     # Non-contact points
     fig.add_trace(
-        go.Scatter3d(x=pts_global[not_contact, 0], y=pts_global[not_contact, 1], z=pts_global[not_contact, 2], mode='markers', marker=dict(size=2, color='black'), name='Non-contact points'),
+        go.Scatter3d(
+            x=pts_global[not_contact, 0],
+            y=pts_global[not_contact, 1],
+            z=pts_global[not_contact, 2],
+            mode="markers",
+            marker=dict(size=2, color="black"),
+            name="Non-contact points",
+        ),
     )
     # Contact points
     fig.add_trace(
-        go.Scatter3d(x=pts_global[in_contact, 0], y=pts_global[in_contact, 1], z=pts_global[in_contact, 2], mode='markers', marker=dict(size=2, color='red'), name='Contact points'),
+        go.Scatter3d(
+            x=pts_global[in_contact, 0],
+            y=pts_global[in_contact, 1],
+            z=pts_global[in_contact, 2],
+            mode="markers",
+            marker=dict(size=2, color="red"),
+            name="Contact points",
+        ),
     )
     fig.update_layout(
         scene=dict(
-            xaxis_title='X',
-            yaxis_title='Y',
-            zaxis_title='Height (Z)',
-            camera_eye=dict(x=1., y=1., z=0.5),
-            aspectmode='manual',
-            aspectratio=dict(
-                x=1.,
-                y=1.,
-                z=zs.max().item() / (2 * world_config.max_coord)
-            ),
+            xaxis_title="X",
+            yaxis_title="Y",
+            zaxis_title="Height (Z)",
+            camera_eye=dict(x=1.0, y=1.0, z=0.5),
+            aspectmode="manual",
+            aspectratio=dict(x=1.0, y=1.0, z=zs.max().item() / (2 * world_config.max_coord)),
         ),
         width=1000,
         height=500,
-        margin=dict(l=20, r=20, t=20, b=20)
+        margin=dict(l=20, r=20, t=20, b=20),
     )
     return fig

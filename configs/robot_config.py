@@ -1,4 +1,4 @@
-from typing import Literal, List, Optional
+from typing import Literal, Optional
 import torch
 from dataclasses import dataclass
 import numpy as np
@@ -7,8 +7,20 @@ from flipper_training.configs.base_config import BaseConfig
 import pyvista as pv
 import yaml
 import hashlib
-from flipper_training.utils.geometry import points_in_oriented_box
-from flipper_training.utils.meshes import *
+from flipper_training.utils.geometry import (
+    points_in_oriented_box,
+    pointcloud_bounding_volume,
+    extract_top_plane_from_box,
+)
+from flipper_training.utils.meshes import (
+    extract_surface_from_mesh,
+    extract_submesh_by_mask,
+    voxelize_mesh,
+)
+from flipper_training.utils.flipper_modeling import (
+    get_flipper_pointwise_vels,
+    FlipperWheels,
+)
 
 np.random.seed(0)
 
@@ -40,13 +52,19 @@ class RobotModelConfig(BaseConfig):
         robot_type (Literal['tradr', 'marv', 'husky']): type of the robot.
         voxel_size (float): size of the voxel grid for the body.
         points_per_driving_part (int): number of points per driving part for clustering.
+        bounding_volume_eps (float): epsilon for bounding volume computation.
     """
-    robot_type: Literal['tradr', 'marv', 'husky']
+
+    robot_type: Literal["tradr", "marv", "husky"]
     voxel_size: float = 0.08
     points_per_driving_part: int = 192
+    bounding_volume_eps: float = 1e-2
+    wheel_assignment_margin: float = 0.02
 
     def __post_init__(self):
-        assert self.robot_type in IMPLEMENTED_ROBOTS, f"Robot {self.robot_type} not supported. Available robots: {IMPLEMENTED_ROBOTS}"
+        assert self.robot_type in IMPLEMENTED_ROBOTS, (
+            f"Robot {self.robot_type} not supported. Available robots: {IMPLEMENTED_ROBOTS}"
+        )
         self.load_robot_params_from_yaml()
         self.create_robot_geometry()
 
@@ -70,10 +88,23 @@ class RobotModelConfig(BaseConfig):
         self.vel_max = robot_params["vel_max"]
         self.omega_max = self._compute_omega_max()
         self.joint_limits = torch.tensor(robot_params["joint_limits"]).T  # shape (2, n_joints)
-        self.joint_movable_mask = torch.tensor(robot_params["joint_movable_mask"], dtype=torch.bool)  # shape (n_joints,)
+        self.joint_movable_mask = torch.tensor(
+            robot_params["joint_movable_mask"], dtype=torch.bool
+        )  # shape (n_joints,)
         self.joint_vel_limits = torch.tensor(robot_params["joint_vel_limits"])  # shape (n_joints,)
-        self.driving_part_bboxes = torch.stack([torch.tensor(bbox) for bbox in robot_params["driving_part_bboxes"]], dim=0)
+        self.driving_part_bboxes = torch.stack(
+            [torch.tensor(bbox) for bbox in robot_params["driving_part_bboxes"]], dim=0
+        )
         self.body_bbox = torch.tensor(robot_params["body_bbox"])
+        self.flipper_wheels = [
+            FlipperWheels(
+                wheel_radii=torch.tensor(wheel["radius"]),
+                wheel_positions=torch.tensor(wheel["position"]),
+                rotation_vector=torch.tensor(wheel["rot_axis"]),
+            )
+            for wheel in robot_params["wheels"]
+        ]
+        self.driving_direction = torch.tensor(robot_params["forward_direction"])
 
     @property
     def _descr_str(self) -> str:
@@ -115,15 +146,19 @@ class RobotModelConfig(BaseConfig):
         if not confpath.parent.exists():
             confpath.parent.mkdir(parents=True)
         print(f"Saving robot model to cache: {confpath}")
-        confdict = {"robot_points": self.robot_points,
-                    "driving_part_masks": self.driving_part_masks,
-                    "body_mask": self.body_mask,
-                    "pointwise_mass": self.pointwise_mass,
-                    "joint_positions": self.joint_positions,
-                    "body_bbox": self.body_bbox,
-                    "driving_part_bboxes": self.driving_part_bboxes,
-                    "radius": self.radius,
-                    "yaml_hash": self.yaml_hash}
+        confdict = {
+            "robot_points": self.robot_points,
+            "driving_part_masks": self.driving_part_masks,
+            "body_mask": self.body_mask,
+            "pointwise_mass": self.pointwise_mass,
+            "joint_positions": self.joint_positions,
+            "body_bbox": self.body_bbox,
+            "driving_part_bboxes": self.driving_part_bboxes,
+            "radius": self.radius,
+            "yaml_hash": self.yaml_hash,
+            "body_bounding_volume": self.body_bounding_volume,
+            "driving_part_bounding_volumes": self.driving_part_bounding_volumes,
+        }
         torch.save(confdict, confpath)
 
     def get_controls(self, vw: torch.Tensor) -> torch.Tensor:
@@ -159,7 +194,9 @@ class RobotModelConfig(BaseConfig):
         for box in self.driving_part_bboxes:
             mask = points_in_oriented_box(robot_points[:, :2], box)
             driving_mesh = extract_submesh_by_mask(mesh, mask)
-            driving_points = extract_surface_from_mesh(driving_mesh, n_points=self.points_per_driving_part)
+            driving_points = extract_surface_from_mesh(
+                driving_mesh, n_points=self.points_per_driving_part
+            )
             driving_part_points.append(driving_points)
         # Create voxelized mesh for the body
         body_mask = points_in_oriented_box(robot_points[:, :2], self.body_bbox)
@@ -173,7 +210,7 @@ class RobotModelConfig(BaseConfig):
         pointwise_relative_density = torch.ones(robot_points.shape[0])
         for i in range(len(driving_part_points)):
             mask = torch.zeros(robot_points.shape[0], dtype=torch.bool)
-            mask[s:s + driving_part_points[i].shape[0]] = True
+            mask[s : s + driving_part_points[i].shape[0]] = True
             s += driving_part_points[i].shape[0]
             driving_part_masks.append(mask)
             pointwise_relative_density[mask] = self.driving_part_density
@@ -181,11 +218,21 @@ class RobotModelConfig(BaseConfig):
         # Calculate pointwise mass and center of gravity
         pointwise_mass = self.mass * pointwise_relative_density / pointwise_relative_density.sum()
         # Set
+        self.body_bounding_volume = pointcloud_bounding_volume(
+            robot_body_points, eps=self.bounding_volume_eps
+        ).float()
+        self.driving_part_bounding_volumes = torch.stack(
+            [
+                pointcloud_bounding_volume(p, eps=self.bounding_volume_eps)
+                for p in driving_part_points
+            ],
+            dim=0,
+        ).float()
         self.pointwise_mass = pointwise_mass
         self.robot_points = robot_points
         self.driving_part_masks = driving_part_masks.float()
         self.body_mask = (torch.sum(driving_part_masks, dim=0) == 0).float()
-        self.radius = torch.sqrt((robot_points ** 2).sum(dim=1).max())
+        self.radius = torch.sqrt((robot_points**2).sum(dim=1).max())
         # Save to cache
         self.save_to_cache()
         self.print_info()
@@ -194,10 +241,31 @@ class RobotModelConfig(BaseConfig):
     def num_joints(self) -> int:
         return self.joint_positions.shape[0]
 
-    def batched_points(self, n_robots: int) -> torch.Tensor:
-        return self.robot_points.unsqueeze(0).repeat(n_robots, 1, 1)
+    @property
+    def upper_bounding_planes(self) -> tuple[torch.Tensor, torch.Tensor]:
+        """
+        The upper bounding planes of the robot's bounding volumes.
 
-    def visualize_robot(self, robot_points: Optional[torch.Tensor] = None, grid_size: float = 1.0, grid_spacing: float = 0.1) -> None:
+        The planes are returned per-point in format (normal_vectors (n_points, 3), point_on_plane (n_points, 3)).
+        """
+        normals = torch.zeros_like(self.robot_points)
+        points = torch.zeros_like(self.robot_points)
+        body_normal, body_point = extract_top_plane_from_box(self.body_bounding_volume)
+        normals[self.body_mask.bool()] = body_normal
+        points[self.body_mask.bool()] = body_point
+        for i, mask in enumerate(self.driving_part_masks):
+            normal, point = extract_top_plane_from_box(self.driving_part_bounding_volumes[i])
+            normals[mask.bool()] = normal
+            points[mask.bool()] = point
+        return normals, points
+
+    def visualize_robot(
+        self,
+        robot_points: Optional[torch.Tensor] = None,
+        grid_size: float = 1.0,
+        grid_spacing: float = 0.1,
+        return_plotter: bool = False,
+    ) -> None:
         """
         Visualizes the robot in 3D using PyVista.
 
@@ -209,39 +277,65 @@ class RobotModelConfig(BaseConfig):
         if robot_points is None:
             robot_points = self.robot_points
         robot_points = robot_points.cpu()
-        driving_part_points = torch.cat([robot_points[mask] for mask in self.driving_part_masks.cpu().bool()])
+        driving_part_points = torch.cat(
+            [robot_points[mask] for mask in self.driving_part_masks.cpu().bool()]
+        )
         other_points = robot_points[torch.sum(self.driving_part_masks.cpu(), dim=0) == 0]
         driving_pcd = pv.PolyData(driving_part_points.numpy())
         other_pcd = pv.PolyData(other_points.numpy())
         plotter = pv.Plotter()
         # body and driving parts
-        plotter.add_mesh(other_pcd, color='blue', point_size=5, render_points_as_spheres=True)
-        plotter.add_mesh(driving_pcd, color='red', point_size=5, render_points_as_spheres=True)
+        plotter.add_mesh(other_pcd, color="blue", point_size=5, render_points_as_spheres=True)
+        plotter.add_mesh(driving_pcd, color="red", point_size=5, render_points_as_spheres=True)
         # joint positions
         for joint in self.joint_positions.cpu():
             sphere = pv.Sphere(center=joint.numpy(), radius=0.01)
-            plotter.add_mesh(sphere, color='green')
+            plotter.add_mesh(sphere, color="green")
+        # bounding volumes - body
+        body_bounding_volume_corners = self.body_bounding_volume.cpu().detach()
+        body_bounding_volume_mesh = pv.PolyData(body_bounding_volume_corners.numpy()).delaunay_3d()
+        plotter.add_mesh(body_bounding_volume_mesh, color="blue", line_width=2, opacity=0.05)
+        # bounding volumes - driving parts
+        for (
+            driving_part_bounding_volume_corners
+        ) in self.driving_part_bounding_volumes.cpu().detach():
+            driving_part_bounding_volume_mesh = pv.PolyData(
+                driving_part_bounding_volume_corners.numpy()
+            ).delaunay_3d()
+            plotter.add_mesh(
+                driving_part_bounding_volume_mesh, color="red", line_width=2, opacity=0.05
+            )
         # origin of robot's local frame
         sphere = pv.Sphere(center=np.zeros(3), radius=0.025)
-        plotter.add_mesh(sphere, color='yellow')
+        plotter.add_mesh(sphere, color="yellow")
         # grid
         for i in np.arange(-grid_size, grid_size + grid_spacing, grid_spacing):
             line_x = pv.Line(pointa=[i, -grid_size, 0], pointb=[i, grid_size, 0])
             line_y = pv.Line(pointa=[-grid_size, i, 0], pointb=[grid_size, i, 0])
-            plotter.add_mesh(line_x, color='black', line_width=0.5)
-            plotter.add_mesh(line_y, color='black', line_width=0.5)
+            plotter.add_mesh(line_x, color="black", line_width=0.5)
+            plotter.add_mesh(line_y, color="black", line_width=0.5)
         # show
         print("Robot has {} points".format(robot_points.shape[0]))
         plotter.show_axes()
-        plotter.show()
+        if not return_plotter:
+            plotter.show()
+        else:
+            return plotter
 
 
 if __name__ == "__main__":
     import argparse
+
     parser = argparse.ArgumentParser()
     parser.add_argument("--robot_type", type=str, default="marv", help="Type of the robot")
     parser.add_argument("--voxel_size", type=float, default=0.08, help="Voxel size")
-    parser.add_argument("--points_per_driving_part", type=int, default=192, help="Number of points per driving part")
+    parser.add_argument(
+        "--points_per_driving_part", type=int, default=192, help="Number of points per driving part"
+    )
     args = parser.parse_args()
-    robot_model = RobotModelConfig(robot_type=args.robot_type, voxel_size=args.voxel_size, points_per_driving_part=args.points_per_driving_part)
+    robot_model = RobotModelConfig(
+        robot_type=args.robot_type,
+        voxel_size=args.voxel_size,
+        points_per_driving_part=args.points_per_driving_part,
+    )
     robot_model.visualize_robot()

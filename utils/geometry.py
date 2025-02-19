@@ -1,27 +1,53 @@
 import torch
 
 __all__ = [
-    'normalized',
-    'skew_symmetric',
-    'rot_X',
-    'rot_Y',
-    'rot_Z',
-    'global_to_local',
-    'local_to_global',
-    'quaternion_multiply',
-    'quaternion_to_rotation_matrix',
-    'quaternion_conjugate',
-    'rotate_vector_by_quaternion',
-    'global_to_local_q',
-    'local_to_global_q',
-    'yaw_from_R',
-    'planar_rot_from_R3',
-    'planar_rot_from_q',
-    'quaternion_to_yaw',
-    'quaternion_to_pitch',
-    'quaternion_to_roll',
-    'points_in_oriented_box'
+    "normalized",
+    "skew_symmetric",
+    "rot_X",
+    "rot_Y",
+    "rot_Z",
+    "global_to_local",
+    "local_to_global",
+    "quaternion_multiply",
+    "quaternion_to_rotation_matrix",
+    "quaternion_conjugate",
+    "rotate_vector_by_quaternion",
+    "global_to_local_q",
+    "local_to_global_q",
+    "yaw_from_R",
+    "planar_rot_from_R3",
+    "planar_rot_from_q",
+    "quaternion_to_yaw",
+    "quaternion_to_pitch",
+    "quaternion_to_roll",
+    "points_in_oriented_box",
+    "pointcloud_bounding_volume",
+    "extract_top_plane_from_box",
+    "euler_to_quaternion",
+    "quaternion_to_euler",
+    "rotation_matrix_to_euler_zyx",
+    "pitch_from_R",
+    "roll_from_R",
+    "inverse_quaternion",
+    "points_within_circle",
+    "rodrigues_rotation_matrix",
 ]
+
+
+def rodrigues_rotation_matrix(axis: torch.Tensor, angle: torch.Tensor) -> torch.Tensor:
+    """
+    Computes the rotation matrix using Rodrigues' rotation formula.
+
+    Parameters:
+    - axis: Rotation axis (3D vector).
+    - angle: Rotation angle in radians.
+
+    Returns:
+    - Rotation matrix.
+    """
+    axis = normalized(axis).view(-1, 3)
+    K = skew_symmetric(axis)
+    return torch.eye(3) + torch.sin(angle) * K + (1 - torch.cos(angle)) * (K @ K)
 
 
 def normalized(x, eps=1e-6):
@@ -38,6 +64,22 @@ def normalized(x, eps=1e-6):
     norm = torch.norm(x, dim=-1, keepdim=True)
     norm.clamp_(min=eps)
     return x / norm
+
+
+def unit_quaternion(batch_size: int = 1, device: str | torch.device = "cpu"):
+    """
+    Returns a unit quaternion tensor of shape (batch_size, 4).
+
+    Parameters:
+    - batch_size: Number of quaternions to generate.
+    - device: Device on which to create the tensor.
+
+    Returns:
+    - Unit quaternion tensor.
+    """
+    q = torch.zeros(batch_size, 4, device=device)
+    q[:, 0] = 1.0
+    return q
 
 
 def skew_symmetric(v):
@@ -69,11 +111,14 @@ def rot_X(theta):
     sin_ang = torch.sin(theta)
     zeros = torch.zeros_like(theta)
     ones = torch.ones_like(theta)
-    return torch.stack([
-        torch.cat([ones, zeros, zeros], dim=-1),
-        torch.cat([zeros, cos_ang, -sin_ang], dim=-1),
-        torch.cat([zeros, sin_ang, cos_ang], dim=-1)
-    ], dim=1)  # Stack along new dimension to create (B, 3, 3)
+    return torch.stack(
+        [
+            torch.cat([ones, zeros, zeros], dim=-1),
+            torch.cat([zeros, cos_ang, -sin_ang], dim=-1),
+            torch.cat([zeros, sin_ang, cos_ang], dim=-1),
+        ],
+        dim=1,
+    )  # Stack along new dimension to create (B, 3, 3)
 
 
 def rot_Y(theta):
@@ -84,11 +129,14 @@ def rot_Y(theta):
     sin_ang = torch.sin(theta)
     zeros = torch.zeros_like(theta)
     ones = torch.ones_like(theta)
-    return torch.stack([
-        torch.cat([cos_ang, zeros, sin_ang], dim=-1),
-        torch.cat([zeros, ones, zeros], dim=-1),
-        torch.cat([-sin_ang, zeros, cos_ang], dim=-1)
-    ], dim=1)  # Stack along new dimension to create (B, 3, 3)
+    return torch.stack(
+        [
+            torch.cat([cos_ang, zeros, sin_ang], dim=-1),
+            torch.cat([zeros, ones, zeros], dim=-1),
+            torch.cat([-sin_ang, zeros, cos_ang], dim=-1),
+        ],
+        dim=1,
+    )  # Stack along new dimension to create (B, 3, 3)
 
 
 def rot_Z(theta):
@@ -99,11 +147,14 @@ def rot_Z(theta):
     sin_ang = torch.sin(theta)
     zeros = torch.zeros_like(theta)
     ones = torch.ones_like(theta)
-    return torch.stack([
-        torch.cat([cos_ang, -sin_ang, zeros], dim=-1),
-        torch.cat([sin_ang, cos_ang, zeros], dim=-1),
-        torch.cat([zeros, zeros, ones], dim=-1)
-    ], dim=1)  # Stack along new dimension to create (B, 3, 3)
+    return torch.stack(
+        [
+            torch.cat([cos_ang, -sin_ang, zeros], dim=-1),
+            torch.cat([sin_ang, cos_ang, zeros], dim=-1),
+            torch.cat([zeros, zeros, ones], dim=-1),
+        ],
+        dim=1,
+    )  # Stack along new dimension to create (B, 3, 3)
 
 
 def global_to_local(t: torch.Tensor, R: torch.Tensor, points: torch.Tensor):
@@ -153,8 +204,8 @@ def quaternion_multiply(q: torch.Tensor, r: torch.Tensor):
     Returns: Tensor of shape [B, 4]
     """
     # q = [w, x, y, z]
-    w1, x1, y1, z1 = q[..., 0], q[..., 1], q[..., 2], q[..., 3]
-    w2, x2, y2, z2 = r[..., 0], r[..., 1], r[..., 2], r[..., 3]
+    w1, x1, y1, z1 = q.unbind(-1)
+    w2, x2, y2, z2 = r.unbind(-1)
     w = w1 * w2 - x1 * x2 - y1 * y2 - z1 * z2
     x = w1 * x2 + x1 * w2 + y1 * z2 - z1 * y2
     y = w1 * y2 - x1 * z2 + y1 * w2 + z1 * x2
@@ -208,22 +259,19 @@ def quaternion_conjugate(q):
 
 def rotate_vector_by_quaternion(v, q):
     """
-    Rotate vector(s) v by quaternion(s) q.
-    v: Tensor of shape (..., 3)
-    q: Tensor of shape (..., 4), must be unit quaternions
+    Rotate vector(s) v by quaternion(s) q using the direct cross-product method.
+    v: Tensor of shape (B,N1, 3)
+    q: Tensor of shape (B,N2, 4), assumed to be normalized quaternion
     Returns: Tensor of shape (..., 3)
     """
-    # Normalize quaternion
-    q = q / q.norm(dim=-1, keepdim=True)
-
-    # Convert vector to quaternion with zero scalar part
-    v_q = torch.zeros((*v.shape[:-1], 4), device=v.device, dtype=v.dtype)
-    v_q[..., 1:] = v
-    # Compute rotated quaternion
-    q_conj = quaternion_conjugate(q)
-    v_rot = quaternion_multiply(quaternion_multiply(q, v_q), q_conj)
-    # Return vector part
-    return v_rot[..., 1:]
+    # Split quaternion into scalar (q_w) and vector parts (q_xyz)
+    q_w = q[..., None, 0:1]  # shape (..., 1)
+    q_xyz = q[..., None, 1:]  # shape (..., 3)
+    # Compute intermediate cross products
+    uv = torch.cross(q_xyz, v, dim=-1)
+    uuv = torch.cross(q_xyz, uv, dim=-1)
+    # Apply the rotation formula
+    return v + 2 * (q_w * uv + uuv)
 
 
 def global_to_local_q(t: torch.Tensor, q: torch.Tensor, points: torch.Tensor):
@@ -308,10 +356,9 @@ def planar_rot_from_R3(R: torch.Tensor):
     cos_ang = torch.cos(ang)
     sin_ang = torch.sin(ang)
     # Construct the planar rotation matrix (B, 2, 2)
-    rot_matrix_2d = torch.stack([
-        torch.stack([cos_ang, -sin_ang], dim=-1),
-        torch.stack([sin_ang, cos_ang], dim=-1)
-    ], dim=-2)  # Stack along new dimension to create (B, 2, 2)
+    rot_matrix_2d = torch.stack(
+        [torch.stack([cos_ang, -sin_ang], dim=-1), torch.stack([sin_ang, cos_ang], dim=-1)], dim=-2
+    )  # Stack along new dimension to create (B, 2, 2)
     return rot_matrix_2d
 
 
@@ -327,10 +374,9 @@ def planar_rot_from_q(q: torch.Tensor):
     cos_yaw = torch.cos(yaw)
     sin_yaw = torch.sin(yaw)
     # Construct the planar rotation matrix (B, 2, 2)
-    rot_matrix_2d = torch.stack([
-        torch.stack([cos_yaw, -sin_yaw], dim=-1),
-        torch.stack([sin_yaw, cos_yaw], dim=-1)
-    ], dim=-2)  # Stack along new dimension to create (B, 2, 2)
+    rot_matrix_2d = torch.stack(
+        [torch.stack([cos_yaw, -sin_yaw], dim=-1), torch.stack([sin_yaw, cos_yaw], dim=-1)], dim=-2
+    )  # Stack along new dimension to create (B, 2, 2)
     return rot_matrix_2d
 
 
@@ -385,6 +431,57 @@ def quaternion_to_roll(q):
     return roll
 
 
+def euler_to_quaternion(roll: torch.Tensor, pitch: torch.Tensor, yaw: torch.Tensor) -> torch.Tensor:
+    """
+    Convert Euler angles (roll, pitch, yaw) to a quaternion.
+
+    Args:
+        roll (torch.Tensor): Roll angle in radians.
+        pitch (torch.Tensor): Pitch angle in radians.
+        yaw (torch.Tensor): Yaw angle in radians.
+
+    Returns:
+        torch.Tensor: Quaternion represented as a tensor of shape (4,).
+    """
+    cy = torch.cos(yaw * 0.5)
+    sy = torch.sin(yaw * 0.5)
+    cp = torch.cos(pitch * 0.5)
+    sp = torch.sin(pitch * 0.5)
+    cr = torch.cos(roll * 0.5)
+    sr = torch.sin(roll * 0.5)
+
+    w = cr * cp * cy + sr * sp * sy
+    x = sr * cp * cy - cr * sp * sy
+    y = cr * sp * cy + sr * cp * sy
+    z = cr * cp * sy - sr * sp * cy
+
+    q = torch.stack([w, x, y, z], dim=-1)
+    return normalized(q)
+
+
+def quaternion_to_euler(q: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    """
+    Convert a quaternion to Euler angles (roll, pitch, yaw).
+
+    Args:
+        q (torch.Tensor): Quaternion represented as a tensor of shape (4,).
+
+    Returns:
+        tuple[torch.Tensor, torch.Tensor, torch.Tensor]: Roll, pitch, and yaw angles in radians.
+    """
+    w, x, y, z = q.unbind(-1)
+    roll = torch.atan2(2 * (w * x + y * z), 1 - 2 * (x * x + y * y))
+    pitch = torch.asin(2 * (w * y - z * x))
+    yaw = torch.atan2(2 * (w * z + x * y), 1 - 2 * (y * y + z * z))
+    return roll, pitch, yaw
+
+
+def inverse_quaternion(q: torch.Tensor) -> torch.Tensor:
+    q = q.view(-1, 4)
+    s = torch.tensor([[1, -1, -1, -1]], device=q.device, dtype=q.dtype)
+    return normalized(q * s)
+
+
 def points_in_oriented_box(points: torch.Tensor, box: torch.Tensor) -> torch.Tensor:
     """
     Check if points are inside an oriented box.
@@ -403,3 +500,77 @@ def points_in_oriented_box(points: torch.Tensor, box: torch.Tensor) -> torch.Ten
     dot_prods = torch.sum(edge_vectors * point_vectors, dim=2)  # Shape: (N, 4)
     inside_mask = (dot_prods >= 0).all(dim=1) | (dot_prods <= 0).all(dim=1)
     return inside_mask
+
+
+def pointcloud_bounding_volume(pcd: torch.Tensor, eps: float) -> torch.Tensor:
+    """
+    Determine the bounding volume of a point cloud.
+
+    Args:
+        pcd (torch.Tensor): Tensor of shape (N, 3), where N is the number of points.
+        eps (float): A small margin value to enlarge the bounding volume.
+
+    Returns:
+        torch.Tensor - 8 points representing the corners of the bounding volume. (axis-aligned)
+    """
+    mins = pcd.min(dim=0).values
+    maxs = pcd.max(dim=0).values
+    mins -= eps
+    maxs += eps
+    # Create the 8 corners of the bounding volume
+    return torch.tensor(
+        [
+            [mins[0], mins[1], mins[2]],
+            [maxs[0], mins[1], mins[2]],
+            [maxs[0], maxs[1], mins[2]],
+            [mins[0], maxs[1], mins[2]],
+            [mins[0], mins[1], maxs[2]],
+            [maxs[0], mins[1], maxs[2]],
+            [maxs[0], maxs[1], maxs[2]],
+            [mins[0], maxs[1], maxs[2]],
+        ],
+        device=pcd.device,
+        dtype=pcd.dtype,
+    )
+
+
+def extract_top_plane_from_box(box: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+    """
+    Given an axis-aligned bounding box in 3D, extract the top plane of the box.
+
+    The returned normal direction is facing upwards (positive Z coordinate).
+
+    Args :
+        box (torch.Tensor): Axis-aligned bounding box in 3D. Shape (8, 3)
+
+    Returns:
+        tuple[torch.Tensor, torch.Tensor]: Tuple containing the normal vector and a point on the plane.
+    """
+    max_x, max_y, max_z = box.max(dim=0).values
+    min_x, min_y, min_z = box.min(dim=0).values
+    top_midpoint = torch.tensor(
+        [(max_x + min_x) / 2, (max_y + min_y) / 2, max_z], device=box.device, dtype=box.dtype
+    )
+    normal = torch.tensor([0, 0, 1], device=box.device, dtype=box.dtype)
+    return normal, top_midpoint
+
+
+def points_within_circle(
+    points: torch.Tensor, center: torch.Tensor, radius: float, eps: float = 0.0
+) -> torch.Tensor:
+    """
+    Check if points are within a circle in 2D.
+
+    Args:
+        points (torch.Tensor): Tensor of shape (N, 2), where N is the number of 2D points.
+        center (torch.Tensor): Tensor of shape (2,), representing the center of the circle.
+        radius (float): Radius of the circle.
+        eps (float): Size of the margin around the radius.
+
+    Returns:
+        torch.Tensor: Boolean mask of shape (N,), where True indicates the point is within the circle.
+    """
+    assert points.shape[1] == 2, "Points must be 2D (N, 2)."
+    assert center.shape == (2,), "Center must have shape (2,)."
+    distances = torch.norm(points - center, dim=1)
+    return (radius - eps <= distances) & (distances <= radius + eps)

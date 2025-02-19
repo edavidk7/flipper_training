@@ -1,6 +1,4 @@
 import torch
-import matplotlib
-matplotlib.rcParams["text.usetex"] = True
 import argparse
 from copy import deepcopy
 import time
@@ -11,7 +9,10 @@ from flipper_training.engine.engine_state import PhysicsState
 from flipper_training.utils.torch_utils import set_device
 from flipper_training.utils.environment import make_x_y_grids
 from flipper_training.configs import WorldConfig, PhysicsEngineConfig, RobotModelConfig
+import matplotlib
 import matplotlib.pyplot as plt
+
+matplotlib.rcParams["text.usetex"] = True
 
 grid_res = 0.05  # 5cm per grid cell
 max_coord = 6.4  # meters
@@ -22,21 +23,21 @@ save_loc = Path(__file__).parent.parent / "engine_benchmark_results"
 def plot_and_save(results, device, compiled):
     fig = plt.figure(figsize=(12, 8), dpi=200)
     plt.plot(list(results.keys()), list(results.values()))
-    plt.xlabel('Number of robots')
-    plt.ylabel('Time per iteration (ms)')
-    plt.title('Time per iteration vs. number of robots')
+    plt.xlabel("Number of robots")
+    plt.ylabel("Time per iteration (ms)")
+    plt.title("Time per iteration vs. number of robots")
     plt.tight_layout(pad=1.0)
     plt.grid()
     min_time = int(min(results.values()))
     max_time = round(max(results.values())) + 1
-    num_ticks = (max_time - min_time) # spaced by 0.5ms
+    num_ticks = max_time - min_time  # spaced by 0.5ms
     plt.yticks(range(min_time, max_time, 2), [str(i) for i in range(min_time, max_time, 2)])
-    plt.gca().set_xscale('log',base=2)
+    plt.gca().set_xscale("log", base=2)
     plt.xticks([2**i for i in range(len(results))], [str(2**i) for i in range(len(results))])
     now = time.strftime("%Y-%m-%d_%H-%M-%S")
-    save_path = save_loc / f"benchmark_{device}_{now}_{"compile" if compiled else "eager"}.pdf"
+    save_path = save_loc / f"benchmark_{device}_{now}_{'compile' if compiled else 'eager'}.pdf"
     save_path.parent.mkdir(parents=True, exist_ok=True)
-    plt.savefig(save_path, bbox_inches='tight')
+    plt.savefig(save_path, bbox_inches="tight")
 
 
 def main(args):
@@ -73,12 +74,12 @@ def main(args):
     plot_and_save(results, device, args.compile)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     p = argparse.ArgumentParser()
-    p.add_argument('--device', type=str, default='cuda')
-    p.add_argument('--hperf', action='store_true', default=False)
-    p.add_argument('--num_runs', type=int, default=2000)
-    p.add_argument('--max_num_robots', type=int, default=128)
-    p.add_argument('--compile', action='store_true', default=False)
+    p.add_argument("--device", type=str, default="cuda")
+    p.add_argument("--hperf", action="store_true", default=False)
+    p.add_argument("--num_runs", type=int, default=2000)
+    p.add_argument("--max_num_robots", type=int, default=128)
+    p.add_argument("--compile", action="store_true", default=False)
     args = p.parse_args()
     main(args)

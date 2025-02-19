@@ -1,9 +1,13 @@
 import torch
 from flipper_training.engine.engine_state import PhysicsState, AuxEngineInfo, PhysicsStateDer
-from .obs import Observation, PhysicsState
+from flipper_training.utils.geometry import (
+    quaternion_to_euler,
+    inverse_quaternion,
+    rotate_vector_by_quaternion,
+)
+from .obs import Observation
 from dataclasses import dataclass
 from torchrl.data import Unbounded
-from flipper_training.utils.geometry import roll_from_R, pitch_from_R
 
 
 @dataclass
@@ -12,15 +16,30 @@ class RobotStateVector(Observation):
     Generates the observation vector for the robot state from kinematics and dynamics.
     """
 
-    def __call__(self, prev_state: PhysicsState,
-                 action: torch.Tensor,
-                 state_der: PhysicsStateDer,
-                 curr_state: PhysicsState,
-                 aux_info: AuxEngineInfo) -> torch.Tensor:
-        goal_vecs = torch.bmm((self.env.goal.x - curr_state.x).unsqueeze(1), curr_state.R).squeeze(dim=1)
-        rolls = roll_from_R(curr_state.R).reshape(-1, 1)
-        pitches = pitch_from_R(curr_state.R).reshape(-1, 1)
-        return torch.cat([curr_state.xd, curr_state.omega, curr_state.thetas, rolls, pitches, goal_vecs], dim=1)
+    def __call__(
+        self,
+        prev_state: PhysicsState,
+        action: torch.Tensor,
+        state_der: PhysicsStateDer,
+        curr_state: PhysicsState,
+        aux_info: AuxEngineInfo,
+    ) -> torch.Tensor:
+        goal_vecs = self.env.goal.x - curr_state.x  # (n_robots, 3)
+        goal_vecs_local = rotate_vector_by_quaternion(
+            goal_vecs.unsqueeze(1), inverse_quaternion(curr_state.q)
+        ).squeeze(1)  # (n_robots, 3)
+        rolls, pitches, _ = quaternion_to_euler(curr_state.q)
+        return torch.cat(
+            [
+                curr_state.xd,
+                curr_state.omega,
+                curr_state.thetas,
+                rolls.unsqueeze(0),
+                pitches.unsqueeze(0),
+                goal_vecs_local,
+            ],
+            dim=1,
+        )
 
     def get_spec(self) -> Unbounded:
         dim = 3  # velocity vector

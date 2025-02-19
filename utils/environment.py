@@ -3,6 +3,8 @@ from typing import Any, Tuple, Callable
 from .geometry import normalized
 from .heightmap_generators import BaseHeightmapGenerator
 
+__all__ = ["make_x_y_grids", "generate_heightmaps", "compute_heightmap_gradients", "surface_normals", "interpolate_grid"]
+
 
 def make_x_y_grids(max_coord: float, grid_res: float, num_robots: int) -> Tuple[torch.Tensor, torch.Tensor]:
     """
@@ -19,7 +21,7 @@ def make_x_y_grids(max_coord: float, grid_res: float, num_robots: int) -> Tuple[
     dim = int(2 * max_coord / grid_res)
     xint = torch.linspace(-max_coord, max_coord, dim)
     yint = torch.linspace(-max_coord, max_coord, dim)
-    x, y = torch.meshgrid(xint, yint, indexing='xy')
+    x, y = torch.meshgrid(xint, yint, indexing="xy")
     x = x.unsqueeze(0).repeat(num_robots, 1, 1)
     y = y.unsqueeze(0).repeat(num_robots, 1, 1)
     return x, y

@@ -1,11 +1,25 @@
 mass: 67.8 # kg fully loaded without arm
 driving_part_density: 0.3 # relative to the body density
 vel_max: 1.0 # m/s
+forward_direction: [1., 0., 0.] # forward direction in the robot's frame
 joint_positions: # x,y,z of the joint axes in the robot's frame
   - [0.2565, 0.25, 0.0]
   - [0.256, -0.25, 0.0]
   - [-0.256, 0.25, 0.0]
   - [-0.25666667, -0.25, 0.0]
+wheels: # each entry corresponds to a driving part in order, radius-position pairs must be in the same order
+  - radius: [0.1, 0.065]
+    position: [[0.2565, 0.25, 0.0], [0.558, 0.287, 0.]]
+    rot_axis: [0., 1., 0.]
+  - radius: [0.1, 0.065]
+    position: [[0.256, -0.25, 0.0], [0.558, -0.287, 0.]]
+    rot_axis: [0., -1., 0.]
+  - radius: [0.1, 0.065]
+    position: [[-0.256, 0.25, 0.0], [-0.558, 0.287, 0.]]
+    rot_axis: [0., 1., 0.]
+  - radius: [0.1, 0.065]
+    position: [[-0.25666667, -0.25, 0.0], [-0.558, -0.287, 0.]]
+    rot_axis: [0., -1., 0.]
 joint_limits: # min and max angles for each joint
   - [-1.57, 1.57] # rad
   - [-1.57, 1.57]
