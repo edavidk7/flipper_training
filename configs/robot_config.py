@@ -1,25 +1,24 @@
-from typing import Literal, Optional
-import torch
-from dataclasses import dataclass
-import numpy as np
-from pathlib import Path
-from flipper_training.configs.base_config import BaseConfig
-import pyvista as pv
-import yaml
 import hashlib
-from flipper_training.utils.geometry import (
-    points_in_oriented_box,
-    pointcloud_bounding_volume,
-    extract_top_plane_from_box,
-)
-from flipper_training.utils.meshes import (
-    extract_surface_from_mesh,
-    extract_submesh_by_mask,
-    voxelize_mesh,
-)
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Literal
+
+import numpy as np
+import pyvista as pv
+import torch
+import yaml
+
+from flipper_training.configs.base_config import BaseConfig
 from flipper_training.utils.flipper_modeling import (
-    get_flipper_pointwise_vels,
-    FlipperWheels,
+    TrackWheels,
+    get_track_pointwise_vels,
+)
+from flipper_training.utils.geometry import bbox_limits_to_points, points_within_bbox
+from flipper_training.utils.meshes import (
+    extract_submesh_by_mask,
+    extract_surface_from_mesh,
+    inertia_cog_from_voxelized_mesh,
+    sample_points_from_convex_hull,
 )
 
 np.random.seed(0)
@@ -31,42 +30,47 @@ POINTCACHE = ROOT / ".robot_cache"
 IMPLEMENTED_ROBOTS = ["marv"]
 
 
+def list_of_dicts_to_dict_of_lists(list_of_dicts: list[dict]) -> dict:
+    """
+    Converts a list of dictionaries to a dictionary of lists.
+
+    Args:
+        list_of_dicts (list[dict]): List of dictionaries.
+
+    Returns:
+        dict: Dictionary of lists.
+    """
+    return {key: [d[key] for d in list_of_dicts] for key in list_of_dicts[0].keys()}
+
+
 @dataclass
 class RobotModelConfig(BaseConfig):
     """
     Configuration of the robot model. Contains the physical constants of the robot, its mass and geometry.
-    The input mesh is subsampled to a voxel grid with a specified voxel size.
-
-    Attributes:
-        mass (float): mass of the robot in kg.
-        pointwise_mass (torch.Tensor): mass of each point in the robot.
-        joint_positions (torch.Tensor): positions of the joints in the robot's local frame.
-        robot_points (torch.Tensor): position of the robot points in their local frame.
-        driving_parts (torch.Tensor): tensor of masks for the driving parts of the robot, e.g. the tracks
-        driving_part_density (float): density of the driving parts relative to the body.
-        omega_max (float): maximum angular velocity of the robot in rad/s.
-        vel_max (float): maximum linear velocity of the robot's tracks in m/s.
-        driving_part_bboxes (torch.Tensor): bounding boxes of the driving parts.
-        radius (float): radius of the robot.
-        body_bbox (torch.Tensor): bounding box of the robot body.
-        robot_type (Literal['tradr', 'marv', 'husky']): type of the robot.
-        voxel_size (float): size of the voxel grid for the body.
-        points_per_driving_part (int): number of points per driving part for clustering.
-        bounding_volume_eps (float): epsilon for bounding volume computation.
     """
 
     robot_type: Literal["tradr", "marv", "husky"]
-    voxel_size: float = 0.08
+    mesh_voxel_size: float = 0.01
     points_per_driving_part: int = 192
+    points_per_body: int = 256
     bounding_volume_eps: float = 1e-2
     wheel_assignment_margin: float = 0.02
+    linear_track_assignment_margin: float = 0.05
 
     def __post_init__(self):
-        assert self.robot_type in IMPLEMENTED_ROBOTS, (
-            f"Robot {self.robot_type} not supported. Available robots: {IMPLEMENTED_ROBOTS}"
-        )
+        assert self.robot_type in IMPLEMENTED_ROBOTS, f"Robot {self.robot_type} not supported. Available robots: {IMPLEMENTED_ROBOTS}"
         self.load_robot_params_from_yaml()
         self.create_robot_geometry()
+        self.disable_grads()
+        print(self)
+
+    def disable_grads(self):
+        """
+        Disables gradients for all tensors in the dataclass.
+        """
+        for key, val in self.__dict__.items():
+            if isinstance(val, torch.Tensor):
+                val.requires_grad = False
 
     def load_robot_params_from_yaml(self) -> None:
         """
@@ -82,41 +86,73 @@ class RobotModelConfig(BaseConfig):
             robot_params = yaml.safe_load(file)
             canonical = yaml.dump(robot_params, sort_keys=True)  # ensure consistent order
         self.yaml_hash = hashlib.sha256(canonical.encode()).hexdigest()
-        self.mass = robot_params["mass"]
-        self.driving_part_density = robot_params["driving_part_density"]
-        self.joint_positions = torch.tensor(robot_params["joint_positions"])
-        self.vel_max = robot_params["vel_max"]
-        self.omega_max = self._compute_omega_max()
-        self.joint_limits = torch.tensor(robot_params["joint_limits"]).T  # shape (2, n_joints)
-        self.joint_movable_mask = torch.tensor(
-            robot_params["joint_movable_mask"], dtype=torch.bool
-        )  # shape (n_joints,)
-        self.joint_vel_limits = torch.tensor(robot_params["joint_vel_limits"])  # shape (n_joints,)
-        self.driving_part_bboxes = torch.stack(
-            [torch.tensor(bbox) for bbox in robot_params["driving_part_bboxes"]], dim=0
-        )
-        self.body_bbox = torch.tensor(robot_params["body_bbox"])
-        self.flipper_wheels = [
-            FlipperWheels(
-                wheel_radii=torch.tensor(wheel["radius"]),
-                wheel_positions=torch.tensor(wheel["position"]),
-                rotation_vector=torch.tensor(wheel["rot_axis"]),
-            )
-            for wheel in robot_params["wheels"]
-        ]
+        self.v_max = robot_params["v_max"]
         self.driving_direction = torch.tensor(robot_params["forward_direction"])
+        self.body_mass = robot_params["body"]["mass"]
+        self.body_bbox = torch.tensor(robot_params["body"]["bbox"]) if "bbox" in robot_params["body"] else None
+        self.num_driving_parts = len(robot_params["driving_parts"])
+        driving_parts = list_of_dicts_to_dict_of_lists(robot_params["driving_parts"])
+        self.driving_part_bboxes = torch.tensor(driving_parts["bbox"])
+        self.driving_part_masses = torch.tensor(driving_parts["mass"])
+        self.track_wheels = [TrackWheels.from_dict(wheel) for wheel in driving_parts["wheels"]]
+        self.joint_positions = torch.tensor(driving_parts["joint_position"])
+        self.joint_limits = torch.tensor(driving_parts["joint_limits"]).T  # transpose from shape (num_driving_parts, 2) to (2, num_driving_parts)
+        self.joint_max_pivot_vels = torch.tensor(driving_parts["max_pivot_vel"])
+        self.total_mass = self.body_mass + self.driving_part_masses.sum().item()
+        self.mesh_file = robot_params["mesh"]
+        self.driving_part_movable_mask = torch.tensor(driving_parts["is_movable"]).float()
+
+    def __repr__(self) -> str:
+        s = f"RobotModelConfig for {self.robot_type}"
+        s += f"\nBody mass: {self.body_mass}"
+        s += f"\nTotal mass: {self.total_mass}"
+        s += f"\nBody bbox: {self.body_bbox}"
+        s += f"\nNumber of driving parts: {self.num_driving_parts}"
+        s += f"\nDriving part masses: {self.driving_part_masses}"
+        s += f"\nDriving part bboxes: {self.driving_part_bboxes}"
+        s += f"\nJoint positions: {self.joint_positions}"
+        s += f"\nJoint limits: {self.joint_limits}"
+        s += f"\nJoint max pivot vels: {self.joint_max_pivot_vels}"
+        s += f"\nTrack wheels: {self.track_wheels}"
+        s += f"\nMax velocity: {self.v_max}"
+        s += f"\nDriving direction: {self.driving_direction}"
+        s += f"\nBody voxel size: {self.mesh_voxel_size}"
+        s += f"\nPoints per driving part: {self.points_per_driving_part}"
+        s += f"\nBounding volume eps: {self.bounding_volume_eps}"
+        s += f"\nWheel assignment margin: {self.wheel_assignment_margin}"
+        s += f"\nLinear track assignment margin: {self.linear_track_assignment_margin}"
+        s += f"\nTotal number of points: {self.points_per_body + self.points_per_driving_part * self.num_driving_parts}"
+        self._print_tensor_info()
+        return s
 
     @property
     def _descr_str(self) -> str:
-        return f"{self.robot_type}_{self.voxel_size:.3f}_{self.points_per_driving_part}.pt"
+        return f"{self.robot_type}_{self.mesh_voxel_size:.3f}_{self.points_per_driving_part}_bv{self.bounding_volume_eps}_whl{self.wheel_assignment_margin}_trck{self.linear_track_assignment_margin}.pt"
 
-    def print_info(self) -> None:
-        print(f"Robot has {self.robot_points.shape[0]} points")
+    def _print_tensor_info(self):
+        for name, tensor in self.__dict__.items():
+            if isinstance(tensor, torch.Tensor):
+                print(f"{name}: {tensor.shape}")
 
-    def _compute_omega_max(self) -> float:
-        joint_y = self.joint_positions[..., 1]
-        w = abs(joint_y.max() - joint_y.min())
-        return 2 * self.vel_max / w
+    def vw_to_vels(self, v: float | torch.Tensor, w: float | torch.Tensor) -> torch.Tensor:
+        """
+        Linear/angular velocity to track wheel velocities.
+        """
+        if isinstance(v, float):
+            v = torch.tensor(v)
+        if isinstance(w, float):
+            w = torch.tensor(w)
+        v = v.view(-1, 1)
+        w = w.view(-1, 1)
+        driving_direction_2d = self.driving_direction[:2]
+        driving_direction_2d = driving_direction_2d / torch.linalg.norm(driving_direction_2d)
+        joint_positions_2d = self.joint_positions[:, :2]
+        joint_dist_non_driving = joint_positions_2d - torch.sum(joint_positions_2d * driving_direction_2d, dim=-1, keepdim=True) * driving_direction_2d
+        joint_dist_non_driving *= self.driving_direction[None, [1, 0]] * torch.tensor([1, -1])  # normal of the driving direction
+        joint_dist_non_driving = joint_dist_non_driving.sum(dim=-1)
+        vels = v.repeat(1, self.num_driving_parts)  # shape (batch_size, num_driving_parts)
+        vels += w * joint_dist_non_driving  # shape (batch_size, num_driving_parts)
+        return vels.clamp(-self.v_max, self.v_max)
 
     def load_from_cache(self) -> bool:
         """
@@ -134,7 +170,6 @@ class RobotModelConfig(BaseConfig):
                 return False
             for key, val in confdict.items():
                 setattr(self, key, val)
-            self.print_info()
             return True
         return False
 
@@ -147,166 +182,141 @@ class RobotModelConfig(BaseConfig):
             confpath.parent.mkdir(parents=True)
         print(f"Saving robot model to cache: {confpath}")
         confdict = {
-            "robot_points": self.robot_points,
-            "driving_part_masks": self.driving_part_masks,
-            "body_mask": self.body_mask,
-            "pointwise_mass": self.pointwise_mass,
-            "joint_positions": self.joint_positions,
-            "body_bbox": self.body_bbox,
-            "driving_part_bboxes": self.driving_part_bboxes,
-            "radius": self.radius,
             "yaml_hash": self.yaml_hash,
-            "body_bounding_volume": self.body_bounding_volume,
-            "driving_part_bounding_volumes": self.driving_part_bounding_volumes,
+            "driving_part_points": self.driving_part_points,
+            "driving_part_inertias": self.driving_part_inertias,
+            "driving_part_cogs": self.driving_part_cogs,
+            "body_points": self.body_points,
+            "body_inertia": self.body_inertia,
+            "body_cog": self.body_cog,
+            "radius": self.radius,
+            "thrust_directions": self.thrust_directions,
+            "joint_local_driving_part_pts": self.joint_local_driving_part_pts,
+            "joint_local_driving_part_cogs": self.joint_local_driving_part_cogs,
         }
         torch.save(confdict, confpath)
 
-    def get_controls(self, vw: torch.Tensor) -> torch.Tensor:
-        """Compute the speeds of the driving parts based on the robot's linear and angular velocities.
-
-        The output is clamped to the maximum velocity of the robot's tracks.
-
-        Args:
-            vw (torch.Tensor): linear and angular velocity of the robot. shape (n_robots, 2)
-
-        Returns:
-            torch.Tensor: speeds of the driving parts. shape (n_robots, n_driving_parts)
+    def _construct_driving_parts(
+        self,
+        robot_mesh: pv.PolyData,
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         """
-        joint_y = self.joint_positions[..., 1]
-        return torch.clamp(vw[..., 0] + joint_y * vw[..., 1], min=-self.vel_max, max=self.vel_max)
+        Constructs the driving parts of the robot
+        Args:
+            robot_points (torch.Tensor): Points of the robot.
+        Returns:
+            tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]: Points, inertias, center of gravity of the driving parts and masks.
+        """
+        robot_points = torch.tensor(robot_mesh.points)
+        driving_part_points = []
+        driving_part_inertias = []
+        driving_part_cogs = []
+        driving_part_masks = []
+        # Create surface meshes for the driving parts
+        for i in range(self.num_driving_parts):
+            mask = points_within_bbox(robot_points, bbox=self.driving_part_bboxes[i])
+            driving_mesh: pv.PolyData = extract_submesh_by_mask(robot_mesh, mask).extract_surface()
+            inertia, cog_coords = inertia_cog_from_voxelized_mesh(driving_mesh, self.driving_part_masses[i].item(), self.mesh_voxel_size, fill=True)
+            driving_points = extract_surface_from_mesh(driving_mesh, n_points=self.points_per_driving_part)
+            driving_part_points.append(driving_points)
+            driving_part_inertias.append(inertia)
+            driving_part_cogs.append(cog_coords)
+            driving_part_masks.append(mask)
+        return (
+            torch.stack(driving_part_points).float(),
+            torch.stack(driving_part_inertias).float(),
+            torch.stack(driving_part_cogs).float(),
+            torch.stack(driving_part_masks).float(),
+        )
+
+    def _construct_body(self, mesh: pv.PolyData, driving_part_masks: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        robot_points = torch.tensor(mesh.points)
+        body_mask = points_within_bbox(robot_points, self.body_bbox) if self.body_bbox is not None else torch.sum(driving_part_masks, dim=0) == 0
+        robot_body = extract_submesh_by_mask(mesh, body_mask).extract_surface()
+        robot_body_points = sample_points_from_convex_hull(robot_body, self.points_per_body, method="even")
+        inertia, cog_coords = inertia_cog_from_voxelized_mesh(robot_body, self.body_mass, self.mesh_voxel_size, fill=True)
+        return robot_body_points.float(), inertia.float(), cog_coords.float()
 
     def create_robot_geometry(self) -> None:
-        """
-        Returns the geometry of the robot model.
-
-        Returns:
-            torch.Tensor: Point cloud as vertices of the robot mesh (downsampled by voxel_size).
-            torch.Tensor: Masks for the driving parts of the robot.
-            o3d.geometry.TriangleMesh: Mesh object.
-        """
         if self.load_from_cache():
             return
         # Load the mesh and voxelized mesh
-        mesh = pv.read(MESHDIR / f"{self.robot_type}.obj")
-        robot_points = torch.tensor(mesh.points)
-        driving_part_points = []
-        # Create surface meshes for the driving parts
-        for box in self.driving_part_bboxes:
-            mask = points_in_oriented_box(robot_points[:, :2], box)
-            driving_mesh = extract_submesh_by_mask(mesh, mask)
-            driving_points = extract_surface_from_mesh(
-                driving_mesh, n_points=self.points_per_driving_part
-            )
-            driving_part_points.append(driving_points)
-        # Create voxelized mesh for the body
-        body_mask = points_in_oriented_box(robot_points[:, :2], self.body_bbox)
-        robot_body = extract_submesh_by_mask(mesh, body_mask)
-        robot_body_points = voxelize_mesh(robot_body.delaunay_3d(), self.voxel_size)
-        # Combine all points
-        robot_points = torch.cat(driving_part_points + [robot_body_points]).float()
-        # Create masks for the driving parts
-        driving_part_masks = []
-        s = 0
-        pointwise_relative_density = torch.ones(robot_points.shape[0])
-        for i in range(len(driving_part_points)):
-            mask = torch.zeros(robot_points.shape[0], dtype=torch.bool)
-            mask[s : s + driving_part_points[i].shape[0]] = True
-            s += driving_part_points[i].shape[0]
-            driving_part_masks.append(mask)
-            pointwise_relative_density[mask] = self.driving_part_density
-        driving_part_masks = torch.stack(driving_part_masks, dim=0)
-        # Calculate pointwise mass and center of gravity
-        pointwise_mass = self.mass * pointwise_relative_density / pointwise_relative_density.sum()
-        # Set
-        self.body_bounding_volume = pointcloud_bounding_volume(
-            robot_body_points, eps=self.bounding_volume_eps
-        ).float()
-        self.driving_part_bounding_volumes = torch.stack(
-            [
-                pointcloud_bounding_volume(p, eps=self.bounding_volume_eps)
-                for p in driving_part_points
-            ],
-            dim=0,
-        ).float()
-        self.pointwise_mass = pointwise_mass
-        self.robot_points = robot_points
-        self.driving_part_masks = driving_part_masks.float()
-        self.body_mask = (torch.sum(driving_part_masks, dim=0) == 0).float()
-        self.radius = torch.sqrt((robot_points**2).sum(dim=1).max())
+        mesh = pv.read(MESHDIR / self.mesh_file)
+        # Construct the driving parts and body, compute their inertias and center of gravity
+        (
+            self.driving_part_points,  # shape (num_driving_parts, points_per_driving_part, 3)
+            self.driving_part_inertias,  # shape (num_driving_parts, 3, 3)
+            self.driving_part_cogs,  # shape (num_driving_parts, 3)
+            driving_part_masks,  # shape (num_driving_parts, num_points)
+        ) = self._construct_driving_parts(mesh)
+        self.body_points, self.body_inertia, self.body_cog = self._construct_body(mesh, driving_part_masks)
+        self.joint_local_driving_part_pts = self.driving_part_points - self.joint_positions[:, None, :]
+        self.joint_local_driving_part_cogs = self.driving_part_cogs - self.joint_positions
+        self.radius = torch.linalg.norm(torch.cat([self.body_points, *self.driving_part_points], dim=0), dim=-1).max().item()
+        self.thrust_directions = self._calculate_thrust_directions()
         # Save to cache
         self.save_to_cache()
-        self.print_info()
 
-    @property
-    def num_joints(self) -> int:
-        return self.joint_positions.shape[0]
-
-    @property
-    def upper_bounding_planes(self) -> tuple[torch.Tensor, torch.Tensor]:
+    def _calculate_thrust_directions(self) -> torch.Tensor:
         """
-        The upper bounding planes of the robot's bounding volumes.
+        Calculate the thrust directions for the robot points.
 
-        The planes are returned per-point in format (normal_vectors (n_points, 3), point_on_plane (n_points, 3)).
+        Returns:
+            torch.Tensor: Thrust directions for the robot points.
         """
-        normals = torch.zeros_like(self.robot_points)
-        points = torch.zeros_like(self.robot_points)
-        body_normal, body_point = extract_top_plane_from_box(self.body_bounding_volume)
-        normals[self.body_mask.bool()] = body_normal
-        points[self.body_mask.bool()] = body_point
-        for i, mask in enumerate(self.driving_part_masks):
-            normal, point = extract_top_plane_from_box(self.driving_part_bounding_volumes[i])
-            normals[mask.bool()] = normal
-            points[mask.bool()] = point
-        return normals, points
+        thrust_directions = torch.zeros_like(self.driving_part_points)
+        for i in range(self.num_driving_parts):
+            thrust_directions[i] = -get_track_pointwise_vels(
+                self.driving_part_points[i],
+                self.track_wheels[i],
+                self.driving_direction,
+                self.wheel_assignment_margin,
+                self.linear_track_assignment_margin,
+            )
+        return thrust_directions
 
     def visualize_robot(
         self,
-        robot_points: Optional[torch.Tensor] = None,
         grid_size: float = 1.0,
         grid_spacing: float = 0.1,
         return_plotter: bool = False,
+        jupyter_backend: str = "interactive",
     ) -> None:
         """
         Visualizes the robot in 3D using PyVista.
 
         Parameters:
-            robot_points (torch.Tensor): Point cloud as vertices of the robot mesh (downsampled by voxel_size).
             grid_size (float): Size of the grid.
             grid_spacing (float): Spacing of the grid.
+            return_plotter (bool): Return the plotter object.
+            jupyter_backend (str): Jupyter backend.
         """
-        if robot_points is None:
-            robot_points = self.robot_points
-        robot_points = robot_points.cpu()
-        driving_part_points = torch.cat(
-            [robot_points[mask] for mask in self.driving_part_masks.cpu().bool()]
-        )
-        other_points = robot_points[torch.sum(self.driving_part_masks.cpu(), dim=0) == 0]
-        driving_pcd = pv.PolyData(driving_part_points.numpy())
-        other_pcd = pv.PolyData(other_points.numpy())
+        body_points = self.body_points.cpu().numpy()
+        driving_part_points = self.driving_part_points.cpu().numpy()
+        thrust_directions = self.thrust_directions.cpu().numpy()
         plotter = pv.Plotter()
-        # body and driving parts
-        plotter.add_mesh(other_pcd, color="blue", point_size=5, render_points_as_spheres=True)
-        plotter.add_mesh(driving_pcd, color="red", point_size=5, render_points_as_spheres=True)
+        for i in range(self.num_driving_parts):
+            driving_part_pcd = pv.PolyData(driving_part_points[i])
+            driving_part_pcd["vectors"] = thrust_directions[i] * 0.1
+            driving_part_pcd.set_active_vectors("vectors")
+            plotter.add_mesh(driving_part_pcd, color="red", point_size=5, render_points_as_spheres=True)
+            plotter.add_mesh(driving_part_pcd.arrows, color="black", opacity=0.05)
+        body_pcd = pv.PolyData(body_points)
+        plotter.add_mesh(body_pcd, color="blue", point_size=5, render_points_as_spheres=True)
         # joint positions
         for joint in self.joint_positions.cpu():
-            sphere = pv.Sphere(center=joint.numpy(), radius=0.01)
+            sphere = pv.Sphere(center=joint.numpy(), radius=0.02)
             plotter.add_mesh(sphere, color="green")
         # bounding volumes - body
-        body_bounding_volume_corners = self.body_bounding_volume.cpu().detach()
-        body_bounding_volume_mesh = pv.PolyData(body_bounding_volume_corners.numpy()).delaunay_3d()
-        plotter.add_mesh(body_bounding_volume_mesh, color="blue", line_width=2, opacity=0.05)
+        if self.body_bbox is not None:
+            body_bounding_volume_mesh = pv.PolyData(bbox_limits_to_points(self.body_bbox.cpu()).numpy()).delaunay_3d()
+            plotter.add_mesh(body_bounding_volume_mesh, color="blue", line_width=2, opacity=0.1)
         # bounding volumes - driving parts
-        for (
-            driving_part_bounding_volume_corners
-        ) in self.driving_part_bounding_volumes.cpu().detach():
-            driving_part_bounding_volume_mesh = pv.PolyData(
-                driving_part_bounding_volume_corners.numpy()
-            ).delaunay_3d()
-            plotter.add_mesh(
-                driving_part_bounding_volume_mesh, color="red", line_width=2, opacity=0.05
-            )
+        for box in self.driving_part_bboxes.cpu():
+            driving_part_bounding_volume_mesh = pv.PolyData(bbox_limits_to_points(box).numpy()).delaunay_3d()
+            plotter.add_mesh(driving_part_bounding_volume_mesh, color="red", line_width=2, opacity=0.1)
         # origin of robot's local frame
-        sphere = pv.Sphere(center=np.zeros(3), radius=0.025)
+        sphere = pv.Sphere(center=np.zeros(3), radius=0.03)
         plotter.add_mesh(sphere, color="yellow")
         # grid
         for i in np.arange(-grid_size, grid_size + grid_spacing, grid_spacing):
@@ -314,11 +324,19 @@ class RobotModelConfig(BaseConfig):
             line_y = pv.Line(pointa=[-grid_size, i, 0], pointb=[grid_size, i, 0])
             plotter.add_mesh(line_x, color="black", line_width=0.5)
             plotter.add_mesh(line_y, color="black", line_width=0.5)
+        # driving direction arrow
+        driving_direction_arrow = pv.Arrow(
+            direction=self.driving_direction.cpu().numpy(),
+            tip_length=0.1,
+            tip_radius=0.01,
+            shaft_radius=0.005,
+        )
+        plotter.add_mesh(driving_direction_arrow, color="green")
         # show
-        print("Robot has {} points".format(robot_points.shape[0]))
+        print(self)
         plotter.show_axes()
         if not return_plotter:
-            plotter.show()
+            plotter.show(jupyter_backend=jupyter_backend)
         else:
             return plotter
 
@@ -328,14 +346,12 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser()
     parser.add_argument("--robot_type", type=str, default="marv", help="Type of the robot")
-    parser.add_argument("--voxel_size", type=float, default=0.08, help="Voxel size")
-    parser.add_argument(
-        "--points_per_driving_part", type=int, default=192, help="Number of points per driving part"
-    )
+    parser.add_argument("--mesh_voxel_size", type=float, default=0.01, help="Voxel size")
+    parser.add_argument("--points_per_driving_part", type=int, default=192, help="Number of points per driving part")
     args = parser.parse_args()
     robot_model = RobotModelConfig(
         robot_type=args.robot_type,
-        voxel_size=args.voxel_size,
+        mesh_voxel_size=args.mesh_voxel_size,
         points_per_driving_part=args.points_per_driving_part,
     )
     robot_model.visualize_robot()

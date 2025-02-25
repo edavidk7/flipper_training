@@ -25,9 +25,7 @@ class RobotStateVector(Observation):
         aux_info: AuxEngineInfo,
     ) -> torch.Tensor:
         goal_vecs = self.env.goal.x - curr_state.x  # (n_robots, 3)
-        goal_vecs_local = rotate_vector_by_quaternion(
-            goal_vecs.unsqueeze(1), inverse_quaternion(curr_state.q)
-        ).squeeze(1)  # (n_robots, 3)
+        goal_vecs_local = rotate_vector_by_quaternion(goal_vecs.unsqueeze(1), inverse_quaternion(curr_state.q)).squeeze(1)  # (n_robots, 3)
         rolls, pitches, _ = quaternion_to_euler(curr_state.q)
         return torch.cat(
             [
@@ -44,7 +42,7 @@ class RobotStateVector(Observation):
     def get_spec(self) -> Unbounded:
         dim = 3  # velocity vector
         dim += 3  # angular velocity vector
-        dim += self.env.robot_cfg.num_joints  # joint angles
+        dim += self.env.robot_cfg.num_driving_parts  # joint angles
         dim += 1  # roll
         dim += 1  # pitch
         dim += 3  # goal vector

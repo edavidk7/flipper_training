@@ -3,7 +3,7 @@ from typing import Any, Tuple, Callable
 from .geometry import normalized
 from .heightmap_generators import BaseHeightmapGenerator
 
-__all__ = ["make_x_y_grids", "generate_heightmaps", "compute_heightmap_gradients", "surface_normals", "interpolate_grid"]
+__all__ = ["make_x_y_grids", "generate_heightmaps", "compute_heightmap_gradients", "interpolate_normals", "interpolate_grid", "surface_normals_from_grads"]
 
 
 def make_x_y_grids(max_coord: float, grid_res: float, num_robots: int) -> Tuple[torch.Tensor, torch.Tensor]:
@@ -61,7 +61,7 @@ def compute_heightmap_gradients(z_grid: torch.Tensor, grid_res: float) -> torch.
     return torch.stack(torch.gradient(z_grid, spacing=grid_res, dim=(2, 1), edge_order=2), dim=1)
 
 
-def surface_normals(z_grid_grads: torch.Tensor, query: torch.Tensor, max_coord: float) -> torch.Tensor:
+def surface_normals_from_grads(z_grid_grads: torch.Tensor, query: torch.Tensor, max_coord: float) -> torch.Tensor:
     """
     Computes the surface normals and tangents at the queried coordinates.
 
@@ -86,6 +86,26 @@ def surface_normals(z_grid_grads: torch.Tensor, query: torch.Tensor, max_coord: 
     return n
 
 
+def interpolate_normals(normals: torch.Tensor, query: torch.Tensor, max_coord: float) -> torch.Tensor:
+    """
+    Interpolates the normals at the desired (query[0], query[1]]) coordinates.
+
+    Parameters:
+    - normals: Tensor of normals corresponding to the x and y coordinates (3D array), (B, 3, D, D). Top-left corner is (-max_coord, -max_coord). The indexing order follows the "xy" convention, meaning the first dimension is the y-axis and the second dimension is the x-axis.
+    - query: Tensor of desired point coordinates for interpolation (3D array), (B, N, 2). Range is from -max_coord to max_coord.
+    Returns:
+    - Interpolated normals at the queried coordinates in shape (B, N, 3).
+    """
+    norm_query = query / max_coord  # Normalize to [-1, 1]
+    # Clamp the query coordinates to the grid's valid range
+    norm_query.clamp_(-1, 1)
+    # Query coordinates of shape (B, N, 1, 2)
+    grid_coords = norm_query.unsqueeze(2)
+    # Interpolate the normals into shape (B, 3, N)
+    interpolated_normals = torch.nn.functional.grid_sample(normals, grid_coords, align_corners=True, mode="bilinear").squeeze(3)
+    return normalized(interpolated_normals.transpose(1, 2))
+
+
 def interpolate_grid(grid: torch.Tensor, query: torch.Tensor, max_coord: float | torch.Tensor) -> torch.Tensor:
     """
     Interpolates the height at the desired (query[0], query[1]]) coordinates.
@@ -98,7 +118,7 @@ def interpolate_grid(grid: torch.Tensor, query: torch.Tensor, max_coord: float |
     """
     norm_query = query / max_coord  # Normalize to [-1, 1]
     # Clamp the query coordinates to the grid's valid range
-    norm_query = torch.clamp(norm_query, -1, 1)
+    norm_query.clamp_(-1, 1)
     # Query coordinates of shape (B, N, 1, 2)
     grid_coords = norm_query.unsqueeze(2)
     # Grid of shape (B, 1, H, W)

@@ -1,5 +1,7 @@
-import torch
 from dataclasses import dataclass
+
+import torch
+
 from flipper_training.configs.base_config import BaseConfig
 from flipper_training.utils.environment import compute_heightmap_gradients
 
@@ -14,14 +16,15 @@ class WorldConfig(BaseConfig):
             dimension of the grid corresponds to the y-coordinate and the second dimension corresponds to the x-coordinate. The coordinate increases with increasing index, i.e. the Y down and X right. Generate them with torch.meshgrid(y, x, indexing="xy").
         2) origin [0,0] is at the center of the grid.
 
-    x_grid (torch.Tensor):  x-coordinates of the grid. 
+    x_grid (torch.Tensor):  x-coordinates of the grid.
     y_grid (torch.Tensor): y-coordinates of the grid.
     z_grid (torch.Tensor): z-coordinates of the grid.
+    z_grid_grad (torch.Tensor): gradients of the z-coordinates of the grid.
+    normals (torch.Tensor): normals of the terrain. Shape (B, 3, grid_dim, grid_dim).
     grid_res (float): resolution of the grid in meters. Represents the metric distance between 2 centers of adjacent grid cells.
     max_coord (float): maximum coordinate of the grid.
-    z_grid_grad (torch.Tensor): gradients of the heightmap. Shape (2, grid_dim, grid_dim). The first dimension corresponds to the x and y gradients respectively.
     k_stiffness (float or torch.Tensor): stiffness of the terrain. Default is 20_000.
-    k_friction (float or torch.Tensor): friction of the terrain. Default is 1.0.    
+    k_friction (float or torch.Tensor): friction of the terrain. Default is 1.0.
     suitable_mask (torch.Tensor | None): mask of suitable terrain. Shape (grid_dim, grid_dim). 1 if suitable, 0 if not. Default is None.
     """
 
@@ -30,9 +33,12 @@ class WorldConfig(BaseConfig):
     z_grid: torch.Tensor
     grid_res: float
     max_coord: float
-    k_stiffness: float | torch.Tensor = 20_000.
+    k_stiffness: float | torch.Tensor = 20_000.0
     k_friction: float | torch.Tensor = 1.0
     suitable_mask: torch.Tensor | None = None
 
     def __post_init__(self):
-        self.z_grid_grad = compute_heightmap_gradients(self.z_grid, self.grid_res)
+        self.z_grid_grad = compute_heightmap_gradients(self.z_grid, self.grid_res)  # (B, 2, D, D)
+        ones = torch.ones_like(self.z_grid_grad[:, 0]).unsqueeze(1)
+        self.normals = torch.cat((-self.z_grid_grad, ones), dim=1)
+        self.normals /= torch.linalg.norm(self.normals, dim=1, keepdim=True)

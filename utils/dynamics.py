@@ -73,6 +73,7 @@ def inertia_tensor_inv(pointwise_mass: torch.Tensor, points: torch.Tensor):
     Iyy = (x2m + z2m).sum(dim=-1)
     Izz = (x2m + y2m).sum(dim=-1)
     Ixy = -(pointwise_mass[None, :] * x * y).sum(dim=-1)
+    
     Ixz = -(pointwise_mass[None, :] * x * z).sum(dim=-1)
     Iyz = -(pointwise_mass[None, :] * y * z).sum(dim=-1)
     # Construct the algebraic complement matrix

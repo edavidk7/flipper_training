@@ -1,6 +1,5 @@
 from flipper_training.configs.base_config import BaseConfig
 from dataclasses import dataclass
-from flipper_training.utils.numerical import IntegrationMode
 
 
 @dataclass
@@ -10,7 +9,6 @@ class PhysicsEngineConfig(BaseConfig):
 
     Attributes:
         num_robots (int): number of robots in the simulation.
-        integration_mode (IntegrationMode): integration mode for the physics engine. Default is "rk4".
         dt (float): time step for numerical integration. Default is 0.01. (100 Hz)
         gravity (float): acceleration due to gravity. Default is 9.81 m/s^2.
         torque_limit (float): torque limit that can be generated on CoG. The physics engine clips it to this value. Default is 500.0 Nm.
@@ -18,7 +16,6 @@ class PhysicsEngineConfig(BaseConfig):
     """
 
     num_robots: int
-    integration_mode: IntegrationMode = "rk4"
     dt: float = 0.01
     gravity: float = 9.81
     torque_limit: float = 200.0

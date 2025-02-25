@@ -31,6 +31,8 @@ __all__ = [
     "inverse_quaternion",
     "points_within_circle",
     "rodrigues_rotation_matrix",
+    "bbox_limits_to_points",
+    "q_to_R",
 ]
 
 
@@ -92,7 +94,6 @@ def skew_symmetric(v):
     Returns:
     - Skew-symmetric matrix of the input vector.
     """
-    assert v.dim() == 2 and v.shape[1] == 3
     U = torch.zeros(v.shape[0], 3, 3, device=v.device)
     U[:, 0, 1] = -v[:, 2]
     U[:, 0, 2] = v[:, 1]
@@ -103,10 +104,8 @@ def skew_symmetric(v):
     return U
 
 
-def rot_X(theta):
-    if isinstance(theta, float):
-        theta = torch.tensor(theta)
-    theta = theta.reshape(-1, 1)
+def rot_X(theta: torch.Tensor) -> torch.Tensor:
+    theta = theta.view(-1, 1)
     cos_ang = torch.cos(theta)
     sin_ang = torch.sin(theta)
     zeros = torch.zeros_like(theta)
@@ -121,10 +120,8 @@ def rot_X(theta):
     )  # Stack along new dimension to create (B, 3, 3)
 
 
-def rot_Y(theta):
-    if isinstance(theta, float):
-        theta = torch.tensor(theta)
-    theta = theta.reshape(-1, 1)
+def rot_Y(theta: torch.Tensor) -> torch.Tensor:
+    theta = theta.view(-1, 1)
     cos_ang = torch.cos(theta)
     sin_ang = torch.sin(theta)
     zeros = torch.zeros_like(theta)
@@ -139,10 +136,8 @@ def rot_Y(theta):
     )  # Stack along new dimension to create (B, 3, 3)
 
 
-def rot_Z(theta):
-    if isinstance(theta, float):
-        theta = torch.tensor(theta)
-    theta = theta.reshape(-1, 1)
+def rot_Z(theta: torch.Tensor) -> torch.Tensor:
+    theta = theta.view(-1, 1)
     cos_ang = torch.cos(theta)
     sin_ang = torch.sin(theta)
     zeros = torch.zeros_like(theta)
@@ -213,6 +208,41 @@ def quaternion_multiply(q: torch.Tensor, r: torch.Tensor):
     return torch.stack([w, x, y, z], dim=-1)
 
 
+def q_to_R(q: torch.Tensor) -> torch.Tensor:
+    """
+    Converts a quaternion to a rotation matrix.
+    q: Tensor of shape [B, 4]
+    Returns: Tensor of shape [B, 3, 3]
+    """
+    w, x, y, z = q.unbind(-1)
+    B = q.shape[0]
+
+    # Precompute products
+    ww = w * w
+    xx = x * x
+    yy = y * y
+    zz = z * z
+    wx = w * x
+    wy = w * y
+    wz = w * z
+    xy = x * y
+    xz = x * z
+    yz = y * z
+
+    R = torch.zeros(B, 3, 3, device=q.device, dtype=q.dtype)
+    R[:, 0, 0] = ww + xx - yy - zz
+    R[:, 0, 1] = 2 * (xy - wz)
+    R[:, 0, 2] = 2 * (xz + wy)
+    R[:, 1, 0] = 2 * (xy + wz)
+    R[:, 1, 1] = ww - xx + yy - zz
+    R[:, 1, 2] = 2 * (yz - wx)
+    R[:, 2, 0] = 2 * (xz - wy)
+    R[:, 2, 1] = 2 * (yz + wx)
+    R[:, 2, 2] = ww - xx - yy + zz
+
+    return R
+
+
 def quaternion_to_rotation_matrix(q: torch.Tensor):
     """
     Converts a quaternion to a rotation matrix.
@@ -260,8 +290,8 @@ def quaternion_conjugate(q):
 def rotate_vector_by_quaternion(v, q):
     """
     Rotate vector(s) v by quaternion(s) q using the direct cross-product method.
-    v: Tensor of shape (B,N1, 3)
-    q: Tensor of shape (B,N2, 4), assumed to be normalized quaternion
+    v: Tensor of shape (B,N or 1, 3)
+    q: Tensor of shape (B,N or 1, 4), assumed to be normalized quaternion
     Returns: Tensor of shape (..., 3)
     """
     # Split quaternion into scalar (q_w) and vector parts (q_xyz)
@@ -502,6 +532,34 @@ def points_in_oriented_box(points: torch.Tensor, box: torch.Tensor) -> torch.Ten
     return inside_mask
 
 
+def bbox_limits_to_points(limits: torch.Tensor) -> torch.Tensor:
+    """
+    Convert 3D bounding box limits to
+
+    Args:
+        limits (torch.Tensor): Tensor of shape (6) representing the max and min coordinates of the bounding box.
+
+    Returns:
+        torch.Tensor: Tensor of shape (8, 3) representing the 8 corner points of the bounding box.
+    """
+    max_x, max_y, max_z = limits[:3]
+    min_x, min_y, min_z = limits[3:]
+    return torch.tensor(
+        [
+            [min_x, min_y, min_z],
+            [max_x, min_y, min_z],
+            [max_x, max_y, min_z],
+            [min_x, max_y, min_z],
+            [min_x, min_y, max_z],
+            [max_x, min_y, max_z],
+            [max_x, max_y, max_z],
+            [min_x, max_y, max_z],
+        ],
+        device=limits.device,
+        dtype=limits.dtype,
+    )
+
+
 def pointcloud_bounding_volume(pcd: torch.Tensor, eps: float) -> torch.Tensor:
     """
     Determine the bounding volume of a point cloud.
@@ -548,16 +606,12 @@ def extract_top_plane_from_box(box: torch.Tensor) -> tuple[torch.Tensor, torch.T
     """
     max_x, max_y, max_z = box.max(dim=0).values
     min_x, min_y, min_z = box.min(dim=0).values
-    top_midpoint = torch.tensor(
-        [(max_x + min_x) / 2, (max_y + min_y) / 2, max_z], device=box.device, dtype=box.dtype
-    )
+    top_midpoint = torch.tensor([(max_x + min_x) / 2, (max_y + min_y) / 2, max_z], device=box.device, dtype=box.dtype)
     normal = torch.tensor([0, 0, 1], device=box.device, dtype=box.dtype)
     return normal, top_midpoint
 
 
-def points_within_circle(
-    points: torch.Tensor, center: torch.Tensor, radius: float, eps: float = 0.0
-) -> torch.Tensor:
+def points_within_circle(points: torch.Tensor, center: torch.Tensor, radius: float, eps: float = 0.0) -> torch.Tensor:
     """
     Check if points are within a circle in 2D.
 
@@ -574,3 +628,24 @@ def points_within_circle(
     assert center.shape == (2,), "Center must have shape (2,)."
     distances = torch.norm(points - center, dim=1)
     return (radius - eps <= distances) & (distances <= radius + eps)
+
+
+def points_within_bbox(
+    points: torch.Tensor,
+    bbox: torch.Tensor,
+) -> torch.Tensor:
+    """
+    Check if points are within an axis-aligned bounding box in D dimensions.
+
+    Args:
+        points (torch.Tensor): Tensor of shape (N, D), where N is the number of points and D is the number of dimensions.
+        bbox (torch.Tensor): Tensor of shape (2*D,), representing the max and min coordinates of the bounding box.
+    Returns:
+        torch.Tensor: Boolean mask of shape (N,), where True indicates the point is within the bounding box.
+    """
+    assert points.dim() == 2, "Points must be 2D (N, D)."
+    assert bbox.dim() == 1 and bbox.shape[0] % 2 == 0, "BBox must have shape (2*D,)."
+    D = bbox.shape[0] // 2
+    max_coords = bbox[:D]
+    min_coords = bbox[D:]
+    return torch.all((points >= min_coords) & (points <= max_coords), dim=1)

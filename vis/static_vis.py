@@ -265,9 +265,7 @@ def plot_3d_trajectory(
     ys = states_vec.x[:, robot_idx, 1].cpu().numpy()
     zs = states_vec.x[:, robot_idx, 2].cpu().numpy()
     fig.add_trace(
-        go.Scatter3d(
-            x=xs, y=ys, z=zs, mode="lines", line=dict(color="lime", width=5), name="Trajectory"
-        ),
+        go.Scatter3d(x=xs, y=ys, z=zs, mode="lines", line=dict(color="lime", width=5), name="Trajectory"),
     )
     # Robot pointcloud in last state with contact points and forces
     pts_global = aux_vec.global_robot_points[-1, robot_idx].cpu().numpy()
@@ -302,7 +300,7 @@ def plot_3d_trajectory(
             zaxis_title="Height (Z)",
             camera_eye=dict(x=1.0, y=1.0, z=0.5),
             aspectmode="manual",
-            aspectratio=dict(x=1.0, y=1.0, z=zs.max().item() / (2 * world_config.max_coord)),
+            aspectratio=dict(x=1.0, y=1.0, z=max(abs(zs).max().item(), abs(pts_global).max()) / (2 * world_config.max_coord)),
         ),
         width=1000,
         height=500,

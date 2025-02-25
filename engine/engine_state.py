@@ -1,12 +1,14 @@
-import torch
+from __future__ import annotations
+
 from typing import Iterable, Union
-from tensordict import tensorclass
+
+import torch
+from tensordict import TensorClass
 
 __all__ = ["PhysicsState", "PhysicsStateDer", "AuxEngineInfo", "vectorize_iter_of_states"]
 
 
-@tensorclass
-class PhysicsState:
+class PhysicsState(TensorClass):
     """Physics State
 
     Attributes:
@@ -45,14 +47,13 @@ class PhysicsState:
             xd=torch.zeros(batch_size, 3),
             q=torch.tensor([1.0, 0.0, 0.0, 0.0] * batch_size).reshape(batch_size, 4),
             omega=torch.zeros(batch_size, 3),
-            thetas=torch.zeros(batch_size, robot_model.num_joints),
+            thetas=torch.zeros(batch_size, robot_model.num_driving_parts),
             batch_size=[batch_size],
         )
         return PhysicsState(**base | kwargs, device=device)
 
 
-@tensorclass
-class PhysicsStateDer:
+class PhysicsStateDer(TensorClass):
     """Physics State Derivative
 
     Attributes:
@@ -68,8 +69,7 @@ class PhysicsStateDer:
     thetas_d: torch.Tensor
 
 
-@tensorclass
-class AuxEngineInfo:
+class AuxEngineInfo(TensorClass):
     """
     Auxiliary Engine Information
 
@@ -78,8 +78,8 @@ class AuxEngineInfo:
         F_friction (torch.Tensor): Friction forces. Shape (B, n_pts, 3).
         in_contact (torch.Tensor): Contact status. Shape (B, n_pts).
         normals (torch.Tensor): Normals at the contact points. Shape (B, n_pts, 3).
-        local_robot_points (torch.Tensor): Robot points in local coordinates. Shape (B, n_pts, 3).
         global_robot_points (torch.Tensor): Robot points in global coordinates. Shape (B, n_pts, 3).
+        global_thrust_vectors (torch.Tensor): Thrust vectors in global coordinates. Shape (B, n_pts, 3).
         torque (torch.Tensor): Torque generated on the robot's CoG. Shape (B, 3).
         global_cog_coords (torch.Tensor): CoG coordinates in global frame. Shape (B, 3).
         cog_corrected_points (torch.Tensor): Corrected CoG points in global frame. Shape (B, n_pts, 3).
@@ -90,8 +90,8 @@ class AuxEngineInfo:
     F_friction: torch.Tensor
     in_contact: torch.Tensor
     normals: torch.Tensor
-    local_robot_points: torch.Tensor
     global_robot_points: torch.Tensor
+    global_thrust_vectors: torch.Tensor
     torque: torch.Tensor
     global_cog_coords: torch.Tensor
     cog_corrected_points: torch.Tensor
