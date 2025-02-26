@@ -53,6 +53,7 @@ def main(train_config):
         device=device,
         batch_size=[train_config["num_robots"]],
         differentiable=False,
+        engine_compile_opts=train_config["engine_compile_opts"] if "engine_compile_opts" in train_config else None,
     )
     torchrl.envs.utils.check_env_specs(base_env)
     env = TransformedEnv(

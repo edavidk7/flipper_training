@@ -1,3 +1,8 @@
+import os
+
+os.environ["TORCH_LOGS"] = "dynamo"
+os.environ["TORCHDYNAMO_VERBOSE"] = "1"
+
 from functools import partial
 
 from torch.optim import Adam, lr_scheduler
@@ -20,6 +25,7 @@ train_config = {
     "epochs": 10000,
     "sub_batch_size": 64,
     "max_grad_norm": 1e3,
+    "engine_compile_opts": {"max-autotune": True, "triton.cudagraphs": True, "coordinate_descent_tuning": True},
     "gae_opts": {
         "gamma": 0.99,
         "lmbda": 0.95,
