@@ -6,6 +6,8 @@ from abc import ABC, abstractmethod
 
 if TYPE_CHECKING:
     from flipper_training.environment.env import Env
+    
+__all__ = ["Reward", "RollPitchGoal"]
 
 
 @dataclass

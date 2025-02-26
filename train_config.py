@@ -1,9 +1,12 @@
 from functools import partial
+
+from torch.optim import Adam, lr_scheduler
+
 from flipper_training.configs import *
-from flipper_training.rl_objectives import *
-from flipper_training.utils.heightmap_generators import *
-from torch.optim import lr_scheduler, Adam
 from flipper_training.observations import *
+from flipper_training.rl_objectives import *
+from flipper_training.rl_rewards.rewards import RollPitchGoal
+from flipper_training.utils.heightmap_generators import *
 
 train_config = {
     "device": "cpu",
@@ -42,12 +45,15 @@ train_config = {
         "max_height_fraction": 0.12,
         "min_std_fraction": 0.03,
         "max_std_fraction": 0.08,
-        "min_sigma_ratio": 0.6
+        "min_sigma_ratio": 0.6,
     },
     "robot_model_opts": {
         "robot_type": "marv",
-        "voxel_size": 0.08,
+        "mesh_voxel_size": 0.01,
         "points_per_driving_part": 192,
+        "points_per_body": 256,
+        "wheel_assignment_margin": 0.02,
+        "linear_track_assignment_margin": 0.05,
     },
     "world_opts": {
         "k_stiffness": 20_000,
@@ -58,17 +64,16 @@ train_config = {
         "higher_allowed": 0.5,
         "min_dist_to_goal": 0.5,
         "max_dist_to_goal": 0.8,
-        "goal_reached_reward": 1000.0,
-        "goal_reached_threshold": 0.05,
         "start_drop": 0.1,
         "iteration_limit_factor": 10,
-        "omega_weight": 1.0,
-        "goal_weight": 1.0,
         "start_position_orientation": "towards_goal",
     },
-    "rl_env_opts": {
-        "control_type": "per-track",
-        "differentiable": False,
+    "reward": RollPitchGoal,
+    "reward_opts": {
+        "goal_reached_reward": 1000.0,
+        "failed_reward": -100.0,
+        "omega_weight": 1.0,
+        "goal_weight": 1.0,
     },
     "observations": {
         "perception": partial(Heightmap, percep_shape=(128, 128), percep_extent=(1.0, 1.0, -1.0, -1.0)),
@@ -84,7 +89,9 @@ train_config = {
 
 if __name__ == "__main__":
     import pprint
-    from flipper_training.utils.config_to_json import save_config, load_config
+
+    from flipper_training.utils.config_to_json import load_config, save_config
+
     pprint.pprint(train_config)
     save_config(train_config, "/tmp/train_config.json")
     loaded_config = load_config("/tmp/train_config.json")

@@ -53,7 +53,6 @@ class RobotModelConfig(BaseConfig):
     mesh_voxel_size: float = 0.01
     points_per_driving_part: int = 192
     points_per_body: int = 256
-    bounding_volume_eps: float = 1e-2
     wheel_assignment_margin: float = 0.02
     linear_track_assignment_margin: float = 0.05
 
@@ -118,7 +117,6 @@ class RobotModelConfig(BaseConfig):
         s += f"\nDriving direction: {self.driving_direction}"
         s += f"\nBody voxel size: {self.mesh_voxel_size}"
         s += f"\nPoints per driving part: {self.points_per_driving_part}"
-        s += f"\nBounding volume eps: {self.bounding_volume_eps}"
         s += f"\nWheel assignment margin: {self.wheel_assignment_margin}"
         s += f"\nLinear track assignment margin: {self.linear_track_assignment_margin}"
         s += f"\nTotal number of points: {self.points_per_body + self.points_per_driving_part * self.num_driving_parts}"
@@ -127,7 +125,7 @@ class RobotModelConfig(BaseConfig):
 
     @property
     def _descr_str(self) -> str:
-        return f"{self.robot_type}_{self.mesh_voxel_size:.3f}_{self.points_per_driving_part}_bv{self.bounding_volume_eps}_whl{self.wheel_assignment_margin}_trck{self.linear_track_assignment_margin}.pt"
+        return f"{self.robot_type}_{self.mesh_voxel_size:.3f}_dp{self.points_per_driving_part}b_{self.points_per_body}_whl{self.wheel_assignment_margin}_trck{self.linear_track_assignment_margin}_{self.yaml_hash}"
 
     def _print_tensor_info(self):
         for name, tensor in self.__dict__.items():

@@ -248,7 +248,7 @@ class DPhysicsEngine(torch.nn.Module):
         ) + (self.robot_model.body_mass * self.robot_model.body_cog.view(1, 3, 1)).unsqueeze(1)  # shape (B, 1, 3, 1)
         cog_overall /= self.robot_model.total_mass  # shape (B, 1, 3, 1)
         # Compute vectors from overall CoG to each part's CoG
-        d_driving = rot_driving_part_cogs - cog_overall  # shape (B, n_joints, 1, 3, 1)
+        d_driving = rot_driving_part_cogs - cog_overall.unsqueeze(1)  # shape (B, n_joints, 1, 3, 1)
         d_body = self.robot_model.body_cog.view(1, 1, 3, 1) - cog_overall  # shape (B, 1, 3, 1)
         # Compute translation terms for driving parts
         d_driving_sq = torch.sum(d_driving**2, dim=-2, keepdim=True)  # shape (B, n_joints, 1, 1, 1)

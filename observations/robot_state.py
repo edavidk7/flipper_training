@@ -1,13 +1,16 @@
+from dataclasses import dataclass
+
 import torch
-from flipper_training.engine.engine_state import PhysicsState, AuxEngineInfo, PhysicsStateDer
+from torchrl.data import Unbounded
+
+from flipper_training.engine.engine_state import AuxEngineInfo, PhysicsState, PhysicsStateDer
 from flipper_training.utils.geometry import (
-    quaternion_to_euler,
     inverse_quaternion,
+    quaternion_to_euler,
     rotate_vector_by_quaternion,
 )
+
 from .obs import Observation
-from dataclasses import dataclass
-from torchrl.data import Unbounded
 
 
 @dataclass
@@ -25,15 +28,17 @@ class RobotStateVector(Observation):
         aux_info: AuxEngineInfo,
     ) -> torch.Tensor:
         goal_vecs = self.env.goal.x - curr_state.x  # (n_robots, 3)
-        goal_vecs_local = rotate_vector_by_quaternion(goal_vecs.unsqueeze(1), inverse_quaternion(curr_state.q)).squeeze(1)  # (n_robots, 3)
+        goal_vecs_local = rotate_vector_by_quaternion(goal_vecs.unsqueeze(1), inverse_quaternion(curr_state.q)).squeeze(
+            1
+        )  # (n_robots, 3)
         rolls, pitches, _ = quaternion_to_euler(curr_state.q)
         return torch.cat(
             [
                 curr_state.xd,
                 curr_state.omega,
                 curr_state.thetas,
-                rolls.unsqueeze(0),
-                pitches.unsqueeze(0),
+                rolls.unsqueeze(-1),
+                pitches.unsqueeze(-1),
                 goal_vecs_local,
             ],
             dim=1,
