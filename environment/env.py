@@ -69,7 +69,7 @@ class Env(EnvBase):
         if engine_compile_opts is not None:
             self._compile_engine(engine_compile_opts)
         else:
-            self._needs_engine_io_buffer = False
+            self._needs_engine_input_buffer = False
         self._reset(reset_all=True)
 
     @property
@@ -83,27 +83,22 @@ class Env(EnvBase):
 
     def _compile_engine(self, compile_opts: dict) -> None:
         print(f"Environment: Compiling engine with options {compile_opts}")
-        self._needs_engine_io_buffer = "triton.cudagraphs" in compile_opts and self.device == torch.device(
-            "cuda"
-        )  # If cudagraphs is used, we need to allocate the engine's input and output memory buffers
-        if self._needs_engine_io_buffer:
+        self._needs_engine_input_buffer = "triton.cudagraphs" in compile_opts and "cuda" in str(self.device) and compile_opts["triton.cudagraphs"]  # If cudagraphs is used, we need to allocate the engine's input and output memory buffers
+        if self._needs_engine_input_buffer:
             print("Environment: Engine compilation requires static input and output memory buffers")
         act = self.action_spec.zeros()  # Dummy action
         state = self.start.clone()  # Dummy state
         comp_engine = torch.compile(self.engine, options=compile_opts)
         try:
-            out_state, out_state_der, out_aux_info = self.engine(state, act, self.world_cfg)  # Dummy forward pass to compile the engine, record the return tensors
+            comp_engine(state, act, self.world_cfg)  # Dummy forward pass to compile the engine, record the return tensors
         except Exception as e:
             print(f"Engine compilation failed: {e}, falling back to non-compiled engine")
             return
         self.engine = comp_engine  # Replace the engine with the compiled one
-        if self._needs_engine_io_buffer:
-            self._engine_io_buffer = {  # Record the input and output tensors for the engine, whose memory locations are fixed in the cuda graph
+        if self._needs_engine_input_buffer:
+            self._engine_input_buffers = {  # Record the input and output tensors for the engine, whose memory locations are fixed in the cuda graph
                 "state": state,
-                "action": act,
-                "out_state": out_state,
-                "out_state_der": out_state_der,
-                "out_aux_info": out_aux_info,
+                "action": act
             }
 
     def _set_seed(self, seed: int | None):
@@ -188,30 +183,14 @@ class Env(EnvBase):
                 robot_points=self.last_step_aux_info.global_robot_points[i],
             ).show()
 
-    def _maybe_put_to_buffer(self, prev_state: PhysicsState, action: torch.Tensor) -> tuple[PhysicsState, torch.Tensor]:
-        if self._needs_engine_io_buffer:
-            self._engine_io_buffer["state"].copy_(prev_state)
-            self._engine_io_buffer["action"].copy_(action)
-            return self._engine_io_buffer["state"], self._engine_io_buffer["action"]
-        return prev_state, action
-
-    def _maybe_get_from_buffer(
-        self, next_state: PhysicsState, state_der: PhysicsStateDer, aux_info: AuxEngineInfo
-    ) -> tuple[PhysicsState, PhysicsStateDer, AuxEngineInfo]:
-        if self._needs_engine_io_buffer:
-            return self._engine_io_buffer["out_state"].clone(), self._engine_io_buffer["out_state_der"].clone(), self._engine_io_buffer["out_aux_info"].clone()
-        return next_state, state_der, aux_info
-
     def _step_engine(self, action: torch.Tensor) -> tuple[PhysicsState, PhysicsStateDer, AuxEngineInfo, PhysicsState]:
         prev_state = self.state.clone()
         action = action.to(self.device)
-        s, a = self._maybe_put_to_buffer(prev_state, action)
         if self.differentiable:
             next_state, state_der, aux_info = self.engine(s, a, self.world_cfg)
         else:
             with torch.no_grad():
                 next_state, state_der, aux_info = self.engine(s, a, self.world_cfg)
-        next_state, state_der, aux_info = self._maybe_get_from_buffer(next_state, state_der, aux_info)
         return prev_state, state_der, aux_info, next_state
 
     def _reset(self, tensordict=None, **kwargs) -> TensorDict:

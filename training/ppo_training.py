@@ -69,7 +69,7 @@ def main(train_config):
         if isinstance(t, ObservationNorm):
             t.init_stats(1000, (0, 1), 1)
     env.reset(reset_all=True)
-    actor_value_policy = make_actor_value_policy(env, **train_config["policy_opts"])
+    actor_value_policy = torch.compile(make_actor_value_policy(env, **train_config["policy_opts"]))
     actor_value_policy.to(device)
     actor_value_policy.train()
     collector = torchrl.collectors.SyncDataCollector(

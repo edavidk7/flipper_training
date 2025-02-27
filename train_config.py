@@ -14,8 +14,8 @@ from flipper_training.rl_rewards.rewards import RollPitchGoal
 from flipper_training.utils.heightmap_generators import *
 
 train_config = {
-    "device": "cpu",
-    "num_robots": 8,  # represents the number of robots in the environment simulated in parallel
+    "device": "cuda",
+    "num_robots": 128,  # represents the number of robots in the environment simulated in parallel
     "grid_res": 0.05,  # cm per cell
     "max_coord": 3.2,  # meters, the grid stretches from -max_coord to max_coord in x and y
     "refresh_heightmap_every": 100,  # number of steps after which the heightmap is regenerated
