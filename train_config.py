@@ -10,21 +10,23 @@ from flipper_training.utils.heightmap_generators import *
 
 train_config = {
     "device": "cuda",
-    "num_robots": 32,  # represents the number of robots in the environment simulated in parallel
+    "num_robots": 64,  # represents the number of robots in the environment simulated in parallel
     "grid_res": 0.05,  # cm per cell
     "max_coord": 3.2,  # meters, the grid stretches from -max_coord to max_coord in x and y
-    "refresh_heightmap_every": 100,  # number of steps after which the heightmap is regenerated
-    "learning_rate": 1e-4,
+    "learning_rate": 1e-3,
     "optimizer": Adam,
     "scheduler": lr_scheduler.CosineAnnealingLR,
-    "epochs": 10000,
-    "sub_batch_size": 64,
-    "max_grad_norm": 1e3,
+    "epochs_per_batch": 1,  # number of epochs to train on each batch
+    "max_grad_norm": 1,
+    "frames_per_batch": 128,  # true time steps, not divided by the number of robots
+    "total_frames": 1_048_576,
     "engine_compile_opts": {"max-autotune": True, "triton.cudagraphs": True, "coordinate_descent_tuning": True},
     "gae_opts": {
         "gamma": 0.99,
         "lmbda": 0.95,
         "average_gae": True,
+        "skip_existing": False,
+        "shifted": True,
     },
     "ppo_opts": {
         "clip_epsilon": 0.2,
@@ -34,12 +36,9 @@ train_config = {
         "loss_critic_type": "smooth_l1",
     },
     "data_collector_opts": {
-        "frames_per_batch": 128, # true time steps, not divided by the number of robots
-        "total_frames": 1_048_576,
         "split_trajs": False,
-    },
-    "replay_buffer_opts": {
-        "dim_extend":1,
+        "compile_policy": True,
+        "return_same_td": True,
     },
     "heightmap_gen": MultiGaussianHeightmapGenerator,
     "heightmap_gen_opts": {
@@ -60,7 +59,7 @@ train_config = {
         "linear_track_assignment_margin": 0.05,
     },
     "world_opts": {
-        "k_stiffness": 20_000,
+        "k_stiffness": 30_000,
         "k_friction": 1.0,
     },
     "training_objective": SimpleStabilizationObjective,
@@ -75,7 +74,7 @@ train_config = {
     "reward": RollPitchGoal,
     "reward_opts": {
         "goal_reached_reward": 1000.0,
-        "failed_reward": -100.0,
+        "failed_reward": -1000.0,
         "omega_weight": 1.0,
         "goal_weight": 1.0,
     },

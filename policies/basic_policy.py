@@ -25,7 +25,7 @@ class TerrainEncoder(torch.nn.Module):
             torch.nn.ReLU(),
             torch.nn.BatchNorm2d(64, track_running_stats=False),
             torch.nn.Flatten(),
-            torch.nn.Linear(64 * (img_shape[1] // 16) * (img_shape[2] // 16), output_size)
+            torch.nn.Linear(64 * (img_shape[1] // 16) * (img_shape[2] // 16), output_size),
         )
         self.forward = self.encoder.forward
 
@@ -41,20 +41,22 @@ class PolicyObservationEncoder(torch.nn.Module):
             torch.nn.LayerNorm(hidden_dim),
             torch.nn.Linear(hidden_dim, hidden_dim),
             torch.nn.Tanh(),
-            torch.nn.LayerNorm(hidden_dim))
+            torch.nn.LayerNorm(hidden_dim),
+        )
         self.shared_state_enc = torch.nn.Sequential(
             torch.nn.Linear(2 * hidden_dim, hidden_dim),
             torch.nn.Tanh(),
             torch.nn.LayerNorm(hidden_dim),
             torch.nn.Linear(hidden_dim, hidden_dim),
             torch.nn.Tanh(),
-            torch.nn.LayerNorm(hidden_dim)
+            torch.nn.LayerNorm(hidden_dim),
         )
 
-    def forward(self,
-                perception: torch.Tensor,
-                observation: torch.Tensor,
-                ):
+    def forward(
+        self,
+        perception: torch.Tensor,
+        observation: torch.Tensor,
+    ):
         if perception.ndim > 4:
             B, T = perception.shape[:2]
             perception = perception.flatten(0, 1)
@@ -105,24 +107,27 @@ class ValueFunction(torch.nn.Module):
         return self.value(y_shared)
 
 
-def make_actor_value_policy(env: Env,
-                            hidden_dim: int,
-                            actor_mlp_layers: int,
-                            value_mlp_layers: int,
-                            ) -> ActorValueOperator:
+def make_actor_value_policy(
+    env: Env,
+    hidden_dim: int,
+    actor_mlp_layers: int,
+    value_mlp_layers: int,
+) -> ActorValueOperator:
     encoder = PolicyObservationEncoder(env.observation_spec, hidden_dim)
     encoder_module = TensorDictModule(encoder, in_keys=["perception", "observation"], out_keys=["y_shared"])
     actor = ActorPolicy(hidden_dim, env.action_spec, actor_mlp_layers)
     actor_td = TensorDictModule(actor, in_keys=["y_shared"], out_keys=["loc", "scale"])
-    actor_module = ProbabilisticActor(module=actor_td,
-                                      spec=env.action_spec,
-                                      in_keys=["loc", "scale"],
-                                      distribution_class=TanhNormal,
-                                      distribution_kwargs={
-                                          "low": env.action_spec.space.low[0],  # pass only the values without a batch dimension
-                                          "high": env.action_spec.space.high[0],  # pass only the values without a batch dimension
-                                      },
-                                      return_log_prob=True)
+    actor_module = ProbabilisticActor(
+        module=actor_td,
+        spec=env.action_spec,
+        in_keys=["loc", "scale"],
+        distribution_class=TanhNormal,
+        distribution_kwargs={
+            "low": env.action_spec.space.low[0],  # pass only the values without a batch dimension
+            "high": env.action_spec.space.high[0],  # pass only the values without a batch dimension
+        },
+        return_log_prob=True,
+    )
     value = ValueFunction(hidden_dim, value_mlp_layers)
     value_module = ValueOperator(value, in_keys=["y_shared"])
     actor_value = ActorValueOperator(encoder_module, actor_module, value_module)
