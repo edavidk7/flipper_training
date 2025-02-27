@@ -90,7 +90,7 @@ def main(train_config):
         env,
         actor_value_policy.get_policy_operator(),
         frames_per_batch=train_config["frames_per_batch"] * train_config["num_robots"],
-        total_frames=train_config["total_frames"] * train_config["num_robots"],
+        total_frames=train_config["total_frames"],
         **train_config["data_collector_opts"],
         device=device,
     )
@@ -125,7 +125,7 @@ def main(train_config):
     )
     # Training loop
     logs = defaultdict(list)
-    pbar = tqdm(total=train_config["total_frames"])
+    pbar = tqdm(total=train_config["total_frames"] // (train_config["frames_per_batch"] * train_config["num_robots"]))
     eval_str = ""
     for i, tensordict_data in enumerate(
         collector
