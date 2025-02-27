@@ -10,6 +10,8 @@ from flipper_training.vis.static_vis import plot_heightmap_3d
 from flipper_training.engine.engine_state import PhysicsState, PhysicsStateDer, AuxEngineInfo
 from flipper_training.engine.engine import DPhysicsEngine
 
+import time
+
 if TYPE_CHECKING:
     from flipper_training.observations import Observation
 
@@ -68,9 +70,6 @@ class Env(EnvBase):
         # Reset the environment
         if engine_compile_opts is not None:
             self._compile_engine(engine_compile_opts)
-        else:
-            self._needs_engine_input_buffer = False
-        self._reset(reset_all=True)
 
     @property
     def world_config(self) -> WorldConfig:
@@ -81,11 +80,8 @@ class Env(EnvBase):
         assert world_config.suitable_mask is not None, "Suitable mask is required for the world configuration"
         self._world_config = world_config
 
-    def _compile_engine(self, compile_opts: dict) -> None:
+    def _compile_engine(self, compile_opts: dict, benchmark_iters: int = 1000) -> None:
         print(f"Environment: Compiling engine with options {compile_opts}")
-        self._needs_engine_input_buffer = "triton.cudagraphs" in compile_opts and "cuda" in str(self.device) and compile_opts["triton.cudagraphs"]  # If cudagraphs is used, we need to allocate the engine's input and output memory buffers
-        if self._needs_engine_input_buffer:
-            print("Environment: Engine compilation requires static input and output memory buffers")
         act = self.action_spec.zeros()  # Dummy action
         state = self.start.clone()  # Dummy state
         comp_engine = torch.compile(self.engine, options=compile_opts)
@@ -95,11 +91,11 @@ class Env(EnvBase):
             print(f"Engine compilation failed: {e}, falling back to non-compiled engine")
             return
         self.engine = comp_engine  # Replace the engine with the compiled one
-        if self._needs_engine_input_buffer:
-            self._engine_input_buffers = {  # Record the input and output tensors for the engine, whose memory locations are fixed in the cuda graph
-                "state": state,
-                "action": act
-            }
+        start_time = time.perf_counter_ns()
+        for _ in range(benchmark_iters):
+            _ = self.engine(state, act, self.world_cfg)
+        end_time = time.perf_counter_ns()
+        print(f"Compiled engine takes {((end_time - start_time) / benchmark_iters) / 1e6} ms per step")
 
     def _set_seed(self, seed: int | None):
         rng = torch.Generator(device=self.device)
@@ -187,10 +183,10 @@ class Env(EnvBase):
         prev_state = self.state.clone()
         action = action.to(self.device)
         if self.differentiable:
-            next_state, state_der, aux_info = self.engine(s, a, self.world_cfg)
+            next_state, state_der, aux_info = self.engine(prev_state, action, self.world_cfg)
         else:
             with torch.no_grad():
-                next_state, state_der, aux_info = self.engine(s, a, self.world_cfg)
+                next_state, state_der, aux_info = self.engine(prev_state, action, self.world_cfg)
         return prev_state, state_der, aux_info, next_state
 
     def _reset(self, tensordict=None, **kwargs) -> TensorDict:

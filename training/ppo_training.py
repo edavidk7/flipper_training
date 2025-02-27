@@ -1,17 +1,22 @@
-from collections import defaultdict
+import os
 
+os.environ["TORCH_LOGS"] = "dynamo"
+os.environ["TORCHDYNAMO_VERBOSE"] = "1"
+
+
+from collections import defaultdict
 import matplotlib.pyplot as plt
 import torch
 import torchrl
+import torchrl.data as data
+import torchrl.envs as envs
 import torchrl.collectors
 import torchrl.objectives
 import torchrl.objectives.value
 from flipper_training.configs import PhysicsEngineConfig, RobotModelConfig, WorldConfig
 from flipper_training.environment.env import Env
-from flipper_training.policies import *
-from flipper_training.rl_objectives import *
+from flipper_training.policies import make_actor_value_policy
 from flipper_training.utils.environment import generate_heightmaps, make_x_y_grids
-from flipper_training.utils.heightmap_generators import *
 from torchrl.envs import (
     Compose,
     DoubleToFloat,
@@ -69,30 +74,22 @@ def main(train_config):
         if isinstance(t, ObservationNorm):
             t.init_stats(1000, (0, 1), 1)
     env.reset(reset_all=True)
-    actor_value_policy = torch.compile(make_actor_value_policy(env, **train_config["policy_opts"]))
+    actor_value_policy = make_actor_value_policy(env, **train_config["policy_opts"])
     actor_value_policy.to(device)
     actor_value_policy.train()
-    collector = torchrl.collectors.SyncDataCollector(
-        env, actor_value_policy.get_policy_operator(), **train_config["data_collector_opts"]
+    actor_operator = actor_value_policy.get_policy_operator()
+    value_operator = actor_value_policy.get_value_operator()
+    collector = torchrl.collectors.SyncDataCollector(env, actor_value_policy.get_policy_operator(), **train_config["data_collector_opts"], device=device)
+    replay_buffer = data.ReplayBuffer(
+        storage=data.replay_buffers.LazyTensorStorage(max_size=train_config["data_collector_opts"]["frames_per_batch"], device=device),
+        sampler=data.replay_buffers.SamplerWithoutReplacement(),
     )
-    replay_buffer = torchrl.data.ReplayBuffer(
-        storage=torchrl.data.replay_buffers.LazyTensorStorage(
-            max_size=train_config["data_collector_opts"]["frames_per_batch"]
-        ),
-        sampler=torchrl.data.replay_buffers.SamplerWithoutReplacement(),
-    )
-    advantage_module = torchrl.objectives.value.GAE(
-        **train_config["gae_opts"], value_network=actor_value_policy.get_value_operator(), time_dim=1
-    )
-    advantage_module.to(device)
-    loss_module = torchrl.objectives.ClipPPOLoss(
-        actor_value_policy.get_policy_operator(), actor_value_policy.get_value_operator(), **train_config["ppo_opts"]
-    )
+    advantage_module = torchrl.objectives.value.GAE(**train_config["gae_opts"], value_network=value_operator, time_dim=1, device=device)
+    loss_module = torchrl.objectives.ClipPPOLoss(actor_operator, value_operator, **train_config["ppo_opts"])
     optim = train_config["optimizer"](actor_value_policy.parameters(), lr=train_config["learning_rate"])
     scheduler = train_config["scheduler"](
         optim,
-        T_max=train_config["data_collector_opts"]["total_frames"]
-        // train_config["data_collector_opts"]["frames_per_batch"],
+        T_max=train_config["data_collector_opts"]["total_frames"] // train_config["data_collector_opts"]["frames_per_batch"],
     )
 
     logs = defaultdict(list)
@@ -109,10 +106,10 @@ def main(train_config):
             # network which is updated in the inner loop.
             advantage_module(tensordict_data)
             data_view = tensordict_data.reshape(-1)
-            replay_buffer.extend(data_view.cpu())
+            replay_buffer.extend(data_view)
             for _ in range(train_config["data_collector_opts"]["frames_per_batch"] // train_config["sub_batch_size"]):
-                subdata = replay_buffer.sample(train_config["sub_batch_size"]).to(device)
-                loss_vals = loss_module(subdata.to(device))
+                subdata = replay_buffer.sample(train_config["sub_batch_size"])
+                loss_vals = loss_module(subdata)
                 loss_value = loss_vals["loss_objective"] + loss_vals["loss_critic"] + loss_vals["loss_entropy"]
 
                 # Optimization: backward, grad clipping and optimization step
@@ -138,7 +135,7 @@ def main(train_config):
                 # The ``rollout`` method of the ``env`` can take a policy as argument:
                 # it will then execute this policy at each step.
                 with (
-                    torchrl.envs.utils.set_exploration_type(torchrl.envs.utils.ExplorationType.DETERMINISTIC),
+                    envs.utils.set_exploration_type(envs.utils.ExplorationType.DETERMINISTIC),
                     torch.no_grad(),
                 ):
                     # execute a rollout with the trained policy

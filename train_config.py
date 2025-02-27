@@ -1,8 +1,3 @@
-import os
-
-os.environ["TORCH_LOGS"] = "dynamo"
-os.environ["TORCHDYNAMO_VERBOSE"] = "1"
-
 from functools import partial
 
 from torch.optim import Adam, lr_scheduler
