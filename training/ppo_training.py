@@ -1,10 +1,10 @@
 from collections import defaultdict
-import matplotlib.pyplot as plt
+
 import torch
 import torchrl
+import torchrl.collectors
 import torchrl.data as data
 import torchrl.envs as envs
-import torchrl.collectors
 import torchrl.objectives
 import torchrl.objectives.value
 from flipper_training.configs import PhysicsEngineConfig, RobotModelConfig, WorldConfig
@@ -94,37 +94,60 @@ def main(train_config):
         **train_config["data_collector_opts"],
         device=device,
     )
-    # Training loop
-    advantage_module = torchrl.objectives.value.GAE(**train_config["gae_opts"], value_network=value_operator, time_dim=1, device=device)
-    advantage_module.compile(mode="max-autotune-no-cudagraphs")
+    # Replay Buffer
+    replay_buffer = data.ReplayBuffer(
+        storage=data.replay_buffers.LazyTensorStorage(
+            max_size=train_config["frames_per_batch"] * train_config["num_robots"],
+            ndim=2,
+            device=device,
+            compilable=True,
+        ),
+        sampler=data.replay_buffers.SamplerWithoutReplacement(drop_last=True),
+        batch_size=train_config["frames_per_sub_batch"] * train_config["num_robots"],
+        dim_extend=1,
+        compilable=True,
+    )
+    # PPO setup
+    advantage_module = torchrl.objectives.value.GAE(
+        **train_config["gae_opts"], value_network=value_operator, time_dim=1, device=device
+    )
     loss_module = torchrl.objectives.ClipPPOLoss(actor_operator, value_operator, **train_config["ppo_opts"])
-    loss_module.compile(mode="max-autotune-no-cudagraphs")
+    # Compile
+    if train_config["compile_gae"]:
+        advantage_module.compile(mode="max-autotune-no-cudagraphs")
+    if train_config["compile_ppo"]:
+        loss_module.compile(mode="max-autotune-no-cudagraphs")
+    # Optim
     optim = train_config["optimizer"](actor_value_policy.parameters(), lr=train_config["learning_rate"])
     scheduler = train_config["scheduler"](
         optim,
-        T_max=train_config["total_frames"] // train_config["frames_per_batch"],
+        T_max=train_config["total_frames"] // (train_config["frames_per_batch"] * train_config["num_robots"]),
     )
-
+    # Training loop
     logs = defaultdict(list)
     pbar = tqdm(total=train_config["total_frames"])
     eval_str = ""
-
-    for i, tensordict_data in enumerate(collector):  # collected (B, T, *specs) where B is the batch size and T the number of steps
+    for i, tensordict_data in enumerate(
+        collector
+    ):  # collected (B, T, *specs) where B is the batch size and T the number of steps
         for _ in range(train_config["epochs_per_batch"]):
             advantage_module(tensordict_data)
-            loss_vals = loss_module(tensordict_data)
-            loss_value = loss_vals["loss_objective"] + loss_vals["loss_critic"] + loss_vals["loss_entropy"]
-            loss_value.backward()
-            torch.nn.utils.clip_grad_norm_(loss_module.parameters(), train_config["max_grad_norm"])
-            optim.step()
-            optim.zero_grad()
+            replay_buffer.extend(tensordict_data)
+            for _ in range(train_config["frames_per_batch"] // train_config["frames_per_sub_batch"]):
+                sub_batch = replay_buffer.sample()
+                loss_vals = loss_module(sub_batch)
+                loss_value = loss_vals["loss_objective"] + loss_vals["loss_critic"] + loss_vals["loss_entropy"]
+                loss_value.backward()
+                torch.nn.utils.clip_grad_norm_(loss_module.parameters(), train_config["max_grad_norm"])
+                optim.step()
+                optim.zero_grad()
 
         logs["reward"].append(tensordict_data["next", "reward"].mean().item())
         cum_reward_str = f"average reward={logs['reward'][-1]: 4.4f} (init={logs['reward'][0]: 4.4f})"
         logs["step_count"].append(tensordict_data["step_count"].max().item())
         stepcount_str = f"step count (max): {logs['step_count'][-1]}"
         logs["lr"].append(optim.param_groups[0]["lr"])
-        lr_str = f"lr policy: {logs['lr'][-1]: 4.4f}"
+        lr_str = f"lr policy: {logs['lr'][-1]:.6f}"
         if i % 10 == 0:
             with (
                 envs.utils.set_exploration_type(envs.utils.ExplorationType.DETERMINISTIC),
@@ -142,7 +165,7 @@ def main(train_config):
                 )
                 del eval_rollout
         pbar.set_description(", ".join([eval_str, cum_reward_str, stepcount_str, lr_str]))
-        pbar.update(1)
+        pbar.update(train_config["frames_per_batch"] * train_config["num_robots"])
         scheduler.step()
 
         # plt.figure(figsize=(10, 10))
