@@ -10,7 +10,7 @@ from flipper_training.utils.heightmap_generators import *
 
 train_config = {
     "device": "cuda",
-    "num_robots": 64,  # represents the number of robots in the environment simulated in parallel
+    "num_robots": 16,  # represents the number of robots in the environment simulated in parallel
     "grid_res": 0.05,  # cm per cell
     "max_coord": 3.2,  # meters, the grid stretches from -max_coord to max_coord in x and y
     "learning_rate": 1e-3,
@@ -26,7 +26,6 @@ train_config = {
         "lmbda": 0.95,
         "average_gae": True,
         "skip_existing": False,
-        "shifted": True,
     },
     "ppo_opts": {
         "clip_epsilon": 0.2,

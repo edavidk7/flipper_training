@@ -120,7 +120,6 @@ def main(train_config):
             optim.zero_grad()
 
         logs["reward"].append(tensordict_data["next", "reward"].mean().item())
-        pbar.update(tensordict_data.numel())
         cum_reward_str = f"average reward={logs['reward'][-1]: 4.4f} (init={logs['reward'][0]: 4.4f})"
         logs["step_count"].append(tensordict_data["step_count"].max().item())
         stepcount_str = f"step count (max): {logs['step_count'][-1]}"
@@ -143,6 +142,7 @@ def main(train_config):
                 )
                 del eval_rollout
         pbar.set_description(", ".join([eval_str, cum_reward_str, stepcount_str, lr_str]))
+        pbar.update(1)
         scheduler.step()
 
         # plt.figure(figsize=(10, 10))
