@@ -10,7 +10,7 @@ from flipper_training.utils.heightmap_generators import *
 
 train_config = {
     "device": "cuda",
-    "num_robots": 128,  # represents the number of robots in the environment simulated in parallel
+    "num_robots": 32,  # represents the number of robots in the environment simulated in parallel
     "grid_res": 0.05,  # cm per cell
     "max_coord": 3.2,  # meters, the grid stretches from -max_coord to max_coord in x and y
     "refresh_heightmap_every": 100,  # number of steps after which the heightmap is regenerated
@@ -34,9 +34,12 @@ train_config = {
         "loss_critic_type": "smooth_l1",
     },
     "data_collector_opts": {
-        "frames_per_batch": 512,
-        "total_frames": 1_000_000,
+        "frames_per_batch": 128, # true time steps, not divided by the number of robots
+        "total_frames": 1_048_576,
         "split_trajs": False,
+    },
+    "replay_buffer_opts": {
+        "dim_extend":1,
     },
     "heightmap_gen": MultiGaussianHeightmapGenerator,
     "heightmap_gen_opts": {

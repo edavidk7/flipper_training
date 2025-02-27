@@ -3,8 +3,8 @@ import os
 os.environ["TORCH_LOGS"] = "dynamo"
 os.environ["TORCHDYNAMO_VERBOSE"] = "1"
 
-
 from collections import defaultdict
+import deepcopy
 import matplotlib.pyplot as plt
 import torch
 import torchrl
@@ -27,7 +27,12 @@ from torchrl.envs import (
 from tqdm import tqdm
 
 
+def prepare_configs(train_config):
+    pass
+
+
 def main(train_config):
+    train_config = deepcopy.deepcopy(train_config)
     x_grid, y_grid = make_x_y_grids(train_config["max_coord"], train_config["grid_res"], train_config["num_robots"])
     heightmap_gen = train_config["heightmap_gen"](**train_config["heightmap_gen_opts"])
     robot_model = RobotModelConfig(**train_config["robot_model_opts"])
@@ -66,7 +71,6 @@ def main(train_config):
         Compose(
             ObservationNorm(in_keys=["observation"], standard_normal=True),
             ObservationNorm(in_keys=["perception"], standard_normal=True),
-            DoubleToFloat(),
             StepCounter(),
         ),
     )
@@ -79,11 +83,16 @@ def main(train_config):
     actor_value_policy.train()
     actor_operator = actor_value_policy.get_policy_operator()
     value_operator = actor_value_policy.get_value_operator()
-    collector = torchrl.collectors.SyncDataCollector(env, actor_value_policy.get_policy_operator(), **train_config["data_collector_opts"], device=device)
     replay_buffer = data.ReplayBuffer(
         storage=data.replay_buffers.LazyTensorStorage(max_size=train_config["data_collector_opts"]["frames_per_batch"], device=device),
         sampler=data.replay_buffers.SamplerWithoutReplacement(),
+        **train_config["replay_buffer_opts"],
     )
+    collector = torchrl.collectors.SyncDataCollector(env, 
+                                                     actor_value_policy.get_policy_operator(),
+                                                     frames_per_batch=train_config["data_collector_opts"].pop("frames_per_batch") * train_config["num_robots"],
+                                                     **train_config["data_collector_opts"], 
+                                                     device=device)
     advantage_module = torchrl.objectives.value.GAE(**train_config["gae_opts"], value_network=value_operator, time_dim=1, device=device)
     loss_module = torchrl.objectives.ClipPPOLoss(actor_operator, value_operator, **train_config["ppo_opts"])
     optim = train_config["optimizer"](actor_value_policy.parameters(), lr=train_config["learning_rate"])
@@ -98,15 +107,14 @@ def main(train_config):
 
     # We iterate over the collector until it reaches the total number of frames it was
     # designed to collect:
-    for i, tensordict_data in enumerate(collector):
+    for i, tensordict_data in enumerate(collector): # collected (B, T, *specs) where B is the batch size and T the number of steps
         # we now have a batch of data to work with. Let's learn something from it.
         for _ in range(train_config["epochs"]):
             # We'll need an "advantage" signal to make PPO work.
             # We re-compute it at each epoch as its value depends on the value
             # network which is updated in the inner loop.
             advantage_module(tensordict_data)
-            data_view = tensordict_data.reshape(-1)
-            replay_buffer.extend(data_view)
+            replay_buffer.extend(tensordict_data)
             for _ in range(train_config["data_collector_opts"]["frames_per_batch"] // train_config["sub_batch_size"]):
                 subdata = replay_buffer.sample(train_config["sub_batch_size"])
                 loss_vals = loss_module(subdata)
