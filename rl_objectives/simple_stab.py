@@ -31,7 +31,6 @@ class SimpleStabilizationObjective(BaseObjective):
             raise ValueError("World configuration must contain a suitable mask for start/goal positions.")
         self._init_cache()
 
-    @override
     def _init_cache(self) -> None:
         """
         Initializes the cache for the start/goal positions.
@@ -81,9 +80,17 @@ class SimpleStabilizationObjective(BaseObjective):
         Returns:
         - A boolean tensor indicating whether each start/goal pair is valid.
         """
-        dist = torch.linalg.norm(start_xyz - goal_xyz, dim=-1)
-        z_diff = goal_xyz[..., 2] - start_xyz[..., 2]
-        return (dist >= self.min_dist_to_goal) & (dist <= self.max_dist_to_goal) & (z_diff <= self.higher_allowed)
+        dist = torch.linalg.norm(start_xyz - goal_xyz, dim=-1)  # distance
+        z_diff = goal_xyz[..., 2] - start_xyz[..., 2]  # height difference
+        start_xy_to_edge = self.world_config.max_coord - start_xyz[..., :2].abs()  # vector from start to edge
+        goal_xy_to_edge = self.world_config.max_coord - goal_xyz[..., :2].abs()  # vector from goal to edge
+        return (
+            (dist >= self.min_dist_to_goal)
+            & (dist <= self.max_dist_to_goal)
+            & (z_diff <= self.higher_allowed)
+            & (start_xy_to_edge.min(dim=-1).values > (2 * self.robot_model.radius))
+            & (goal_xy_to_edge.min(dim=-1).values > (2 * self.robot_model.radius))
+        )
 
     @override
     def generate_start_goal_states(self) -> tuple[PhysicsState, PhysicsState, torch.IntTensor | torch.LongTensor]:
