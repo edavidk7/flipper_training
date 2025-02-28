@@ -19,6 +19,7 @@ from torchrl.envs import (
 )
 from tqdm import tqdm
 
+torch._dynamo.config.cache_size_limit = 64
 
 def prepare_configs(train_config: dict):
     x_grid, y_grid = make_x_y_grids(train_config["max_coord"], train_config["grid_res"], train_config["num_robots"])
@@ -95,15 +96,15 @@ def main(train_config):
         device=device,
     )
     # Replay Buffer
-    replay_buffer = data.ReplayBuffer(
+    replay_buffer = data.TensorDictReplayBuffer(
         storage=data.replay_buffers.LazyTensorStorage(
-            max_size=train_config["frames_per_batch"] * train_config["num_robots"],
+            max_size=train_config["frames_per_batch"]*train_config["num_robots"],
             ndim=2,
             device=device,
             compilable=True,
         ),
         sampler=data.replay_buffers.SamplerWithoutReplacement(drop_last=True),
-        batch_size=train_config["frames_per_sub_batch"] * train_config["num_robots"],
+        batch_size=train_config["frames_per_sub_batch"],
         dim_extend=1,
         compilable=True,
     )
@@ -125,16 +126,19 @@ def main(train_config):
     )
     # Training loop
     logs = defaultdict(list)
-    pbar = tqdm(total=train_config["total_frames"] // (train_config["frames_per_batch"] * train_config["num_robots"]))
+    pbar = tqdm(total=train_config["total_frames"])
     eval_str = ""
     for i, tensordict_data in enumerate(
         collector
     ):  # collected (B, T, *specs) where B is the batch size and T the number of steps
         for _ in range(train_config["epochs_per_batch"]):
+            print(f"Tensordict from collector: {tensordict_data}")
             advantage_module(tensordict_data)
             replay_buffer.extend(tensordict_data)
+            print(f"Replay buffer: {replay_buffer}")
             for _ in range(train_config["frames_per_batch"] // train_config["frames_per_sub_batch"]):
                 sub_batch = replay_buffer.sample()
+                print(f"Sub batch from replay buffer: {sub_batch}")
                 loss_vals = loss_module(sub_batch)
                 loss_value = loss_vals["loss_objective"] + loss_vals["loss_critic"] + loss_vals["loss_entropy"]
                 loss_value.backward()

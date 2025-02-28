@@ -9,7 +9,7 @@ from flipper_training.rl_rewards.rewards import RollPitchGoal
 from flipper_training.utils.heightmap_generators import *
 
 train_config = {
-    "device": "cpu",
+    "device": "cuda",
     "num_robots": 16,  # represents the number of robots in the environment simulated in parallel
     "grid_res": 0.05,  # cm per cell
     "max_coord": 3.2,  # meters, the grid stretches from -max_coord to max_coord in x and y
@@ -40,7 +40,6 @@ train_config = {
     "data_collector_opts": {
         "split_trajs": False,
         "compile_policy": True,
-        "return_same_td": True,
     },
     "heightmap_gen": MultiGaussianHeightmapGenerator,
     "heightmap_gen_opts": {
