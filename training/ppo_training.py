@@ -10,6 +10,7 @@ import torchrl.objectives.value
 from flipper_training.configs import PhysicsEngineConfig, RobotModelConfig, WorldConfig
 from flipper_training.environment.env import Env
 from flipper_training.policies import make_actor_value_policy
+from flipper_training.rl_objectives.base_objective import BaseObjective
 from flipper_training.utils.environment import generate_heightmaps, make_x_y_grids
 from torchrl.envs import (
     Compose,
@@ -19,7 +20,7 @@ from torchrl.envs import (
 )
 from tqdm import tqdm
 
-torch._dynamo.config.cache_size_limit = 64
+torch._dynamo.config.cache_size_limit = 1024
 
 
 def prepare_configs(train_config: dict):
@@ -44,16 +45,19 @@ def prepare_configs(train_config: dict):
     return world_config, physics_config, robot_model, device
 
 
-def prepare_rl_problem(train_config: dict):
-    training_objective = train_config["training_objective"](**train_config["objective_opts"])
-    reward = train_config["reward"](**train_config["reward_opts"])
-    return training_objective, reward
-
-
 def main(train_config):
+    rng = torch.manual_seed(train_config["seed"])
     # Init configs and RL-related objects
     world_config, physics_config, robot_model, device = prepare_configs(train_config)
-    training_objective, reward = prepare_rl_problem(train_config)
+    training_objective: BaseObjective = train_config["training_objective"](
+        device=device,
+        physics_config=physics_config,
+        robot_model=robot_model,
+        world_config=world_config,
+        rng=rng,
+        **train_config["objective_opts"],
+    )
+    reward = train_config["reward"](**train_config["reward_opts"])
     # Create environment
     base_env = Env(
         objective=training_objective,
@@ -161,12 +165,12 @@ def main(train_config):
                 logs["eval reward"].append(eval_rollout["next", "reward"].mean().item())
                 logs["eval step_count"].append(eval_rollout["step_count"].max().item())
                 eval_str = (
-                    f"eval avg reward: {logs['eval reward'][-1]: 4.4f} "
+                    f"eval avg reward: {logs['eval reward'][-1]:0.4f} "
                     f"(init: {logs['eval reward'][0]: 4.4f}), "
                     f"max eval steps: {logs['eval step_count'][-1]}"
                 )
                 del eval_rollout
-                
+
         pbar.set_description(", ".join([eval_str, cum_reward_str, stepcount_str, lr_str]))
         pbar.update(train_config["frames_per_batch"] * train_config["num_robots"])
         scheduler.step()

@@ -1,11 +1,14 @@
 from __future__ import annotations
 
-from typing import Iterable, Union
+from typing import TYPE_CHECKING, Iterable, Union
 
 import torch
 from tensordict import TensorClass
 
 __all__ = ["PhysicsState", "PhysicsStateDer", "AuxEngineInfo", "vectorize_iter_of_states"]
+
+if TYPE_CHECKING:
+    from flipper_training.configs.robot_config import RobotModelConfig
 
 
 class PhysicsState(TensorClass):
@@ -26,14 +29,12 @@ class PhysicsState(TensorClass):
     thetas: torch.Tensor
 
     @staticmethod
-    def dummy(**kwargs) -> "PhysicsState":
+    def dummy(robot_model: RobotModelConfig, **kwargs) -> "PhysicsState":
         """Create an empty dummy PhysicsState object with zero tensors.
         Some fields can be overridden by passing them as keyword arguments.
         """
         batch_size = kwargs.pop("batch_size", None)
-        robot_model = kwargs.pop("robot_model", None)
-        device = kwargs.pop("device", "cpu")
-        assert robot_model is not None, "Robot model must be provided."
+        device = kwargs.pop("device", torch.get_default_device())
         if kwargs:
             t = next(iter(kwargs.values()))
             if batch_size is not None and batch_size != t.shape[0]:

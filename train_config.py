@@ -1,6 +1,8 @@
 from functools import partial
 
+from numpy import deg2rad
 from torch.optim import Adam, lr_scheduler
+from torchrl.envs import ExplorationType
 
 from flipper_training.configs import *
 from flipper_training.observations import *
@@ -9,18 +11,19 @@ from flipper_training.rl_rewards.rewards import RollPitchGoal
 from flipper_training.utils.heightmap_generators import *
 
 train_config = {
-    "device": "cpu",
-    "num_robots": 16,  # represents the number of robots in the environment simulated in parallel
+    "seed": 42,
+    "device": "cuda",
+    "num_robots": 64,  # represents the number of robots in the environment simulated in parallel
     "grid_res": 0.05,  # cm per cell
     "max_coord": 3.2,  # meters, the grid stretches from -max_coord to max_coord in x and y
     "learning_rate": 1e-3,
     "optimizer": Adam,
     "scheduler": lr_scheduler.CosineAnnealingLR,
-    "evaluate_every": 20,  # evaluate every 20 batches
-    "epochs_per_batch": 1,  # number of epochs to train on each batch
+    "evaluate_every": 10,  # evaluate every n batches
+    "epochs_per_batch": 10,  # number of epochs to train on each batch
     "max_grad_norm": 1,
     "frames_per_batch": 128,  # true time steps, not divided by the number of robots
-    "frames_per_sub_batch": 32,  # true time steps, not divided by the number of robots
+    "frames_per_sub_batch": 64,  # true time steps, not divided by the number of robots
     "total_frames": 1_048_576,  # total number of frames to train on, including all robots
     "compile_gae": True,
     "compile_ppo": True,
@@ -38,10 +41,7 @@ train_config = {
         "critic_coef": 1.0,
         "loss_critic_type": "smooth_l1",
     },
-    "data_collector_opts": {
-        "split_trajs": False,
-        "compile_policy": True,
-    },
+    "data_collector_opts": {"split_trajs": False, "compile_policy": True, "exploration_type": ExplorationType.RANDOM},
     "heightmap_gen": MultiGaussianHeightmapGenerator,
     "heightmap_gen_opts": {
         "min_gaussians": 400,
@@ -72,6 +72,9 @@ train_config = {
         "start_drop": 0.1,
         "iteration_limit_factor": 10,
         "start_position_orientation": "towards_goal",
+        "goal_reached_threshold": 0.05,
+        "max_feasible_roll": deg2rad(70.0),
+        "cache_capacity": 10000,
     },
     "reward": RollPitchGoal,
     "reward_opts": {

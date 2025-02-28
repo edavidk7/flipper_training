@@ -35,10 +35,61 @@ class WorldConfig(BaseConfig):
     max_coord: float
     k_stiffness: float | torch.Tensor = 20_000.0
     k_friction: float | torch.Tensor = 1.0
-    suitable_mask: torch.Tensor | None = None
+    suitable_mask: torch.BoolTensor | None = None
 
     def __post_init__(self):
         self.z_grid_grad = compute_heightmap_gradients(self.z_grid, self.grid_res)  # (B, 2, D, D)
         ones = torch.ones_like(self.z_grid_grad[:, 0]).unsqueeze(1)
         self.normals = torch.cat((-self.z_grid_grad, ones), dim=1)
         self.normals /= torch.linalg.norm(self.normals, dim=1, keepdim=True)
+
+    @property
+    def grid_size(self) -> int:
+        """
+        Returns the size of the grid.
+
+        Returns:
+            int: size of the grid.
+        """
+        return self.z_grid.shape[-1]
+        
+        
+
+    def ij_to_xyz(self, ij: torch.IntTensor | torch.LongTensor) -> torch.FloatTensor:
+        """
+        ij is assumed to have the shape (N, B, 2) where N is the number of points and B is the batch size.
+        """
+        N, B = ij.shape[:-1]
+        linearized_idx = torch.cat(
+            (
+                torch.arange(
+                    B,
+                )
+                .repeat(N)
+                .unsqueeze(-1),
+                ij.view(-1, 2),
+            ),
+            dim=-1,
+        )
+        x = self.x_grid[linearized_idx.unbind(-1)]
+        y = self.y_grid[linearized_idx.unbind(-1)]
+        z = self.z_grid[linearized_idx.unbind(-1)]
+        return torch.stack((x, y, z), dim=-1).view(N, B, 3)
+
+    def ij_to_suited_mask(self, ij: torch.IntTensor | torch.LongTensor) -> torch.BoolTensor:
+        """
+        ij is assumed to have the shape (N, B, 2) where N is the number of points and B is the batch size.
+        """
+        N, B = ij.shape[:-1]
+        linearized_idx = torch.cat(
+            (
+                torch.arange(
+                    B,
+                )
+                .repeat(N)
+                .unsqueeze(-1),
+                ij.view(-1, 2),
+            ),
+            dim=-1,
+        )
+        return self.suitable_mask[linearized_idx.unbind(-1)].view(N, B)

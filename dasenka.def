@@ -1,0 +1,62 @@
+Bootstrap: docker
+From: nvidia/cuda:12.8.0-cudnn9-runtime-ubuntu24.04
+
+%post
+    # Update system and install necessary packages
+    apt-get update -y
+    apt-get install -y --no-install-recommends \
+        build-essential \
+        git \
+        wget \
+        curl \
+        python3 \
+        python3-pip \
+        python3-dev
+    
+    # Install your custom libraries and tools here
+    
+    # Example: Install uv by astral
+    curl -fsSL https://astral.sh/uv/install.sh | bash
+    
+    # Add uv to PATH
+    export PATH="/root/.cargo/bin:$PATH"
+    
+    # Downlad p
+    
+    # Install OpenMP
+    apt-get install -y libomp-dev
+    
+    # Install additional build tools
+    apt-get install -y \
+        cmake \
+        pkg-config \
+        libopenblas-dev \
+        liblapack-dev
+    
+    # Clean up to reduce image size
+    apt-get clean
+    rm -rf /var/lib/apt/lists/*
+
+%environment
+    # Set environment variables
+    export PATH=/opt/venv/bin:/root/.cargo/bin:$PATH
+    export LD_LIBRARY_PATH=/usr/local/cuda/lib64:$LD_LIBRARY_PATH
+    export PYTHONPATH=/opt/venv/lib/python3.10/site-packages:$PYTHONPATH
+    export LC_ALL=C
+
+%labels
+    Author YourName
+    Version 1.0
+    Description Custom container based on NVIDIA CUDA 12.8.0 with cuDNN 9
+
+%help
+    This container is based on NVIDIA CUDA 12.8.0 with cuDNN 9 on Ubuntu 24.04.
+    It includes:
+    - Python with uv package manager
+    - OpenMP development libraries
+    - Build tools
+    - Scientific computing libraries
+    
+    Usage:
+    $ apptainer shell --nv my_custom_cuda.sif
+    $ apptainer exec --nv my_custom_cuda.sif python3 your_script.py

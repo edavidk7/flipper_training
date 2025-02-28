@@ -100,4 +100,4 @@ class MultiGaussianHeightmapGenerator(BaseHeightmapGenerator):
         heights = torch.rand((num_gaussians,), device=x.device) * (self.max_height_fraction - self.min_height_fraction) + self.min_height_fraction
         for i in range(num_gaussians):
             z += heights[i] * torch.exp(-((x - mus[i, 0])**2 / (2 * sigmas[i, 0]**2) + (y - mus[i, 1])**2 / (2 * sigmas[i, 1]**2)))
-        return z, torch.ones_like(x)
+        return z, torch.ones_like(x, dtype=torch.bool, device=x.device)

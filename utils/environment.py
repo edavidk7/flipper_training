@@ -1,5 +1,7 @@
+from typing import Tuple
+
 import torch
-from typing import Any, Tuple, Callable
+
 from .geometry import normalized
 from .heightmap_generators import BaseHeightmapGenerator
 
@@ -41,7 +43,7 @@ def generate_heightmaps(x: torch.Tensor, y: torch.Tensor, heightmap_gen: BaseHei
     """
     B, D, _ = x.shape
     z = torch.zeros((B, D, D), device=x.device)
-    mask = torch.zeros((B, D, D), device=x.device)
+    mask = torch.zeros((B, D, D), device=x.device, dtype=torch.bool)
     max_coord = x.max().item()
     for i in range(B):
         z[i], mask[i] = heightmap_gen(x[i], y[i], max_coord, rng)

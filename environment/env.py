@@ -1,16 +1,16 @@
-import torch
+import time
 from typing import TYPE_CHECKING, Callable
-from torchrl.envs import EnvBase
-from torchrl.data import Composite, Unbounded, Bounded
-from tensordict import TensorDict
-from flipper_training.configs import PhysicsEngineConfig, WorldConfig, RobotModelConfig
+
+import torch
+from flipper_training.configs import PhysicsEngineConfig, RobotModelConfig, WorldConfig
+from flipper_training.engine.engine import DPhysicsEngine
+from flipper_training.engine.engine_state import AuxEngineInfo, PhysicsState, PhysicsStateDer
 from flipper_training.rl_objectives import BaseObjective
 from flipper_training.rl_rewards.rewards import Reward
 from flipper_training.vis.static_vis import plot_heightmap_3d
-from flipper_training.engine.engine_state import PhysicsState, PhysicsStateDer, AuxEngineInfo
-from flipper_training.engine.engine import DPhysicsEngine
-
-import time
+from tensordict import TensorDict
+from torchrl.data import Bounded, Composite, Unbounded
+from torchrl.envs import EnvBase
 
 if TYPE_CHECKING:
     from flipper_training.observations import Observation
@@ -71,22 +71,15 @@ class Env(EnvBase):
         if engine_compile_opts is not None:
             self._compile_engine(engine_compile_opts)
 
-    @property
-    def world_config(self) -> WorldConfig:
-        return self._world_config
-
-    @world_config.setter
-    def world_config(self, world_config: WorldConfig):
-        assert world_config.suitable_mask is not None, "Suitable mask is required for the world configuration"
-        self._world_config = world_config
-
     def _compile_engine(self, compile_opts: dict, benchmark_iters: int = 1000) -> None:
         print(f"Environment: Compiling engine with options {compile_opts}")
         act = self.action_spec.zeros()  # Dummy action
         state = self.start.clone()  # Dummy state
         comp_engine = torch.compile(self.engine, options=compile_opts)
         try:
-            comp_engine(state, act, self.world_cfg)  # Dummy forward pass to compile the engine, record the return tensors
+            comp_engine(
+                state, act, self.world_cfg
+            )  # Dummy forward pass to compile the engine, record the return tensors
         except Exception as e:
             print(f"Engine compilation failed: {e}, falling back to non-compiled engine")
             return
@@ -190,15 +183,10 @@ class Env(EnvBase):
         return prev_state, state_der, aux_info, next_state
 
     def _reset(self, tensordict=None, **kwargs) -> TensorDict:
-        self.world_cfg = kwargs.get("world_config", None) or self.world_cfg
-        reset_all = kwargs.get("reset_all", False)
-        # Reset only the robots that are not done or terminated
-        reset_mask = self.done | reset_all
-        skip_mask = ~reset_mask
         # Generate start and goal states, iteration limits for done/terminated robots
-        new_start, new_goal = self.objective.generate_start_goal_states(self.world_cfg, self.robot_cfg, self.rng, skip_mask=skip_mask.unsqueeze(-1))
-        new_iteration_limits = self.objective.compute_iteration_limits(self.start, self.goal, self.robot_cfg, self.phys_cfg.dt)
-        # Update the state variables
+        new_start, new_goal, new_iteration_limits = self.objective.generate_start_goal_states()
+        # Update the state variables for the done robots
+        reset_mask = self.done | kwargs.get("reset_all", False)
         self.start[reset_mask] = new_start[reset_mask]
         self.goal[reset_mask] = new_goal[reset_mask]
         self.iteration_limits[reset_mask] = new_iteration_limits[reset_mask]
