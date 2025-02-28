@@ -9,18 +9,19 @@ from flipper_training.rl_rewards.rewards import RollPitchGoal
 from flipper_training.utils.heightmap_generators import *
 
 train_config = {
-    "device": "cuda",
+    "device": "cpu",
     "num_robots": 16,  # represents the number of robots in the environment simulated in parallel
     "grid_res": 0.05,  # cm per cell
     "max_coord": 3.2,  # meters, the grid stretches from -max_coord to max_coord in x and y
     "learning_rate": 1e-3,
     "optimizer": Adam,
     "scheduler": lr_scheduler.CosineAnnealingLR,
+    "evaluate_every": 20,  # evaluate every 20 batches
     "epochs_per_batch": 1,  # number of epochs to train on each batch
     "max_grad_norm": 1,
     "frames_per_batch": 128,  # true time steps, not divided by the number of robots
     "frames_per_sub_batch": 32,  # true time steps, not divided by the number of robots
-    "total_frames": 1_048_576,
+    "total_frames": 1_048_576,  # total number of frames to train on, including all robots
     "compile_gae": True,
     "compile_ppo": True,
     "engine_compile_opts": {"max-autotune": True, "triton.cudagraphs": True, "coordinate_descent_tuning": True},

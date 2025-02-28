@@ -21,6 +21,7 @@ from tqdm import tqdm
 
 torch._dynamo.config.cache_size_limit = 64
 
+
 def prepare_configs(train_config: dict):
     x_grid, y_grid = make_x_y_grids(train_config["max_coord"], train_config["grid_res"], train_config["num_robots"])
     heightmap_gen = train_config["heightmap_gen"](**train_config["heightmap_gen_opts"])
@@ -98,20 +99,20 @@ def main(train_config):
     # Replay Buffer
     replay_buffer = data.TensorDictReplayBuffer(
         storage=data.replay_buffers.LazyTensorStorage(
-            max_size=train_config["frames_per_batch"]*train_config["num_robots"],
-            ndim=2,
+            max_size=train_config["frames_per_batch"] * train_config["num_robots"],
+            ndim=1,  # This storage will mix the batch and time dimensions
             device=device,
             compilable=True,
         ),
         sampler=data.replay_buffers.SamplerWithoutReplacement(drop_last=True),
-        batch_size=train_config["frames_per_sub_batch"],
-        dim_extend=1,
+        batch_size=train_config["frames_per_sub_batch"] * train_config["num_robots"],  # sample flattened and mixed data
+        dim_extend=0,
         compilable=True,
     )
     # PPO setup
     advantage_module = torchrl.objectives.value.GAE(
-        **train_config["gae_opts"], value_network=value_operator, time_dim=1, device=device
-    )
+        **train_config["gae_opts"], value_network=value_operator, time_dim=1, device=device, differentiable=False
+    )  # here we still expect (B, T, ...) collected data
     loss_module = torchrl.objectives.ClipPPOLoss(actor_operator, value_operator, **train_config["ppo_opts"])
     # Compile
     if train_config["compile_gae"]:
@@ -132,13 +133,10 @@ def main(train_config):
         collector
     ):  # collected (B, T, *specs) where B is the batch size and T the number of steps
         for _ in range(train_config["epochs_per_batch"]):
-            print(f"Tensordict from collector: {tensordict_data}")
             advantage_module(tensordict_data)
-            replay_buffer.extend(tensordict_data)
-            print(f"Replay buffer: {replay_buffer}")
+            replay_buffer.extend(tensordict_data.reshape(-1))  # we can now safely flatten the data
             for _ in range(train_config["frames_per_batch"] // train_config["frames_per_sub_batch"]):
                 sub_batch = replay_buffer.sample()
-                print(f"Sub batch from replay buffer: {sub_batch}")
                 loss_vals = loss_module(sub_batch)
                 loss_value = loss_vals["loss_objective"] + loss_vals["loss_critic"] + loss_vals["loss_entropy"]
                 loss_value.backward()
@@ -147,12 +145,13 @@ def main(train_config):
                 optim.zero_grad()
 
         logs["reward"].append(tensordict_data["next", "reward"].mean().item())
-        cum_reward_str = f"average reward={logs['reward'][-1]: 4.4f} (init={logs['reward'][0]: 4.4f})"
+        cum_reward_str = f"avg reward={logs['reward'][-1]: 4.4f} (init={logs['reward'][0]: 4.4f})"
         logs["step_count"].append(tensordict_data["step_count"].max().item())
-        stepcount_str = f"step count (max): {logs['step_count'][-1]}"
+        stepcount_str = f"max steps: {logs['step_count'][-1]}"
         logs["lr"].append(optim.param_groups[0]["lr"])
-        lr_str = f"lr policy: {logs['lr'][-1]:.6f}"
-        if i % 10 == 0:
+        lr_str = f"lr: {logs['lr'][-1]:.6f}"
+
+        if i % train_config["evaluate_every"] == 0:
             with (
                 envs.utils.set_exploration_type(envs.utils.ExplorationType.DETERMINISTIC),
                 torch.no_grad(),
@@ -160,32 +159,17 @@ def main(train_config):
                 env.reset(reset_all=True)
                 eval_rollout = env.rollout(1000, actor_operator)
                 logs["eval reward"].append(eval_rollout["next", "reward"].mean().item())
-                logs["eval reward (sum)"].append(eval_rollout["next", "reward"].sum().item())
                 logs["eval step_count"].append(eval_rollout["step_count"].max().item())
                 eval_str = (
-                    f"eval cumulative reward: {logs['eval reward (sum)'][-1]: 4.4f} "
-                    f"(init: {logs['eval reward (sum)'][0]: 4.4f}), "
-                    f"eval step-count: {logs['eval step_count'][-1]}"
+                    f"eval avg reward: {logs['eval reward'][-1]: 4.4f} "
+                    f"(init: {logs['eval reward'][0]: 4.4f}), "
+                    f"max eval steps: {logs['eval step_count'][-1]}"
                 )
                 del eval_rollout
+                
         pbar.set_description(", ".join([eval_str, cum_reward_str, stepcount_str, lr_str]))
         pbar.update(train_config["frames_per_batch"] * train_config["num_robots"])
         scheduler.step()
-
-        # plt.figure(figsize=(10, 10))
-        # plt.subplot(2, 2, 1)
-        # plt.plot(logs["reward"])
-        # plt.title("training rewards (average)")
-        # plt.subplot(2, 2, 2)
-        # plt.plot(logs["step_count"])
-        # plt.title("Max step count (training)")
-        # plt.subplot(2, 2, 3)
-        # plt.plot(logs["eval reward (sum)"])
-        # plt.title("Return (test)")
-        # plt.subplot(2, 2, 4)
-        # plt.plot(logs["eval step_count"])
-        # plt.title("Max step count (test)")
-        # plt.savefig("ppo_training.png")
 
 
 if __name__ == "__main__":
