@@ -12,7 +12,7 @@ from flipper_training.utils.heightmap_generators import *
 
 train_config = {
     "seed": 42,
-    "device": "cuda",
+    "device": "cpu",
     "num_robots": 64,  # represents the number of robots in the environment simulated in parallel
     "grid_res": 0.05,  # cm per cell
     "max_coord": 3.2,  # meters, the grid stretches from -max_coord to max_coord in x and y
@@ -74,7 +74,7 @@ train_config = {
         "start_position_orientation": "towards_goal",
         "goal_reached_threshold": 0.05,
         "max_feasible_roll": deg2rad(70.0),
-        "cache_capacity": 10000,
+        "cache_size": 10000,
     },
     "reward": RollPitchGoal,
     "reward_opts": {
