@@ -114,6 +114,7 @@ test_cases = {
 
 for key in test_cases:
     test_cases[key] = test_cases[key].to(DEVICE)
+    print(f"{key} shape: {test_cases[key].shape}, dtype: {test_cases[key].dtype}, device: {test_cases[key].device}")
 
 print("Batched Test Results:")
 results = test_integration_methods(test_cases["q"], test_cases["w"], test_cases["dt"])

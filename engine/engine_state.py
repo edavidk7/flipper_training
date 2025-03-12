@@ -4,6 +4,7 @@ from typing import TYPE_CHECKING, Iterable, Union
 
 import torch
 from tensordict import TensorClass
+from flipper_training.utils.geometry import unit_quaternion
 
 __all__ = ["PhysicsState", "PhysicsStateDer", "AuxEngineInfo", "vectorize_iter_of_states"]
 
@@ -46,7 +47,7 @@ class PhysicsState(TensorClass):
         base = dict(
             x=torch.zeros(batch_size, 3),
             xd=torch.zeros(batch_size, 3),
-            q=torch.tensor([1.0, 0.0, 0.0, 0.0] * batch_size).reshape(batch_size, 4),
+            q=unit_quaternion(batch_size, device=device),
             omega=torch.zeros(batch_size, 3),
             thetas=torch.zeros(batch_size, robot_model.num_driving_parts),
             batch_size=[batch_size],
@@ -89,8 +90,10 @@ class AuxEngineInfo(TensorClass):
 
     F_spring: torch.Tensor
     F_friction: torch.Tensor
+    xd_points: torch.Tensor
     in_contact: torch.Tensor
     normals: torch.Tensor
+    act_forces: torch.Tensor
     global_robot_points: torch.Tensor
     global_thrust_vectors: torch.Tensor
     torque: torch.Tensor

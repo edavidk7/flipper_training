@@ -27,7 +27,6 @@ ROOT = Path(__file__).parent.parent
 MESHDIR = ROOT / "meshes"
 YAMLDIR = ROOT / "robots"
 POINTCACHE = ROOT / ".robot_cache"
-IMPLEMENTED_ROBOTS = ["marv"]
 
 
 def list_of_dicts_to_dict_of_lists(list_of_dicts: list[dict]) -> dict:
@@ -51,13 +50,12 @@ class RobotModelConfig(BaseConfig):
 
     robot_type: Literal["tradr", "marv", "husky"]
     mesh_voxel_size: float = 0.01
-    points_per_driving_part: int = 192
+    points_per_driving_part: int = 128
     points_per_body: int = 256
     wheel_assignment_margin: float = 0.02
     linear_track_assignment_margin: float = 0.05
 
     def __post_init__(self):
-        assert self.robot_type in IMPLEMENTED_ROBOTS, f"Robot {self.robot_type} not supported. Available robots: {IMPLEMENTED_ROBOTS}"
         self.load_robot_params_from_yaml()
         self.create_robot_geometry()
         self.disable_grads()
@@ -67,7 +65,7 @@ class RobotModelConfig(BaseConfig):
         """
         Disables gradients for all tensors in the dataclass.
         """
-        for key, val in self.__dict__.items():
+        for _, val in self.__dict__.items():
             if isinstance(val, torch.Tensor):
                 val.requires_grad = False
 
@@ -145,7 +143,9 @@ class RobotModelConfig(BaseConfig):
         driving_direction_2d = self.driving_direction[:2]
         driving_direction_2d = driving_direction_2d / torch.linalg.norm(driving_direction_2d)
         joint_positions_2d = self.joint_positions[:, :2]
-        joint_dist_non_driving = joint_positions_2d - torch.sum(joint_positions_2d * driving_direction_2d, dim=-1, keepdim=True) * driving_direction_2d
+        joint_dist_non_driving = (
+            joint_positions_2d - torch.sum(joint_positions_2d * driving_direction_2d, dim=-1, keepdim=True) * driving_direction_2d
+        )
         joint_dist_non_driving *= self.driving_direction[None, [1, 0]] * torch.tensor([1, -1])  # normal of the driving direction
         joint_dist_non_driving = joint_dist_non_driving.sum(dim=-1)
         vels = v.repeat(1, self.num_driving_parts)  # shape (batch_size, num_driving_parts)
@@ -213,7 +213,7 @@ class RobotModelConfig(BaseConfig):
         # Create surface meshes for the driving parts
         for i in range(self.num_driving_parts):
             mask = points_within_bbox(robot_points, bbox=self.driving_part_bboxes[i])
-            driving_mesh: pv.PolyData = extract_submesh_by_mask(robot_mesh, mask).extract_surface()
+            driving_mesh = extract_submesh_by_mask(robot_mesh, mask).extract_surface()
             inertia, cog_coords = inertia_cog_from_voxelized_mesh(driving_mesh, self.driving_part_masses[i].item(), self.mesh_voxel_size, fill=True)
             driving_points = extract_surface_from_mesh(driving_mesh, n_points=self.points_per_driving_part)
             driving_part_points.append(driving_points)
@@ -250,7 +250,7 @@ class RobotModelConfig(BaseConfig):
         self.body_points, self.body_inertia, self.body_cog = self._construct_body(mesh, driving_part_masks)
         self.joint_local_driving_part_pts = self.driving_part_points - self.joint_positions[:, None, :]
         self.joint_local_driving_part_cogs = self.driving_part_cogs - self.joint_positions
-        self.radius = torch.linalg.norm(torch.cat([self.body_points, *self.driving_part_points], dim=0), dim=-1).max().item()
+        self.radius = torch.linalg.norm(torch.cat([self.body_points, *self.driving_part_points], dim=0)[..., :2], dim=-1).max().item()
         self.thrust_directions = self._calculate_thrust_directions()
         # Save to cache
         self.save_to_cache()
@@ -278,7 +278,6 @@ class RobotModelConfig(BaseConfig):
         grid_size: float = 1.0,
         grid_spacing: float = 0.1,
         return_plotter: bool = False,
-        jupyter_backend: str = "interactive",
     ) -> None:
         """
         Visualizes the robot in 3D using PyVista.
@@ -298,7 +297,7 @@ class RobotModelConfig(BaseConfig):
             driving_part_pcd["vectors"] = thrust_directions[i] * 0.1
             driving_part_pcd.set_active_vectors("vectors")
             plotter.add_mesh(driving_part_pcd, color="red", point_size=5, render_points_as_spheres=True)
-            plotter.add_mesh(driving_part_pcd.arrows, color="black", opacity=0.05)
+            plotter.add_mesh(driving_part_pcd.arrows, color="black", opacity=0.15)
         body_pcd = pv.PolyData(body_points)
         plotter.add_mesh(body_pcd, color="blue", point_size=5, render_points_as_spheres=True)
         # joint positions
@@ -334,7 +333,7 @@ class RobotModelConfig(BaseConfig):
         print(self)
         plotter.show_axes()
         if not return_plotter:
-            plotter.show(jupyter_backend=jupyter_backend)
+            plotter.show()
         else:
             return plotter
 

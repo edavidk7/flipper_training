@@ -112,6 +112,7 @@ def inertia_cog_from_voxelized_mesh(
     cog_coords = cog(pointwise_mass, points)
     points -= cog_coords
     inertia_tensor_matrix = inertia_tensor(pointwise_mass, points.unsqueeze(0)).squeeze()
+    print(inertia_tensor_matrix)
     return inertia_tensor_matrix, cog_coords
 
 

@@ -1,8 +1,9 @@
 import time
 from typing import Iterable, Dict
-import mayavi.mlab as mlab
+import numpy as np
 from flipper_training.engine.engine_state import PhysicsState, AuxEngineInfo, vectorize_iter_of_states
 from flipper_training.configs import WorldConfig, PhysicsEngineConfig
+import mayavi.mlab as mlab
 
 
 def animate_trajectory(
@@ -11,20 +12,50 @@ def animate_trajectory(
     states: Iterable[PhysicsState],
     aux_info: Iterable[AuxEngineInfo],
     robot_index: int = 0,
-    vis_opts: Dict = {},
+    **vis_opts,
 ):
+    """
+    Visualize the trajectory of a robot in a physics simulation.
+
+    Besides the arguments, the function accepts the following keyword arguments:
+    - window_size: tuple, default (1280, 720)
+    - fps: float, default None
+    - show_terrain: bool, default True
+    - show_spring_forces: bool, default True
+    - show_contacts: bool, default True
+    - show_non_contacts: bool, default True
+    - show_thrust_vectors: bool, default True
+    - show_friction_forces: bool, default True
+    - show_xd_points: bool, default True
+    - show_cog_coords: bool, default True
+
+    Args:
+        world_config (WorldConfig): World configuration.
+        engine_config (PhysicsEngineConfig): Physics engine configuration.
+        states (Iterable[PhysicsState]): Simulation states.
+        aux_info (Iterable[AuxEngineInfo]): Auxiliary information for simulation states.
+        robot_index (int, optional): Index of the robot to visualize. Defaults to 0.
+        **vis_opts: Additional visualization options.
+
+    Returns:
+        None
+    """
     # vectorize states
     states_vec = vectorize_iter_of_states(states)
     aux_info_vec = vectorize_iter_of_states(aux_info)
 
     # basic settings
     window_size = vis_opts.get("window_size", (1280, 720))
-    freq = vis_opts.get("freq", None)
+    freq = vis_opts.get("fps", None)
     show_terrain = vis_opts.get("show_terrain", True)
     show_spring_forces = vis_opts.get("show_spring_forces", True)
     show_contacts = vis_opts.get("show_contacts", True)
     show_non_contacts = vis_opts.get("show_non_contacts", True)
     show_thrust_vectors = vis_opts.get("show_thrust_vectors", True)
+    show_friction_forces = vis_opts.get("show_friction_forces", True)
+    show_xd_points = vis_opts.get("show_xd_points", True)
+    show_cog_coords = vis_opts.get("show_cog_coords", True)
+    show_act_forces = vis_opts.get("show_act_forces", True)
 
     # camera config
     cam_cfg = vis_opts.get("camera", None)
@@ -34,13 +65,24 @@ def animate_trajectory(
 
     # static terrain
     if show_terrain:
-        terrain_vis = mlab.mesh(world_config.x_grid[robot_index], world_config.y_grid[robot_index], world_config.z_grid[robot_index], colormap="terrain", opacity=0.8)
+        mlab.mesh(
+            world_config.x_grid[robot_index],
+            world_config.y_grid[robot_index],
+            world_config.z_grid[robot_index],
+            colormap="terrain",
+            opacity=0.8,
+        )
+
     # unpack
     xs = states_vec.x[:, robot_index].cpu().numpy()
     robot_points = aux_info_vec.global_robot_points[:, robot_index].cpu().numpy()
     fspring = aux_info_vec.F_spring[:, robot_index].cpu().numpy()
-    contact_masks = aux_info_vec.in_contact[:, robot_index].bool().squeeze(-1).cpu().numpy()
+    ffriction = aux_info_vec.F_friction[:, robot_index].cpu().numpy()
+    contact_masks = aux_info_vec.in_contact[:, robot_index].squeeze(-1).cpu().numpy() > 1e-3
     thrust_vectors = aux_info_vec.global_thrust_vectors[:, robot_index].cpu().numpy()
+    xd_points = aux_info_vec.xd_points[:, robot_index].cpu().numpy()
+    global_cog_coords = aux_info_vec.global_cog_coords[:, robot_index].cpu().numpy()
+    act_forces = aux_info_vec.act_forces[:, robot_index].cpu().numpy()
 
     # trajectory
     traj_vis = mlab.plot3d(xs[:, 0], xs[:, 1], xs[:, 2], color=(0, 1, 0), line_width=0.2)
@@ -78,6 +120,57 @@ def animate_trajectory(
     )
     thrust_vectors_vis.visible = show_thrust_vectors
 
+    friction_forces_vis = mlab.quiver3d(
+        robot_points[0, :, 0],
+        robot_points[0, :, 1],
+        robot_points[0, :, 2],
+        ffriction[0, :, 0],
+        ffriction[0, :, 1],
+        ffriction[0, :, 2],
+        line_width=3.0,
+        scale_factor=0.1,
+        color=(0, 1, 0),
+    )
+
+    friction_forces_vis.visible = show_friction_forces
+
+    xd_points_vis = mlab.quiver3d(
+        robot_points[0, :, 0],
+        robot_points[0, :, 1],
+        robot_points[0, :, 2],
+        xd_points[0, :, 0],
+        xd_points[0, :, 1],
+        xd_points[0, :, 2],
+        line_width=3.0,
+        scale_factor=0.1,
+        color=(1, 1, 0),
+    )
+
+    xd_points_vis.visible = show_xd_points
+
+    cog_coords_vis = mlab.points3d(
+        global_cog_coords[0, :, 0],
+        global_cog_coords[0, :, 1],
+        global_cog_coords[0, :, 2],
+        scale_factor=0.05,
+        color=(0, 1, 1),
+    )
+
+    cog_coords_vis.visible = show_cog_coords
+
+    act_forces_vis = mlab.quiver3d(
+        robot_points[0, :, 0],
+        robot_points[0, :, 1],
+        robot_points[0, :, 2],
+        act_forces[0, :, 0],
+        act_forces[0, :, 1],
+        act_forces[0, :, 2],
+        line_width=3.0,
+        scale_factor=0.1,
+        color=(1, 0.5, 0),
+    )
+    act_forces_vis.visible = show_act_forces
+
     # optionally set camera
     if cam_cfg is not None:
         mlab.view(
@@ -88,8 +181,16 @@ def animate_trajectory(
         )
 
     # animate
-    for i, (robot_point, fsp, contact_mask, tvec) in enumerate(zip(robot_points, fspring, contact_masks, thrust_vectors)):
+    for i in range(xs.shape[0]):
         # separate contact from non-contact
+        robot_point = robot_points[i]
+        fsp = fspring[i]
+        tvec = thrust_vectors[i]
+        ffr = ffriction[i]
+        contact_mask = contact_masks[i]
+        xdpts = xd_points[i]
+        cog_coords = global_cog_coords[i]
+        act_fs = act_forces[i]
         non_contact_points = robot_point.copy()
         contact_points = robot_point.copy()
         non_contact_points[contact_mask] = 0
@@ -102,9 +203,32 @@ def animate_trajectory(
         if show_contacts:
             contact_point_vis.mlab_source.set(x=contact_points[:, 0], y=contact_points[:, 1], z=contact_points[:, 2])
         if show_spring_forces:
-            spring_forces_vis.mlab_source.set(x=contact_points[:, 0], y=contact_points[:, 1], z=contact_points[:, 2], u=fsp[:, 0], v=fsp[:, 1], w=fsp[:, 2])
+            spring_forces_vis.mlab_source.set(
+                x=contact_points[:, 0],
+                y=contact_points[:, 1],
+                z=contact_points[:, 2],
+                u=fsp[:, 0],
+                v=fsp[:, 1],
+                w=fsp[:, 2],
+            )
         if show_thrust_vectors:
-            thrust_vectors_vis.mlab_source.set(x=robot_point[:, 0], y=robot_point[:, 1], z=robot_point[:, 2], u=tvec[:, 0], v=tvec[:, 1], w=tvec[:, 2])
+            thrust_vectors_vis.mlab_source.set(
+                x=robot_point[:, 0], y=robot_point[:, 1], z=robot_point[:, 2], u=tvec[:, 0], v=tvec[:, 1], w=tvec[:, 2]
+            )
+
+        if show_friction_forces:
+            friction_forces_vis.mlab_source.set(x=robot_point[:, 0], y=robot_point[:, 1], z=robot_point[:, 2], u=ffr[:, 0], v=ffr[:, 1], w=ffr[:, 2])
+
+        if show_xd_points:
+            xd_points_vis.mlab_source.set(x=robot_point[:, 0], y=robot_point[:, 1], z=robot_point[:, 2], u=xdpts[:, 0], v=xdpts[:, 1], w=xdpts[:, 2])
+
+        if show_cog_coords:
+            cog_coords_vis.mlab_source.set(x=cog_coords[:, 0], y=cog_coords[:, 1], z=cog_coords[:, 2])
+
+        if show_act_forces:
+            act_forces_vis.mlab_source.set(
+                x=robot_point[:, 0], y=robot_point[:, 1], z=robot_point[:, 2], u=act_fs[:, 0], v=act_fs[:, 1], w=act_fs[:, 2]
+            )
 
         traj_vis.mlab_source.reset(x=xs[: i + 1, 0], y=xs[: i + 1, 1], z=xs[: i + 1, 2])
 

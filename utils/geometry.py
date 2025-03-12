@@ -52,7 +52,7 @@ def rodrigues_rotation_matrix(axis: torch.Tensor, angle: torch.Tensor) -> torch.
     return torch.eye(3) + torch.sin(angle) * K + (1 - torch.cos(angle)) * (K @ K)
 
 
-def normalized(x, eps=1e-6):
+def normalized(x, eps=1e-8):
     """
     Normalizes the input tensor.
 

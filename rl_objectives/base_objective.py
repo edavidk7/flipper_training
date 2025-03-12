@@ -12,6 +12,18 @@ class BaseObjective(ABC):
     """
     Base class for an objective that manages the generation of start/goal positions for the robots in the environment,
     as well as the reward function and termination condition.
+
+    Attributes:
+    - device: The device on which the objective is running.
+    - physics_config: Configuration for the physics engine.
+    - robot_model: Configuration for the robot model.
+    - world_config: Configuration for the world.
+    - rng: Random number generator.
+    Methods:
+    - generate_start_goal_states: Generates start/goal positions for the robots in the environment.
+    - check_reached_goal: Checks if the robots have reached the goal.
+    - check_terminated_wrong: Checks if the robots have terminated due to reaching an infeasible/illegal state.
+
     """
 
     device: torch.device | str

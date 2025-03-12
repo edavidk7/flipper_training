@@ -1,5 +1,5 @@
 import torch
-from .geometry import skew_symmetric, normalized
+from .geometry import skew_symmetric, normalized, quaternion_multiply
 
 __all__ = [
     "integrate_rotation",
@@ -53,7 +53,7 @@ def condition_rotation_matrices(R: torch.Tensor) -> torch.Tensor:
     return R
 
 
-def integrate_quaternion(q: torch.Tensor, omega: torch.Tensor, dt: float) -> torch.Tensor:
+def integrate_quaternion(q: torch.Tensor, omega: torch.Tensor, dt: float, eps: float = 1e-8) -> torch.Tensor:
     """
     Integrate quaternion using the quaternion derivative.
     Parameters:
@@ -63,15 +63,31 @@ def integrate_quaternion(q: torch.Tensor, omega: torch.Tensor, dt: float) -> tor
     Returns:
         - Updated quaternion. Shape [B, 4].
     """
-    w, x, y, z = q.unbind(dim=-1)
-    H = 0.5 * torch.stack(
-        [
-            torch.stack([-x, -y, -z], dim=-1),
-            torch.stack([w, -z, y], dim=-1),
-            torch.stack([z, w, -x], dim=-1),
-            torch.stack([-y, x, w], dim=-1),
-        ],
-        dim=-2,
-    )  # shape: [B, 4, 3]
-    q_new = q + (dt * H @ omega.unsqueeze(-1)).squeeze(-1)
-    return normalized(q_new)
+
+    half_dt_omega = 0.5 * dt * omega  # shape: (B, 3)
+
+    # Theta is the magnitude of this half increment.
+    theta = torch.norm(half_dt_omega, dim=1, keepdim=True)  # shape: (B, 1)
+
+    # Compute sin(theta)/theta using a safe expression to avoid division by zero.
+    # Where theta is very small, we use the fact that sin(theta)/theta ~ 1.
+    small_theta_mask = (theta < eps).float()
+    sin_theta_over_theta = small_theta_mask + (1.0 - small_theta_mask) * torch.sin(theta) / (theta + small_theta_mask)
+
+    # The vector part of the rotation delta quaternion.
+    delta_q_vector = sin_theta_over_theta * half_dt_omega  # shape: (B, 3)
+
+    # The scalar part is simply cos(theta)
+    delta_q_scalar = torch.cos(theta)  # shape: (B, 1)
+
+    # Construct the delta quaternion. (Here we use the convention [w, x, y, z])
+    delta_q = torch.cat((delta_q_scalar, delta_q_vector), dim=1)
+
+    # The new quaternion is the product of delta_q and the current orientation.
+    # (Using left-multiplication: q_new = delta_q ⊗ q)
+    q_new = quaternion_multiply(delta_q, q)
+
+    # Normalize the quaternion to protect against numerical drift.
+    q_new = normalized(q_new)
+
+    return q_new

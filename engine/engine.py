@@ -7,7 +7,7 @@ from flipper_training.configs.robot_config import RobotModelConfig
 from flipper_training.configs.world_config import WorldConfig
 from flipper_training.engine.engine_state import AuxEngineInfo, PhysicsState, PhysicsStateDer
 from flipper_training.utils.environment import interpolate_grid, surface_normals_from_grads
-from flipper_training.utils.geometry import q_to_R, rot_Y
+from flipper_training.utils.geometry import q_to_R, rot_Y, normalized, rotate_vector_by_quaternion
 from flipper_training.utils.numerical import integrate_quaternion
 
 
@@ -41,20 +41,26 @@ class DPhysicsEngine(torch.nn.Module):
         cog_corrected_points = robot_points - global_cogs  # shape (B, n_pts, 3)
         xd_points = state.xd.unsqueeze(1) + torch.cross(state.omega.unsqueeze(1), cog_corrected_points, dim=-1)
 
-        # normal velocity computed as v_n = v . n
-        xd_points_n = torch.sum(xd_points * n, dim=-1, keepdims=True)
-
-        # Reaction at the contact points as spring-damper forces
-        k_damping = (4 * self.robot_model.total_mass * world_config.k_stiffness) ** 0.5 * self.config.damping_alpha
-        # F_s = -k * dh - b * v_n, multiply by -n to get the force vector
-        stiffness_term = world_config.k_stiffness * dh_points
-        damping_term = k_damping * xd_points_n
-        F_spring = (stiffness_term + damping_term) * (-n)
-        F_spring = F_spring * in_contact / torch.clamp(torch.sum(in_contact, dim=1, keepdims=True), min=1)
-
+        F_spring = self.calculate_spring_force(
+            dh_points,
+            xd_points,
+            in_contact,
+            n,
+            world_config,
+        )
         # friction forces
-        k_friction = world_config.k_friction
-        F_friction = self.calculate_friction(F_spring, xd_points, global_thrust_vectors, n, k_friction)
+        k_friction_lon = world_config.k_friction_lon
+        k_friction_lat = world_config.k_friction_lat
+        F_friction = self.calculate_friction(
+            state.q,
+            F_spring,
+            xd_points,
+            global_thrust_vectors,
+            in_contact,
+            n,
+            k_friction_lon,
+            k_friction_lat,
+        )
 
         # rigid body rotation: M = sum(r_i x F_i)
         act_force = F_spring + F_friction  # total force acting on the robot's points
@@ -74,7 +80,9 @@ class DPhysicsEngine(torch.nn.Module):
         aux_info = AuxEngineInfo(
             F_spring=F_spring,
             F_friction=F_friction,
+            xd_points=xd_points,
             in_contact=in_contact,
+            act_forces=act_force,
             normals=n,
             torque=torque,
             global_robot_points=robot_points,
@@ -84,6 +92,23 @@ class DPhysicsEngine(torch.nn.Module):
             I_global=inertia,
         )
         return next_state_der, aux_info
+
+    def calculate_spring_force(
+        self,
+        dh_points: torch.Tensor,
+        xd_points: torch.Tensor,
+        in_contact: torch.Tensor,
+        n: torch.Tensor,
+        world_config: WorldConfig,
+    ) -> torch.Tensor:
+        """
+        Calculate the spring force acting on the robot points.
+        """
+        k_damping = self.config.damping_alpha * 2 * (self.robot_model.total_mass * world_config.k_stiffness) ** 0.5
+        # F_s = -k * dh - b * v_n, multiply by -n to get the force vector
+        xd_points_n = (xd_points * n).sum(dim=-1, keepdim=True)  # normal component of the velocity
+        F_spring = -torch.mul((world_config.k_stiffness * dh_points + k_damping * xd_points_n), n)
+        return F_spring * in_contact / in_contact.sum(dim=1, keepdim=True).clamp_min(1)  # shape (B, n_pts, 3), only apply spring force if in contact
 
     def compute_joint_angular_velocities(self, controls: torch.Tensor) -> torch.Tensor:
         """
@@ -100,7 +125,9 @@ class DPhysicsEngine(torch.nn.Module):
         thetas_d = thetas_d.clamp(-self.robot_model.joint_max_pivot_vels, self.robot_model.joint_max_pivot_vels)
         return thetas_d
 
-    def calculate_torque_omega_d(self, act_force: torch.Tensor, cog_corrected_points: torch.Tensor, inertia: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+    def calculate_torque_omega_d(
+        self, act_force: torch.Tensor, cog_corrected_points: torch.Tensor, inertia: torch.Tensor
+    ) -> tuple[torch.Tensor, torch.Tensor]:
         """
         Calculate the angular acceleration of the robot.
 
@@ -119,38 +146,36 @@ class DPhysicsEngine(torch.nn.Module):
 
     def calculate_friction(
         self,
+        q: torch.Tensor,
         F_normal: torch.Tensor,
         xd_points: torch.Tensor,
         thrust_vectors: torch.Tensor,
+        in_contact: torch.Tensor,
         n: torch.Tensor,
-        k_friction: float | torch.Tensor,
+        k_friction_lon: float | torch.Tensor,
+        k_friction_lat: float | torch.Tensor,
     ) -> torch.Tensor:
         """
         Calculate the friction force acting on the robot points.
-
-        This function replaces naive boolean masking with multiplication and addition, which is faster and doesn't break threads on a GPU.
-
-        Args:
-            F_normal: The normal force acting on the robot points.
-            xd_points: The velocity of the robot points.
-            thrust_vectors: The thrust vectors of the robot points.
-            n: The surface normals of robot points.
-            k_friction: The friction coefficient.
-
-        Returns:
-            F_friction: The friction force acting on the robot points.
         """
+
         # friction forces: shttps://en.wikipedia.org/wiki/Friction
         N = torch.norm(
             F_normal, dim=2, keepdim=True
         )  # normal force magnitude at the contact points, guaranteed to be zero if not in contact because of the spring force being zero
-        kN = k_friction * N  # friction force magnitude
-        # thrust direction in global coordinates
+        global_driving_dir = rotate_vector_by_quaternion(self.robot_model.driving_direction.expand(self.config.num_robots, 1, 3), q)
+        forward_dir = normalized(global_driving_dir - (global_driving_dir * n).sum(dim=-1, keepdims=True) * n)  # forward direction
+        lateral_dir = normalized(torch.cross(forward_dir, n, dim=-1))  # lateral direction
         dv = thrust_vectors - xd_points  # velocity difference between the commanded and the actual velocity of the robot points
         dv_n = (dv * n).sum(dim=-1, keepdims=True)  # normal component of the relative velocity computed as dv_n = dv . n
         dv_tau = dv - dv_n * n  # tangential component of the relative velocity
-        dv_tau_sat = torch.tanh(dv_tau)  # saturation of the tangential velocity using tanh
-        F_friction = kN * dv_tau_sat
+        dv_lon = (dv_tau * forward_dir).sum(dim=-1, keepdim=True) * forward_dir
+        dv_lat = (dv_tau * lateral_dir).sum(dim=-1, keepdim=True) * lateral_dir
+        dv_lon_sat = torch.tanh(dv_lon)
+        dv_lat_sat = torch.tanh(dv_lat)
+        F_friction_lon = k_friction_lon * N * dv_lon_sat  # longitudinal friction force
+        F_friction_lat = k_friction_lat * N * dv_lat_sat  # lateral friction force
+        F_friction = F_friction_lat + F_friction_lon
         return F_friction
 
     def find_contact_points(
@@ -172,10 +197,7 @@ class DPhysicsEngine(torch.nn.Module):
         z_points = interpolate_grid(world_config.z_grid, robot_points[..., :2], world_config.max_coord)
         n = surface_normals_from_grads(world_config.z_grid_grad, robot_points[..., :2], world_config.max_coord)
         dh_points = (robot_points[..., 2:3] - z_points) * n[..., 2:3]  # penetration depth as a signed distance from the tangent plane
-        # This is a GPU-friendly hack for computing the on-grid points
-        clamped_points = robot_points[..., :2].clamp(-world_config.max_coord, world_config.max_coord)
-        on_grid = (clamped_points == robot_points[..., :2]).all(dim=-1, keepdim=True)
-        in_contact = ((dh_points <= 0.0) & on_grid).float()
+        in_contact = 0.5 * (1 + torch.tanh((-dh_points / self.config.soft_contact_sigma * (3**0.5))))  # shape (B, n_pts, 1)
         return in_contact, dh_points * in_contact, n
 
     def update_state(self, state: PhysicsState, dstate: PhysicsStateDer) -> PhysicsState:
@@ -199,9 +221,13 @@ class DPhysicsEngine(torch.nn.Module):
             thetas=next_thetas,
         )
 
-    def assemble_and_transform_robot(self, state: PhysicsState, controls: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+    def assemble_and_transform_robot(
+        self, state: PhysicsState, controls: torch.Tensor
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         # 1.  Prepare joint rotations and construct the driving parts in the robot's local frame
-        rots = rot_Y(state.thetas.view(-1, 1)).view(self.config.num_robots, self.robot_model.num_driving_parts, 1, 3, 3)  # shape (B, n_joints, 1, 3, 3)
+        rots = rot_Y(state.thetas.view(-1, 1)).view(
+            self.config.num_robots, self.robot_model.num_driving_parts, 1, 3, 3
+        )  # shape (B, n_joints, 1, 3, 3)
         # All of these are expressed in the robot's local frame.
         # The joint points are first rotated in their own frame and then translated to the robot's frame.
         rot_driving_part_pts = torch.matmul(
@@ -241,7 +267,9 @@ class DPhysicsEngine(torch.nn.Module):
         # Compute translation terms for driving parts
         d_driving_sq = torch.sum(d_driving**2, dim=-2, keepdim=True)  # shape (B, n_joints, 1, 1, 1)
         translation_term_driving = d_driving_sq * self._I_3x3 - torch.matmul(d_driving, d_driving.transpose(-1, -2))  # shape (B, n_joints, 1, 3, 3)
-        translation_term_driving *= self.robot_model.driving_part_masses.view(1, self.robot_model.num_driving_parts, 1, 1, 1)  # shape (B, n_joints, 1, 3, 3)
+        translation_term_driving *= self.robot_model.driving_part_masses.view(
+            1, self.robot_model.num_driving_parts, 1, 1, 1
+        )  # shape (B, n_joints, 1, 3, 3)
         # Compute translation term for the body
         d_body_sq = torch.sum(d_body**2, dim=-2, keepdim=True)  # shape (B, 1, 1, 1)
         translation_term_body = d_body_sq * self._I_3x3.squeeze(1) - torch.matmul(d_body, d_body.transpose(-1, -2))  # shape (B, 1, 3, 3)
@@ -278,7 +306,9 @@ class DPhysicsEngine(torch.nn.Module):
         robot_points = torch.cat((driving_parts_world.view(self.config.num_robots, -1, 3), body_world.squeeze(-1)), dim=1)
         # 5. Compute all thrust directions scaled by commanded velocity
         velocity_cmd = controls[:, : self.robot_model.num_driving_parts].clamp(-self.robot_model.v_max, self.robot_model.v_max)  # shape (B, n_joints)
-        thrust_directions_world *= velocity_cmd.view(self.config.num_robots, self.robot_model.num_driving_parts, 1, 1, 1)  # shape (B, n_joints, 1, 3, 1)
+        thrust_directions_world *= velocity_cmd.view(
+            self.config.num_robots, self.robot_model.num_driving_parts, 1, 1, 1
+        )  # shape (B, n_joints, 1, 3, 1)
         thrust_vectors = torch.cat(
             (
                 thrust_directions_world.view(self.config.num_robots, -1, 3),

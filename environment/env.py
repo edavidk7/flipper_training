@@ -77,9 +77,7 @@ class Env(EnvBase):
         state = self.start.clone()  # Dummy state
         comp_engine = torch.compile(self.engine, options=compile_opts)
         try:
-            comp_engine(
-                state, act, self.world_cfg
-            )  # Dummy forward pass to compile the engine, record the return tensors
+            comp_engine(state, act, self.world_cfg)  # Dummy forward pass to compile the engine, record the return tensors
         except Exception as e:
             print(f"Engine compilation failed: {e}, falling back to non-compiled engine")
             return

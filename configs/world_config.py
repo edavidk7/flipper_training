@@ -34,7 +34,8 @@ class WorldConfig(BaseConfig):
     grid_res: float
     max_coord: float
     k_stiffness: float | torch.Tensor = 20_000.0
-    k_friction: float | torch.Tensor = 1.0
+    k_friction_lon: float | torch.Tensor = 0.5
+    k_friction_lat: float | torch.Tensor = 0.2
     suitable_mask: torch.BoolTensor | None = None
 
     def __post_init__(self):
@@ -52,8 +53,6 @@ class WorldConfig(BaseConfig):
             int: size of the grid.
         """
         return self.z_grid.shape[-1]
-        
-        
 
     def ij_to_xyz(self, ij: torch.IntTensor | torch.LongTensor) -> torch.FloatTensor:
         """

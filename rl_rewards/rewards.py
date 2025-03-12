@@ -6,7 +6,7 @@ from abc import ABC, abstractmethod
 
 if TYPE_CHECKING:
     from flipper_training.environment.env import Env
-    
+
 __all__ = ["Reward", "RollPitchGoal"]
 
 
@@ -17,16 +17,17 @@ class Reward(ABC):
     """
 
     @abstractmethod
-    def __call__(self,
-                 prev_state: PhysicsState,
-                 action: torch.Tensor,
-                 state_der: PhysicsStateDer,
-                 curr_state: PhysicsState,
-                 aux_info: AuxEngineInfo,
-                 success: torch.BoolTensor,
-                 fail: torch.BoolTensor,
-                 env: "Env"
-                 ) -> torch.Tensor:
+    def __call__(
+        self,
+        prev_state: PhysicsState,
+        action: torch.Tensor,
+        state_der: PhysicsStateDer,
+        curr_state: PhysicsState,
+        aux_info: AuxEngineInfo,
+        success: torch.BoolTensor,
+        fail: torch.BoolTensor,
+        env: "Env",
+    ) -> torch.Tensor:
         """
         Calculate the reward for the environment.
 
@@ -50,7 +51,7 @@ class Reward(ABC):
 @dataclass
 class RollPitchGoal(Reward):
     """
-    Reward function for the environment. 
+    Reward function for the environment.
     Robot is rewarded for minimizing the roll and pitch angles and for moving towards the goal position, penalized for moving away from the goal position.
     """
 
@@ -59,16 +60,17 @@ class RollPitchGoal(Reward):
     omega_weight: float
     goal_weight: float
 
-    def __call__(self,
-                 prev_state: PhysicsState,
-                 action: torch.Tensor,
-                 state_der: PhysicsStateDer,
-                 curr_state: PhysicsState,
-                 aux_info: AuxEngineInfo,
-                 success: torch.BoolTensor,
-                 fail: torch.BoolTensor,
-                 env: "Env"
-                 ) -> torch.Tensor:
+    def __call__(
+        self,
+        prev_state: PhysicsState,
+        action: torch.Tensor,
+        state_der: PhysicsStateDer,
+        curr_state: PhysicsState,
+        aux_info: AuxEngineInfo,
+        success: torch.BoolTensor,
+        fail: torch.BoolTensor,
+        env: "Env",
+    ) -> torch.Tensor:
         roll_pitch_rates_sq = curr_state.omega[..., :2].pow(2)  # shape (batch_size, 2)
         goal_diff_curr = (env.goal.x - curr_state.x).norm(dim=-1, keepdim=True)
         goal_diff_prev = (env.goal.x - prev_state.x).norm(dim=-1, keepdim=True)

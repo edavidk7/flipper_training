@@ -13,6 +13,7 @@ class PhysicsEngineConfig(BaseConfig):
         gravity (float): acceleration due to gravity. Default is 9.81 m/s^2.
         torque_limit (float): torque limit that can be generated on CoG. The physics engine clips it to this value. Default is 500.0 Nm.
         damping_alpha (float): damping coefficient modifier, should be between 0 and 2. Default is 1.0 (damping is critical damping)
+        soft_contact_sigma (float): soft contact sigma. Default is 0.5. This is the width of the soft contact force function.
     """
 
     num_robots: int
@@ -20,3 +21,4 @@ class PhysicsEngineConfig(BaseConfig):
     gravity: float = 9.81
     torque_limit: float = 200.0
     damping_alpha: float = 1.0
+    soft_contact_sigma: float = 0.01

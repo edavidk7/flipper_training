@@ -5,7 +5,14 @@ import torch
 from .geometry import normalized
 from .heightmap_generators import BaseHeightmapGenerator
 
-__all__ = ["make_x_y_grids", "generate_heightmaps", "compute_heightmap_gradients", "interpolate_normals", "interpolate_grid", "surface_normals_from_grads"]
+__all__ = [
+    "make_x_y_grids",
+    "generate_heightmaps",
+    "compute_heightmap_gradients",
+    "interpolate_normals",
+    "interpolate_grid",
+    "surface_normals_from_grads",
+]
 
 
 def make_x_y_grids(max_coord: float, grid_res: float, num_robots: int) -> Tuple[torch.Tensor, torch.Tensor]:
@@ -21,7 +28,7 @@ def make_x_y_grids(max_coord: float, grid_res: float, num_robots: int) -> Tuple[
     - Tuple of x and y grids of shape (num_robots, D, D) where D = 2 * max_coord / grid_res.
     """
     dim = int(2 * max_coord / grid_res)
-    xint = torch.linspace(-max_coord, max_coord, dim)
+    xint = torch.linspace(-max_coord, max_coord, dim)  # haha
     yint = torch.linspace(-max_coord, max_coord, dim)
     x, y = torch.meshgrid(xint, yint, indexing="xy")
     x = x.unsqueeze(0).repeat(num_robots, 1, 1)
@@ -29,7 +36,9 @@ def make_x_y_grids(max_coord: float, grid_res: float, num_robots: int) -> Tuple[
     return x, y
 
 
-def generate_heightmaps(x: torch.Tensor, y: torch.Tensor, heightmap_gen: BaseHeightmapGenerator, rng: torch.Generator | None = None) -> Tuple[torch.Tensor, torch.Tensor]:
+def generate_heightmaps(
+    x: torch.Tensor, y: torch.Tensor, heightmap_gen: BaseHeightmapGenerator, rng: torch.Generator | None = None
+) -> Tuple[torch.Tensor, torch.Tensor]:
     """
     Generates a heightmap using the specified heightmap generator.
 
@@ -81,7 +90,11 @@ def surface_normals_from_grads(z_grid_grads: torch.Tensor, query: torch.Tensor, 
     B, N = query.shape[:2]
     grid_coords = norm_query.unsqueeze(2)
     # Interpolate the grid values into shape (B, 2, N, 1)
-    grad_query = torch.nn.functional.grid_sample(z_grid_grads, grid_coords, align_corners=True, mode="bilinear").squeeze(-1).transpose(1, 2)  # (B, N, 2)
+    grad_query = (
+        torch.nn.functional.grid_sample(z_grid_grads, grid_coords, align_corners=True, mode="bilinear")
+        .squeeze(-1)
+        .transpose(1, 2)
+    )  # (B, N, 2)
     # Compute the surface normals
     n = torch.dstack([-grad_query, torch.ones((B, N, 1), device=query.device)])  # n = [-dz/dx, -dz/dy, 1]
     n = normalized(n)
@@ -104,7 +117,9 @@ def interpolate_normals(normals: torch.Tensor, query: torch.Tensor, max_coord: f
     # Query coordinates of shape (B, N, 1, 2)
     grid_coords = norm_query.unsqueeze(2)
     # Interpolate the normals into shape (B, 3, N)
-    interpolated_normals = torch.nn.functional.grid_sample(normals, grid_coords, align_corners=True, mode="bilinear").squeeze(3)
+    interpolated_normals = torch.nn.functional.grid_sample(
+        normals, grid_coords, align_corners=True, mode="bilinear"
+    ).squeeze(3)
     return normalized(interpolated_normals.transpose(1, 2))
 
 
