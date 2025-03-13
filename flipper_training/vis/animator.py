@@ -1,6 +1,5 @@
 import time
-from typing import Iterable, Dict
-import numpy as np
+from typing import Iterable
 from flipper_training.engine.engine_state import PhysicsState, AuxEngineInfo, vectorize_iter_of_states
 from flipper_training.configs import WorldConfig, PhysicsEngineConfig
 import mayavi.mlab as mlab

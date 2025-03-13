@@ -19,9 +19,7 @@ class BaseHeightmapGenerator(ABC):
     noise_std: float = 0.01  # Standard deviation of the Gaussian noise in meters
     noise_mu: float = 0.0  # Mean of the Gaussian noise in meters
 
-    def __call__(
-        self, x: torch.Tensor, y: torch.Tensor, max_coord: float, rng: torch.Generator | None = None
-    ) -> tuple[torch.Tensor, torch.Tensor]:
+    def __call__(self, x: torch.Tensor, y: torch.Tensor, max_coord: float, rng: torch.Generator | None = None) -> tuple[torch.Tensor, torch.Tensor]:
         """
         Generates a heightmap.
 
@@ -98,25 +96,16 @@ class MultiGaussianHeightmapGenerator(BaseHeightmapGenerator):
         mus = torch.rand((num_gaussians, 2), device=x.device) * 2 * max_coord - max_coord
         # Generate standard deviations from min_std_fraction * max_coord to max_std_fraction * max_coord
         sigmas = (
-            torch.rand((num_gaussians, 1), device=x.device)
-            * (self.max_std_fraction - self.min_std_fraction)
-            * max_coord
+            torch.rand((num_gaussians, 1), device=x.device) * (self.max_std_fraction - self.min_std_fraction) * max_coord
             + self.min_std_fraction * max_coord
         )
         ratios = (
             torch.rand((num_gaussians,), device=x.device) * (1 - self.min_sigma_ratio) + self.min_sigma_ratio
         )  # ratio of the standard deviations of the x and y components in range [min_sigma_ratio, 1]
-        higher_indices = torch.randint(
-            0, 2, (num_gaussians,), device=x.device
-        )  # whether the x or y component has the  higher standard deviation
+        higher_indices = torch.randint(0, 2, (num_gaussians,), device=x.device)  # whether the x or y component has the  higher standard deviation
         sigmas = sigmas.repeat(1, 2)
         sigmas[torch.arange(num_gaussians), higher_indices] *= ratios
-        heights = (
-            torch.rand((num_gaussians,), device=x.device) * (self.max_height_fraction - self.min_height_fraction)
-            + self.min_height_fraction
-        )
+        heights = torch.rand((num_gaussians,), device=x.device) * (self.max_height_fraction - self.min_height_fraction) + self.min_height_fraction
         for i in range(num_gaussians):
-            z += heights[i] * torch.exp(
-                -((x - mus[i, 0]) ** 2 / (2 * sigmas[i, 0] ** 2) + (y - mus[i, 1]) ** 2 / (2 * sigmas[i, 1] ** 2))
-            )
+            z += heights[i] * torch.exp(-((x - mus[i, 0]) ** 2 / (2 * sigmas[i, 0] ** 2) + (y - mus[i, 1]) ** 2 / (2 * sigmas[i, 1] ** 2)))
         return z, torch.ones_like(x, dtype=torch.bool, device=x.device)

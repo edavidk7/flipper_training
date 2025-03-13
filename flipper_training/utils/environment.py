@@ -91,9 +91,7 @@ def surface_normals_from_grads(z_grid_grads: torch.Tensor, query: torch.Tensor, 
     grid_coords = norm_query.unsqueeze(2)
     # Interpolate the grid values into shape (B, 2, N, 1)
     grad_query = (
-        torch.nn.functional.grid_sample(z_grid_grads, grid_coords, align_corners=True, mode="bilinear")
-        .squeeze(-1)
-        .transpose(1, 2)
+        torch.nn.functional.grid_sample(z_grid_grads, grid_coords, align_corners=True, mode="bilinear").squeeze(-1).transpose(1, 2)
     )  # (B, N, 2)
     # Compute the surface normals
     n = torch.dstack([-grad_query, torch.ones((B, N, 1), device=query.device)])  # n = [-dz/dx, -dz/dy, 1]
@@ -117,9 +115,7 @@ def interpolate_normals(normals: torch.Tensor, query: torch.Tensor, max_coord: f
     # Query coordinates of shape (B, N, 1, 2)
     grid_coords = norm_query.unsqueeze(2)
     # Interpolate the normals into shape (B, 3, N)
-    interpolated_normals = torch.nn.functional.grid_sample(
-        normals, grid_coords, align_corners=True, mode="bilinear"
-    ).squeeze(3)
+    interpolated_normals = torch.nn.functional.grid_sample(normals, grid_coords, align_corners=True, mode="bilinear").squeeze(3)
     return normalized(interpolated_normals.transpose(1, 2))
 
 

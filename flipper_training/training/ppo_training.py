@@ -133,9 +133,7 @@ def main(train_config):
     logs = defaultdict(list)
     pbar = tqdm(total=train_config["total_frames"])
     eval_str = ""
-    for i, tensordict_data in enumerate(
-        collector
-    ):  # collected (B, T, *specs) where B is the batch size and T the number of steps
+    for i, tensordict_data in enumerate(collector):  # collected (B, T, *specs) where B is the batch size and T the number of steps
         for _ in range(train_config["epochs_per_batch"]):
             advantage_module(tensordict_data)
             replay_buffer.extend(tensordict_data.reshape(-1))  # we can now safely flatten the data

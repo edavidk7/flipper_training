@@ -7,7 +7,7 @@ def set_device(device: str, high_performance: bool = False) -> torch.device:
     Set the device for the torch module
     """
     if device == "cuda" and torch.cuda.is_available():
-        torch.set_float32_matmul_precision('high' if high_performance else 'highest')
+        torch.set_float32_matmul_precision("high" if high_performance else "highest")
         torch.backends.cuda.matmul.allow_tf32 = high_performance
         torch.backends.cudnn.allow_tf32 = high_performance
         torch.backends.cudnn.deterministic = True

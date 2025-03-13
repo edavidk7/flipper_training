@@ -28,9 +28,7 @@ class RobotStateVector(Observation):
         aux_info: AuxEngineInfo,
     ) -> torch.Tensor:
         goal_vecs = self.env.goal.x - curr_state.x  # (n_robots, 3)
-        goal_vecs_local = rotate_vector_by_quaternion(goal_vecs.unsqueeze(1), inverse_quaternion(curr_state.q)).squeeze(
-            1
-        )  # (n_robots, 3)
+        goal_vecs_local = rotate_vector_by_quaternion(goal_vecs.unsqueeze(1), inverse_quaternion(curr_state.q)).squeeze(1)  # (n_robots, 3)
         rolls, pitches, _ = quaternion_to_euler(curr_state.q)
         return torch.cat(
             [

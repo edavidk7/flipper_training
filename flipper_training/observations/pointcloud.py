@@ -28,12 +28,8 @@ class Pointcloud(Observation):
         px, py = torch.meshgrid(
             x_space, y_space, indexing="ij"
         )  # TODO check this, but we want the first coordinate to be the vertical one on the grid.
-        percep_grid_points = torch.dstack([px, py, torch.zeros_like(px)]).reshape(
-            -1, 3
-        )  # add the z coordinate (0)
-        self.percep_grid_points = (
-            percep_grid_points.unsqueeze(0).repeat(self.env.n_robots, 1, 1).to(self.env.device)
-        )
+        percep_grid_points = torch.dstack([px, py, torch.zeros_like(px)]).reshape(-1, 3)  # add the z coordinate (0)
+        self.percep_grid_points = percep_grid_points.unsqueeze(0).repeat(self.env.n_robots, 1, 1).to(self.env.device)
 
     def __call__(
         self,
@@ -43,19 +39,11 @@ class Pointcloud(Observation):
         curr_state: PhysicsState,
         aux_info: AuxEngineInfo,
     ) -> torch.Tensor:
-        global_percep_points = local_to_global_q(
-            curr_state.x, curr_state.q, self.percep_grid_points
-        )
-        z = interpolate_grid(
-            self.env.world_cfg.z_grid, global_percep_points[..., :2], self.env.world_cfg.max_coord
-        )
+        global_percep_points = local_to_global_q(curr_state.x, curr_state.q, self.percep_grid_points)
+        z = interpolate_grid(self.env.world_cfg.z_grid, global_percep_points[..., :2], self.env.world_cfg.max_coord)
         global_percep_points[..., 2] = z.squeeze(-1)
-        local_percep_points = global_to_local_q(
-            curr_state.x, curr_state.q, global_percep_points
-        )  # shape (B, N, 3)
-        return local_percep_points.permute(0, 2, 1).reshape(
-            -1, 3, self.percep_shape[0], self.percep_shape[1]
-        )
+        local_percep_points = global_to_local_q(curr_state.x, curr_state.q, global_percep_points)  # shape (B, N, 3)
+        return local_percep_points.permute(0, 2, 1).reshape(-1, 3, self.percep_shape[0], self.percep_shape[1])
 
     def get_spec(self) -> Unbounded:
         return Unbounded(

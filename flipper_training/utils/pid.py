@@ -8,12 +8,12 @@ class PID:
         self.kd = kd
         self.max = max_output
         self.min = min_output
-        self.i = 0.
-        self.e_prev = 0.
+        self.i = 0.0
+        self.e_prev = 0.0
 
     def reset(self, i: float | Tensor = 0.0, e_prev: float | Tensor = 0.0):
-        self.i = 0.
-        self.e_prev = 0.
+        self.i = 0.0
+        self.e_prev = 0.0
 
     def set_gains(self, kp, ki, kd):
         self.kp = kp
@@ -30,7 +30,7 @@ class PID:
           dt - time step
 
         Returns:
-            output - PID output 
+            output - PID output
         """
 
         # Regulation step

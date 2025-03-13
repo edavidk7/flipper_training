@@ -1,6 +1,6 @@
 import torch
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Callable
+from typing import TYPE_CHECKING
 from tensordict import TensorDict
 from flipper_training.engine.engine_state import PhysicsState, AuxEngineInfo, PhysicsStateDer
 from torchrl.data import Composite, Unbounded, Bounded
@@ -22,11 +22,9 @@ class Observation(ABC):
     env: "Env"
 
     @abstractmethod
-    def __call__(self, prev_state: PhysicsState,
-                 action: torch.Tensor,
-                 state_der: PhysicsStateDer,
-                 curr_state: PhysicsState,
-                 aux_info: AuxEngineInfo) -> torch.Tensor | TensorDict:
+    def __call__(
+        self, prev_state: PhysicsState, action: torch.Tensor, state_der: PhysicsStateDer, curr_state: PhysicsState, aux_info: AuxEngineInfo
+    ) -> torch.Tensor | TensorDict:
         """
         Generate observations from the current state of the environment.
 
