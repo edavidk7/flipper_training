@@ -300,7 +300,7 @@ def plot_3d_trajectory(
             zaxis_title="Height (Z)",
             camera_eye=dict(x=1.0, y=1.0, z=0.5),
             aspectmode="manual",
-            aspectratio=dict(x=1.0, y=1.0, z=max(abs(zs).max().item(), abs(pts_global).max()) / (2 * world_config.max_coord)),
+            aspectratio=dict(x=1.0, y=1.0, z=max(abs(zs).max().item(), abs(pts_global[..., 2]).max()) / (2 * world_config.max_coord)),
         ),
         width=1000,
         height=500,

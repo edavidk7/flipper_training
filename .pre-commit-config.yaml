@@ -1,0 +1,11 @@
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    # Use the latest version of Ruff
+    rev: v0.9.10
+    hooks:
+      # Run the linter with fixes
+      - id: ruff
+        args: ["--fix", "--line-length=150", "--extend-select=E,F,Q,B,S"]
+      # Run the formatter
+      - id: ruff-format
+        args: ["--line-length=150"]

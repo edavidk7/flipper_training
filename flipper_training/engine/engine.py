@@ -56,13 +56,11 @@ class DPhysicsEngine(torch.nn.Module):
             F_spring,
             xd_points,
             global_thrust_vectors,
-            in_contact,
             n,
             k_friction_lon,
             k_friction_lat,
         )
 
-        # rigid body rotation: M = sum(r_i x F_i)
         act_force = F_spring + F_friction  # total force acting on the robot's points
         torque, omega_d = self.calculate_torque_omega_d(act_force, cog_corrected_points, inertia)
 
@@ -131,6 +129,8 @@ class DPhysicsEngine(torch.nn.Module):
         """
         Calculate the angular acceleration of the robot.
 
+        rigid body rotation: M = sum(r_i x F_i)
+
         Args:
             act_force: The total force acting on the robot's points.
             cog_corrected_points: The CoG corrected robot points in global coordinates.
@@ -150,7 +150,6 @@ class DPhysicsEngine(torch.nn.Module):
         F_normal: torch.Tensor,
         xd_points: torch.Tensor,
         thrust_vectors: torch.Tensor,
-        in_contact: torch.Tensor,
         n: torch.Tensor,
         k_friction_lon: float | torch.Tensor,
         k_friction_lat: float | torch.Tensor,
@@ -169,12 +168,11 @@ class DPhysicsEngine(torch.nn.Module):
         dv = thrust_vectors - xd_points  # velocity difference between the commanded and the actual velocity of the robot points
         dv_n = (dv * n).sum(dim=-1, keepdims=True)  # normal component of the relative velocity computed as dv_n = dv . n
         dv_tau = dv - dv_n * n  # tangential component of the relative velocity
+        dv_tau = torch.tanh(dv_tau)  # saturate the tangential velocity difference
         dv_lon = (dv_tau * forward_dir).sum(dim=-1, keepdim=True) * forward_dir
         dv_lat = (dv_tau * lateral_dir).sum(dim=-1, keepdim=True) * lateral_dir
-        dv_lon_sat = torch.tanh(dv_lon)
-        dv_lat_sat = torch.tanh(dv_lat)
-        F_friction_lon = k_friction_lon * N * dv_lon_sat  # longitudinal friction force
-        F_friction_lat = k_friction_lat * N * dv_lat_sat  # lateral friction force
+        F_friction_lon = k_friction_lon * N * dv_lon  # longitudinal friction force
+        F_friction_lat = k_friction_lat * N * dv_lat  # lateral friction force
         F_friction = F_friction_lat + F_friction_lon
         return F_friction
 

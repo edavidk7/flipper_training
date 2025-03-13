@@ -1,6 +1,5 @@
 import hashlib
 from dataclasses import dataclass
-from pathlib import Path
 from typing import Literal
 
 import numpy as np
@@ -8,6 +7,7 @@ import pyvista as pv
 import torch
 import yaml
 
+from flipper_training import ROOT
 from flipper_training.configs.base_config import BaseConfig
 from flipper_training.utils.flipper_modeling import (
     TrackWheels,
@@ -23,7 +23,6 @@ from flipper_training.utils.meshes import (
 
 np.random.seed(0)
 
-ROOT = Path(__file__).parent.parent
 MESHDIR = ROOT / "meshes"
 YAMLDIR = ROOT / "robots"
 POINTCACHE = ROOT / ".robot_cache"

@@ -85,9 +85,7 @@ def extract_submesh_by_mask(mesh: pv.PolyData, mask: torch.Tensor) -> pv.PolyDat
     return mesh.extract_points(indices, adjacent_cells=False, include_cells=True)
 
 
-def inertia_cog_from_voxelized_mesh(
-    mesh: pv.PolyData, mass: float, voxel_size: float, fill: bool = True
-) -> tuple[torch.Tensor, torch.Tensor]:
+def inertia_cog_from_voxelized_mesh(mesh: pv.PolyData, mass: float, voxel_size: float, fill: bool = True) -> tuple[torch.Tensor, torch.Tensor]:
     """
     Computes the inertia tensor and center of gravity from a voxelized mesh.
 
@@ -103,22 +101,17 @@ def inertia_cog_from_voxelized_mesh(
     mesh = trimesh.Trimesh(vertices=vertices, faces=faces)
     vox = trimesh.voxel.creation.voxelize(mesh, pitch=voxel_size)
     if fill:
-        filled_encoding = trimesh.voxel.morphology.binary_closing(
-            vox.encoding, structure=np.ones((3, 3, 3))
-        )
+        filled_encoding = trimesh.voxel.morphology.binary_closing(vox.encoding, structure=np.ones((3, 3, 3)))
         vox = trimesh.voxel.VoxelGrid(filled_encoding, transform=vox.transform)
     points = torch.tensor(vox.points)
     pointwise_mass = mass / points.shape[0] * torch.ones(points.shape[0])
     cog_coords = cog(pointwise_mass, points)
     points -= cog_coords
     inertia_tensor_matrix = inertia_tensor(pointwise_mass, points.unsqueeze(0)).squeeze()
-    print(inertia_tensor_matrix)
     return inertia_tensor_matrix, cog_coords
 
 
-def sample_points_from_convex_hull(
-    mesh: pv.PolyData, n_points: int, method: Literal["regular", "even"] = "even"
-) -> torch.Tensor:
+def sample_points_from_convex_hull(mesh: pv.PolyData, n_points: int, method: Literal["regular", "even"] = "even") -> torch.Tensor:
     """
     Samples points from the surface of the convex hull of a mesh.
 
