@@ -4,11 +4,10 @@ from numpy import deg2rad
 from torch.optim import Adam, lr_scheduler
 from torchrl.envs import ExplorationType
 
-from flipper_training.configs import *
-from flipper_training.observations import *
-from flipper_training.rl_objectives import *
+from flipper_training.observations import Heightmap, RobotStateVector
+from flipper_training.rl_objectives import SimpleStabilizationObjective
 from flipper_training.rl_rewards.rewards import RollPitchGoal
-from flipper_training.utils.heightmap_generators import *
+from flipper_training.utils.heightmap_generators import MultiGaussianHeightmapGenerator
 
 train_config = {
     "seed": 42,
@@ -62,7 +61,8 @@ train_config = {
     },
     "world_opts": {
         "k_stiffness": 30_000,
-        "k_friction": 1.0,
+        "k_friction_lon": 0.8,
+        "k_friction_lat": 0.5,
     },
     "training_objective": SimpleStabilizationObjective,
     "objective_opts": {
@@ -93,14 +93,3 @@ train_config = {
         "actor_mlp_layers": 2,
     },
 }
-
-
-if __name__ == "__main__":
-    import pprint
-
-    from flipper_training.utils.config_to_json import load_config, save_config
-
-    pprint.pprint(train_config)
-    save_config(train_config, "/tmp/train_config.json")
-    loaded_config = load_config("/tmp/train_config.json")
-    pprint.pprint(loaded_config)
