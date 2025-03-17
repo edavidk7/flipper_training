@@ -7,6 +7,18 @@ name = "flipper_training"
 version = "1.0"
 authors = [{ name="David Korcak", email="david.korcak@gmail.com" }]
 description = "Physics engine and training environment for the robot control"
+dependencies = [
+    "torch",
+    "torchvision",
+    "torchrl",
+    "trimesh",
+    "pyvista",
+    "pyacvd",
+    "tqdm",
+    "matplotlib",
+    "plotly",
+    "plotly_express"
+]
 
 
 [tool.setuptools.package-dir]
