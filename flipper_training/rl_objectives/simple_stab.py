@@ -36,51 +36,40 @@ class SimpleStabilizationObjective(BaseObjective):
         Initializes the cache for the start/goal positions.
         """
         B = self.physics_config.num_robots
-        state_prototype = PhysicsState.dummy(robot_model=self.robot_model, batch_size=B)
-        start_state_cache = state_prototype.unsqueeze(0).repeat(self.cache_size, 1)
-        goal_state_cache = start_state_cache.clone()
+        start_pos_cache = torch.empty((self.cache_size, B, 3), dtype=torch.float32)
+        goal_pos_cache = torch.empty((self.cache_size, B, 3), dtype=torch.float32)
         remaining = self.cache_size * B
         remaining_mask = torch.ones((self.cache_size, B), dtype=torch.bool)
         pbar = tqdm(total=remaining, desc=f"{self.__class__.__name__}: generating start/goal position cache")
         while remaining > 0:
             start_ij = torch.randint(0, self.world_config.grid_size, (self.cache_size, B, 2), dtype=torch.int32, generator=self.rng)
             goal_ij = torch.randint(0, self.world_config.grid_size, (self.cache_size, B, 2), dtype=torch.int32, generator=self.rng)
-            start_xyz = self.world_config.ij_to_xyz(start_ij)
-            goal_xyz = self.world_config.ij_to_xyz(goal_ij)
-            start_suit = self.world_config.ij_to_suited_mask(start_ij).bool()
-            goal_suit = self.world_config.ij_to_suited_mask(goal_ij).bool()
+            start_xyz = self.world_config.ij_to_xyz(start_ij).cpu()
+            goal_xyz = self.world_config.ij_to_xyz(goal_ij).cpu()
+            start_suit = self.world_config.ij_to_suited_mask(start_ij).bool().cpu()
+            goal_suit = self.world_config.ij_to_suited_mask(goal_ij).bool().cpu()
             copy_mask = remaining_mask & start_suit & goal_suit & self._is_start_goal_xyz_valid(start_xyz, goal_xyz)
-            start_state_cache.x[copy_mask] = start_xyz[copy_mask]
-            goal_state_cache.x[copy_mask] = goal_xyz[copy_mask]
+            start_pos_cache[copy_mask] = start_xyz[copy_mask]
+            goal_pos_cache[copy_mask] = goal_xyz[copy_mask]
             added = copy_mask.sum().item()
             remaining -= added
             remaining_mask[copy_mask] = False
             pbar.update(added)
         pbar.close()
         self.cache = {}
-        start_state_cache = start_state_cache.to(self.device).view(self.cache_size, B)
-        goal_state_cache = goal_state_cache.to(self.device).view(self.cache_size, B)
-        start_state_cache, goal_state_cache = self._construct_full_start_goal_states(start_state_cache, goal_state_cache)
-        self.cache["start"] = start_state_cache
-        self.cache["goal"] = goal_state_cache
-        self.cache["iteration_limits"] = self._compute_iteration_limits(start_state_cache, goal_state_cache)
+        self.cache["start"] = start_pos_cache
+        self.cache["goal"] = goal_pos_cache
         self._cache_cursor = 0
 
-    def _construct_full_start_goal_states(self, start_state: PhysicsState, goal_state: PhysicsState) -> tuple[PhysicsState, PhysicsState]:
+    def _construct_full_start_goal_states(self, start_pos: torch.Tensor, goal_pos: torch.Tensor) -> tuple[PhysicsState, PhysicsState]:
         """
         Constructs the full start and goal states for the robots in the
         environment by adding the initial orientation and drop height.
         """
-        oris = self._get_initial_orientation_quat(start_state.x, goal_state.x)
-        start_state.q = oris
-        goal_state.q = oris
-        N, B = start_state.x.shape[:2]
-        x_grid_start = self.world_config.x_grid.unsqueeze(0) - start_state.x[..., 0].view(N, B, 1, 1)  # shape (N, B, D, D)
-        y_grid_start = self.world_config.y_grid.unsqueeze(0) - start_state.x[..., 1].view(N, B, 1, 1)  # shape (N, B, D, D)
-        dists = torch.sqrt(x_grid_start**2 + y_grid_start**2)  # shape (N, B, D, D)
-        radius_mask = dists <= self.robot_model.radius  # shape (N, B, D, D)
-        z_in_radius = self.world_config.z_grid.expand(N, -1, -1, -1)[radius_mask].view(*(radius_mask.shape[:2]), -1)  # shape (N, B, -1)
-        start_state.x[..., 2] += self.start_drop + z_in_radius.max(dim=-1).values
+        oris = self._get_initial_orientation_quat(start_pos, goal_pos).to(self.device)
+        start_state = PhysicsState.dummy(robot_model=self.robot_model,batch_size=start_pos.shape[0], device=self.device,x=start_pos.to(self.device), q=oris)
+        goal_state = PhysicsState.dummy(robot_model=self.robot_model,batch_size=goal_pos.shape[0], device=self.device,x=goal_pos.to(self.device), q=oris)
+        start_state.x[..., 2] += self.start_drop
         return start_state, goal_state
 
     def _is_start_goal_xyz_valid(self, start_xyz: torch.Tensor, goal_xyz: torch.Tensor) -> torch.BoolTensor:
@@ -118,9 +107,10 @@ class SimpleStabilizationObjective(BaseObjective):
         - A tensor containing the iteration limits for the robots.
         """
         if self._cache_cursor < self.cache_size:
-            start_state = self.cache["start"][self._cache_cursor]
-            goal_state = self.cache["goal"][self._cache_cursor]
-            iteration_limits = self.cache["iteration_limits"][self._cache_cursor]
+            start_state, goal_state = self._construct_full_start_goal_states(
+                self.cache["start"][self._cache_cursor], self.cache["goal"][self._cache_cursor]
+            )
+            iteration_limits = self._compute_iteration_limits(start_state, goal_state)
             self._cache_cursor += 1
             return start_state, goal_state, iteration_limits
         else:

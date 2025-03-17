@@ -11,7 +11,7 @@ from flipper_training.utils.heightmap_generators import MultiGaussianHeightmapGe
 
 train_config = {
     "seed": 42,
-    "device": "cpu",
+    "device": "cuda",
     "num_robots": 64,  # represents the number of robots in the environment simulated in parallel
     "grid_res": 0.05,  # cm per cell
     "max_coord": 3.2,  # meters, the grid stretches from -max_coord to max_coord in x and y
@@ -24,8 +24,8 @@ train_config = {
     "frames_per_batch": 128,  # true time steps, not divided by the number of robots
     "frames_per_sub_batch": 64,  # true time steps, not divided by the number of robots
     "total_frames": 1_048_576,  # total number of frames to train on, including all robots
-    "compile_gae": True,
-    "compile_ppo": True,
+    "compile_gae": False,
+    "compile_ppo": False,
     "engine_compile_opts": {"max-autotune": True, "triton.cudagraphs": True, "coordinate_descent_tuning": True},
     "gae_opts": {
         "gamma": 0.99,
