@@ -15,9 +15,9 @@ def clamp_arithmetic(x, min_val, max_val):
 def main():
     devices = ["cpu"] + (["cuda"] if torch.cuda.is_available() else []) + (["mps"] if torch.backends.mps.is_available() else [])
     tens = {device: torch.randn(SHAPE, device=device) for device in devices}
-    min_val = torch.randn(1, device=devices[0])
-    max_val = torch.randn(1, device=devices[0])
     for device in devices:
+        min_val = torch.tensor(-0.5, device=device)
+        max_val = torch.tensor(0.5, device=device)
         data = tens[device]
         start = time.time()
         for _ in range(ITERS):
