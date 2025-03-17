@@ -28,12 +28,12 @@ def integrate_rotation(
     delta_omega = omega * dt  # Shape: [B, 3]
     theta = torch.norm(delta_omega, dim=1, keepdim=True)  # Rotation angle
     omega_skew = skew_symmetric(delta_omega)
-    I = torch.eye(3, device=omega.device, dtype=omega.dtype).unsqueeze(0)  # Shape: [1, 3, 3]
+    Id = torch.eye(3, device=omega.device, dtype=omega.dtype).unsqueeze(0)  # Shape: [1, 3, 3]
     theta_expand = torch.clamp(theta.unsqueeze(2), eps)
     sin_term = torch.sin(theta_expand) / theta_expand
     cos_term = (1 - torch.cos(theta_expand)) / (theta_expand**2)
     omega_skew_squared = torch.bmm(omega_skew, omega_skew)
-    delta_R = I + sin_term * omega_skew + cos_term * omega_skew_squared
+    delta_R = Id + sin_term * omega_skew + cos_term * omega_skew_squared
     return torch.bmm(delta_R, R)
 
 
@@ -71,8 +71,7 @@ def integrate_quaternion(q: torch.Tensor, omega: torch.Tensor, dt: float, eps: f
 
     # Compute sin(theta)/theta using a safe expression to avoid division by zero.
     # Where theta is very small, we use the fact that sin(theta)/theta ~ 1.
-    small_theta_mask = (theta < eps).float()
-    sin_theta_over_theta = small_theta_mask + (1.0 - small_theta_mask) * torch.sin(theta) / (theta + small_theta_mask)
+    sin_theta_over_theta = torch.where(theta > eps, torch.sin(theta) / theta, 1.0)  # shape: (B, 1)
 
     # The vector part of the rotation delta quaternion.
     delta_q_vector = sin_theta_over_theta * half_dt_omega  # shape: (B, 3)
