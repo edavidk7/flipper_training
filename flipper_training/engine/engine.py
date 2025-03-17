@@ -102,11 +102,12 @@ class DPhysicsEngine(torch.nn.Module):
         """
         Calculate the spring force acting on the robot points.
         """
-        k_damping = self.config.damping_alpha * 2 * (self.robot_model.total_mass * world_config.k_stiffness) ** 0.5
+        num_contacts = in_contact.sum(dim=1, keepdim=True).clamp_min(1)  # shape (B, 1)
+        k_damping = self.config.damping_alpha * 2 * (self.robot_model.total_mass * world_config.k_stiffness / num_contacts) ** 0.5
         # F_s = -k * dh - b * v_n, multiply by -n to get the force vector
         xd_points_n = (xd_points * n).sum(dim=-1, keepdim=True)  # normal component of the velocity
         F_spring = -torch.mul((world_config.k_stiffness * dh_points + k_damping * xd_points_n), n)
-        return F_spring * in_contact / in_contact.sum(dim=1, keepdim=True).clamp_min(1)  # shape (B, n_pts, 3), only apply spring force if in contact
+        return F_spring * in_contact / num_contacts  # shape (B, n_pts, 3), the spring force acting on the robot points
 
     def compute_joint_angular_velocities(self, controls: torch.Tensor) -> torch.Tensor:
         """

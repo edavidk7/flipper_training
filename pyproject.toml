@@ -17,7 +17,8 @@ dependencies = [
     "tqdm",
     "matplotlib",
     "plotly",
-    "plotly_express"
+    "plotly_express",
+    "omegaconf"
 ]
 
 
