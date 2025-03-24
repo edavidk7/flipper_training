@@ -79,8 +79,6 @@ class DPhysicsEngine(torch.nn.Module):
             F_spring=F_spring,
             F_friction=F_friction,
             in_contact=in_contact,
-            act_forces=act_force,
-            normals=n,
             torque=torque,
             global_robot_points=robot_points,
             global_thrust_vectors=global_thrust_vectors,

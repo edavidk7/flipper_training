@@ -79,20 +79,14 @@ class AuxEngineInfo(TensorClass):
         F_spring (torch.Tensor): Spring forces. Shape (B, n_pts, 3).
         F_friction (torch.Tensor): Friction forces. Shape (B, n_pts, 3).
         in_contact (torch.Tensor): Contact status. Shape (B, n_pts).
-        normals (torch.Tensor): Normals at the contact points. Shape (B, n_pts, 3).
         global_robot_points (torch.Tensor): Robot points in global coordinates. Shape (B, n_pts, 3).
         global_thrust_vectors (torch.Tensor): Thrust vectors in global coordinates. Shape (B, n_pts, 3).
         torque (torch.Tensor): Torque generated on the robot's CoG. Shape (B, 3).
-        global_cog_coords (torch.Tensor): CoG coordinates in global frame. Shape (B, 3).
-        cog_corrected_points (torch.Tensor): Corrected CoG points in global frame. Shape (B, n_pts, 3).
-        I_global (torch.Tensor): Inertia tensor in global frame. Shape (B, 3, 3).
     """
 
     F_spring: torch.Tensor
     F_friction: torch.Tensor
     in_contact: torch.Tensor
-    normals: torch.Tensor
-    act_forces: torch.Tensor
     global_robot_points: torch.Tensor
     global_thrust_vectors: torch.Tensor
     torque: torch.Tensor

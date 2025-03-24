@@ -3,8 +3,8 @@ name: first_ppo_experiment
 seed: 42
 use_wandb: true
 max_eval_steps: 1000
-device: cpu
-num_robots: 16
+device: cuda:0
+num_robots: 64
 save_weights_every: 10
 grid_res: 0.05
 max_coord: 3.2
@@ -22,7 +22,7 @@ optimizer_opts:
   lr: 0.001
 scheduler: ${cls:torch.optim.lr_scheduler.CosineAnnealingLR}
 total_frames: 1048576
-frames_per_batch: 32
+frames_per_batch: 128
 scheduler_opts:
   T_max: ${intdiv:${total_frames},${mul:${frames_per_batch},${num_robots}}}
 max_grad_norm: 1
@@ -46,10 +46,10 @@ engine_compile_opts:
   correctness_iters: 100
   benchmark_iters: 1000
   atol: 1e-2
-  rtol: 1e-2
+  rtol: 1e-6
 evaluate_every: 10
-epochs_per_batch: 10
-frames_per_sub_batch: 16
+epochs_per_batch: 5
+frames_per_sub_batch: 64
 gae_compile_opts: null
 ppo_compile_opts: null
 gae_opts:
@@ -104,4 +104,4 @@ policy_opts:
   value_mlp_layers: 2
   actor_mlp_layers: 2
 engine_opts:
-  damping_alpha: 10.0
+  damping_alpha: 5.0

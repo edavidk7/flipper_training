@@ -46,7 +46,7 @@ class SimpleStabilizationObjective(BaseObjective):
         # Process each robot's terrain separately
         for b in trange(B, desc="Initializing start/goal position cache"):
             # Get valid indices for this robot's terrain (batch index b)
-            valid_indices = torch.nonzero(self.world_config.suitable_mask[b], as_tuple=False)  # Shape: (N_valid_b, 2)
+            valid_indices = torch.nonzero(self.world_config.suitable_mask[b], as_tuple=False).cpu()  # Shape: (N_valid_b, 2)
             n_valid = valid_indices.shape[0]
             # Oversample start and goal indices from valid set
             oversample_factor = 1
@@ -54,8 +54,8 @@ class SimpleStabilizationObjective(BaseObjective):
             while collected < total_needed_per_robot:
                 remaining = total_needed_per_robot - collected
                 n_samples = int(remaining * oversample_factor)
-                start_idx = torch.randperm(n_valid, generator=self.rng)[:n_samples]
-                goal_idx = torch.randperm(n_valid, generator=self.rng)[:n_samples]
+                start_idx = torch.randperm(n_valid, generator=self.rng)[:n_samples].cpu()
+                goal_idx = torch.randperm(n_valid, generator=self.rng)[:n_samples].cpu()
                 # Convert to ij coordinates for this robot, adding batch dimension
                 start_ij = valid_indices[start_idx].unsqueeze(1)  # Shape: (n_samples, 1, 2)
                 goal_ij = valid_indices[goal_idx].unsqueeze(1)  # Shape: (n_samples, 1, 2)
@@ -137,7 +137,7 @@ class SimpleStabilizationObjective(BaseObjective):
                 self.cache["goal"][self._cache_cursor],
                 self.cache["ori"][self._cache_cursor],
             )
-            iteration_limits = self.cache["iteration_limits"][self._cache_cursor]
+            iteration_limits = self.cache["iteration_limits"][self._cache_cursor].to(self.device)
             self._cache_cursor += 1
             return start_state, goal_state, iteration_limits
         else:

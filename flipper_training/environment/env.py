@@ -39,7 +39,6 @@ class Env(EnvBase):
         **kwargs,
     ):
         super().__init__(device=device, **kwargs)
-        logging.getLogger().setLevel(logging.INFO)
         # Misc
         self._set_seed(kwargs.get("seed", None))
         self.n_robots = self.batch_size[0]
@@ -97,11 +96,12 @@ class Env(EnvBase):
         state = self.start.clone()  # Reset the state
         logging.info(f"Engine compiled successfully, testing correctness with {atol=}, {rtol=}")
         for _ in range(correctness_iters):
-            state, state_der, aux_info = self.engine(state, act, self.world_cfg)
+            next_state, state_der, aux_info = self.engine(state, act, self.world_cfg)
             # Check correctness
-            assert_allclose_td(state, states.pop(0), atol=atol, rtol=rtol, msg="compiled engine produced incorrect state")
+            assert_allclose_td(next_state, states.pop(0), atol=atol, rtol=rtol, msg="compiled engine produced incorrect state")
             assert_allclose_td(state_der, state_ders.pop(0), atol=atol, rtol=rtol, msg="compiled engine produced incorrect state der")
             assert_allclose_td(aux_info, aux_infos.pop(0), atol=atol, rtol=rtol, msg="compiled engine produced incorrect aux info")
+            state = next_state.clone()
         logging.info("Compiled engine passed correctness test")
         # Benchmark the compiled engine
         start_time = time.perf_counter_ns()
@@ -200,7 +200,7 @@ class Env(EnvBase):
         else:
             with torch.no_grad():
                 next_state, state_der, aux_info = self.engine(prev_state, action, self.world_cfg)
-        return prev_state, state_der, aux_info, next_state
+        return prev_state, state_der.clone(), aux_info.clone(), next_state.clone()
 
     def _reset(self, tensordict=None, **kwargs) -> TensorDict:
         # Generate start and goal states, iteration limits for done/terminated robots
@@ -231,7 +231,6 @@ class Env(EnvBase):
             self.last_step_der = state_der
         else:
             self.last_step_der[reset_mask] = state_der[reset_mask]
-
         # Output tensordict
         obs_td = self._get_observations(prev_state, zeros_action, state_der, next_state, aux_info)
         obs_td["action"] = zeros_action

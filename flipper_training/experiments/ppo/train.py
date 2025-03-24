@@ -2,6 +2,8 @@ from typing import TYPE_CHECKING, Tuple
 from flipper_training.configs.experiment_config import make_partial_observations
 from config import PPOExperimentConfig
 from flipper_training.utils.logging import RunLogger
+from flipper_training.utils.torch_utils import set_device
+import logging
 import torch
 from torchrl.data import LazyTensorStorage, SamplerWithoutReplacement, TensorDictReplayBuffer
 from torchrl.collectors import SyncDataCollector
@@ -22,7 +24,8 @@ from tqdm import tqdm
 if TYPE_CHECKING:
     from torchrl.modules import SafeSequential
     from omegaconf import DictConfig
-
+    
+logging.getLogger().setLevel(logging.INFO)
 
 def prepare_configs(rng: torch.Generator, cfg: PPOExperimentConfig):
     heightmap_gen = cfg.heightmap_gen(**cfg.heightmap_gen_opts)
@@ -38,7 +41,7 @@ def prepare_configs(rng: torch.Generator, cfg: PPOExperimentConfig):
     )
     robot_model = RobotModelConfig(**cfg.robot_model_opts)
     physics_config = PhysicsEngineConfig(num_robots=cfg.num_robots, **cfg.engine_opts)
-    device = torch.device(cfg.device)
+    device = set_device(cfg.device)
     robot_model.to(device)
     world_config.to(device)
     physics_config.to(device)
