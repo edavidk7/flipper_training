@@ -47,7 +47,7 @@ class RobotModelConfig(BaseConfig):
     Configuration of the robot model. Contains the physical constants of the robot, its mass and geometry.
     """
 
-    robot_type: Literal["tradr", "marv", "husky"]
+    kind: Literal["tradr", "marv", "husky"]
     mesh_voxel_size: float = 0.01
     points_per_driving_part: int = 128
     points_per_body: int = 256
@@ -78,7 +78,7 @@ class RobotModelConfig(BaseConfig):
         Returns:
             None
         """
-        with open(YAMLDIR / f"{self.robot_type}.yaml", "r") as file:
+        with open(YAMLDIR / f"{self.kind}.yaml", "r") as file:
             robot_params = yaml.safe_load(file)
             canonical = yaml.dump(robot_params, sort_keys=True)  # ensure consistent order
         self.yaml_hash = hashlib.sha256(canonical.encode()).hexdigest()
@@ -99,7 +99,7 @@ class RobotModelConfig(BaseConfig):
         self.driving_part_movable_mask = torch.tensor(driving_parts["is_movable"]).float()
 
     def __repr__(self) -> str:
-        s = f"RobotModelConfig for {self.robot_type}"
+        s = f"RobotModelConfig for {self.kind}"
         s += f"\nBody mass: {self.body_mass}"
         s += f"\nTotal mass: {self.total_mass}"
         s += f"\nBody bbox: {self.body_bbox}"
@@ -122,7 +122,7 @@ class RobotModelConfig(BaseConfig):
 
     @property
     def _descr_str(self) -> str:
-        return f"{self.robot_type}_{self.mesh_voxel_size:.3f}_dp{self.points_per_driving_part}b_{self.points_per_body}_whl{self.wheel_assignment_margin}_trck{self.linear_track_assignment_margin}_{self.yaml_hash}"
+        return f"{self.kind}_{self.mesh_voxel_size:.3f}_dp{self.points_per_driving_part}b_{self.points_per_body}_whl{self.wheel_assignment_margin}_trck{self.linear_track_assignment_margin}_{self.yaml_hash}"
 
     def _print_tensor_info(self):
         for name, tensor in self.__dict__.items():
@@ -346,7 +346,7 @@ if __name__ == "__main__":
     parser.add_argument("--points_per_driving_part", type=int, default=192, help="Number of points per driving part")
     args = parser.parse_args()
     robot_model = RobotModelConfig(
-        robot_type=args.robot_type,
+        kind=args.robot_type,
         mesh_voxel_size=args.mesh_voxel_size,
         points_per_driving_part=args.points_per_driving_part,
     )

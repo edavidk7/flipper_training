@@ -3,11 +3,9 @@ from typing import Tuple
 import torch
 
 from .geometry import normalized
-from .heightmap_generators import BaseHeightmapGenerator
 
 __all__ = [
     "make_x_y_grids",
-    "generate_heightmaps",
     "compute_heightmap_gradients",
     "interpolate_normals",
     "interpolate_grid",
@@ -34,29 +32,6 @@ def make_x_y_grids(max_coord: float, grid_res: float, num_robots: int) -> Tuple[
     x = x.unsqueeze(0).repeat(num_robots, 1, 1)
     y = y.unsqueeze(0).repeat(num_robots, 1, 1)
     return x, y
-
-
-def generate_heightmaps(
-    x: torch.Tensor, y: torch.Tensor, heightmap_gen: BaseHeightmapGenerator, rng: torch.Generator | None = None
-) -> Tuple[torch.Tensor, torch.Tensor]:
-    """
-    Generates a heightmap using the specified heightmap generator.
-
-    Args:
-    - x: Tensor of x coordinates. Shape is (B, D, D).
-    - y: Tensor of y coordinates. Shape is (B, D, D).
-
-    Returns:
-    - Heightmap tensor of shape (B, D, D)
-    - Mask tensor of shape (B, D, D) indicating the suitability of the heightmap for start/end points.
-    """
-    B, D, _ = x.shape
-    z = torch.zeros((B, D, D), device=x.device)
-    mask = torch.zeros((B, D, D), device=x.device, dtype=torch.bool)
-    max_coord = x.max().item()
-    for i in range(B):
-        z[i], mask[i] = heightmap_gen(x[i], y[i], max_coord, rng)
-    return z, mask
 
 
 def compute_heightmap_gradients(z_grid: torch.Tensor, grid_res: float) -> torch.Tensor:

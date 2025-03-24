@@ -507,3 +507,6 @@ TSWLatexianTemp*
 *.nav
 *.bbl
 torch_compile*
+runs/*
+runs
+wandb

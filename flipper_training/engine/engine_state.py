@@ -90,16 +90,12 @@ class AuxEngineInfo(TensorClass):
 
     F_spring: torch.Tensor
     F_friction: torch.Tensor
-    xd_points: torch.Tensor
     in_contact: torch.Tensor
     normals: torch.Tensor
     act_forces: torch.Tensor
     global_robot_points: torch.Tensor
     global_thrust_vectors: torch.Tensor
     torque: torch.Tensor
-    global_cog_coords: torch.Tensor
-    cog_corrected_points: torch.Tensor
-    I_global: torch.Tensor
 
 
 StateLike = Union[PhysicsState, PhysicsStateDer, AuxEngineInfo]

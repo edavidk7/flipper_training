@@ -2,13 +2,14 @@ import time
 from typing import TYPE_CHECKING, Callable
 
 import torch
+import logging
 from flipper_training.configs import PhysicsEngineConfig, RobotModelConfig, WorldConfig
 from flipper_training.engine.engine import DPhysicsEngine
 from flipper_training.engine.engine_state import AuxEngineInfo, PhysicsState, PhysicsStateDer
 from flipper_training.rl_objectives import BaseObjective
 from flipper_training.rl_rewards.rewards import Reward
 from flipper_training.vis.static_vis import plot_heightmap_3d
-from tensordict import TensorDict
+from tensordict import TensorDict, assert_allclose_td
 from torchrl.data import Bounded, Composite, Unbounded
 from torchrl.envs import EnvBase
 
@@ -38,6 +39,7 @@ class Env(EnvBase):
         **kwargs,
     ):
         super().__init__(device=device, **kwargs)
+        logging.getLogger().setLevel(logging.INFO)
         # Misc
         self._set_seed(kwargs.get("seed", None))
         self.n_robots = self.batch_size[0]
@@ -69,24 +71,44 @@ class Env(EnvBase):
         self.done_spec = self._make_done_spec()
         # Reset the environment
         if engine_compile_opts is not None:
-            self._compile_engine(engine_compile_opts)
+            self._compile_engine(**engine_compile_opts)
+        self.reset(reset_all=True)
 
-    def _compile_engine(self, compile_opts: dict, benchmark_iters: int = 1000) -> None:
-        print(f"Environment: Compiling engine with options {compile_opts}")
-        act = self.action_spec.zeros()  # Dummy action
+    def _compile_engine(
+        self,
+        correctness_iters: int = 100, 
+        benchmark_iters: int = 1000, 
+        atol: float = 1e-3,
+        rtol: float = 1e-3, 
+        **kwargs) -> None:
+        logging.info(f"Environment: Compiling engine with options {kwargs}")
+        act = self.action_spec.rand()
         state = self.start.clone()  # Dummy state
-        comp_engine = torch.compile(self.engine, options=compile_opts)
-        try:
-            comp_engine(state, act, self.world_cfg)  # Dummy forward pass to compile the engine, record the return tensors
-        except Exception as e:
-            print(f"Engine compilation failed: {e}, falling back to non-compiled engine")
-            return
-        self.engine = comp_engine  # Replace the engine with the compiled one
+        # Capture the return tensors from the engine for correctness
+        states, state_ders, aux_infos = [], [], []
+        for _ in range(correctness_iters):
+            state, state_der, aux_info = self.engine(state, act, self.world_cfg)
+            states.append(state)
+            state_ders.append(state_der)
+            aux_infos.append(aux_info)
+        # Compile the engine
+        self.engine = torch.compile(self.engine, options=kwargs)
+        self.engine(state, act, self.world_cfg)  # Dummy forward pass to compile the engine, record the return tensors
+        state = self.start.clone()  # Reset the state
+        logging.info(f"Engine compiled successfully, testing correctness with {atol=}, {rtol=}")
+        for _ in range(correctness_iters):
+            state, state_der, aux_info = self.engine(state, act, self.world_cfg)
+            # Check correctness
+            assert_allclose_td(state, states.pop(0), atol=atol, rtol=rtol, msg="compiled engine produced incorrect state")
+            assert_allclose_td(state_der, state_ders.pop(0), atol=atol, rtol=rtol, msg="compiled engine produced incorrect state der")
+            assert_allclose_td(aux_info, aux_infos.pop(0), atol=atol, rtol=rtol, msg="compiled engine produced incorrect aux info")
+        logging.info("Compiled engine passed correctness test")
+        # Benchmark the compiled engine
         start_time = time.perf_counter_ns()
         for _ in range(benchmark_iters):
             _ = self.engine(state, act, self.world_cfg)
         end_time = time.perf_counter_ns()
-        print(f"Compiled engine takes {((end_time - start_time) / benchmark_iters) / 1e6} ms per step")
+        logging.info(f"Compiled engine takes {((end_time - start_time) / benchmark_iters) / 1e6} ms per step")
 
     def _set_seed(self, seed: int | None):
         rng = torch.Generator(device=self.device)
@@ -198,10 +220,18 @@ class Env(EnvBase):
         # Step the engine to get the first observation
         zeros_action = self.action_spec.zeros()
         prev_state, state_der, aux_info, next_state = self._step_engine(zeros_action)
-        # Set the state variables
-        self.state = next_state
-        self.last_step_aux_info = aux_info
-        self.last_step_der = state_der
+        # Set the state variables for reset robots
+        self.state[reset_mask] = next_state[reset_mask].clone()  # Update the state for the reset robots
+        # Update the last step aux info and state der for the reset robots
+        if self.last_step_aux_info is None:
+            self.last_step_aux_info = aux_info
+        else:
+            self.last_step_aux_info[reset_mask] = aux_info[reset_mask]
+        if self.last_step_der is None:
+            self.last_step_der = state_der
+        else:
+            self.last_step_der[reset_mask] = state_der[reset_mask]
+
         # Output tensordict
         obs_td = self._get_observations(prev_state, zeros_action, state_der, next_state, aux_info)
         obs_td["action"] = zeros_action

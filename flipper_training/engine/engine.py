@@ -72,22 +72,19 @@ class DPhysicsEngine(torch.nn.Module):
         thetas_d = self.compute_joint_angular_velocities(controls)
 
         # next state derivative
-        next_state_der = PhysicsStateDer(xd=state.xd, xdd=xdd, omega_d=omega_d, thetas_d=thetas_d)
+        next_state_der = PhysicsStateDer(xd=state.xd, xdd=xdd, omega_d=omega_d, thetas_d=thetas_d, batch_size=[self.config.num_robots])
 
         # auxiliary information (e.g. for visualization)
         aux_info = AuxEngineInfo(
             F_spring=F_spring,
             F_friction=F_friction,
-            xd_points=xd_points,
             in_contact=in_contact,
             act_forces=act_force,
             normals=n,
             torque=torque,
             global_robot_points=robot_points,
             global_thrust_vectors=global_thrust_vectors,
-            global_cog_coords=global_cogs,
-            cog_corrected_points=cog_corrected_points,
-            I_global=inertia,
+            batch_size=[self.config.num_robots],
         )
         return next_state_der, aux_info
 
@@ -218,6 +215,7 @@ class DPhysicsEngine(torch.nn.Module):
             q=next_q,
             omega=next_omega,
             thetas=next_thetas,
+            batch_size=[self.config.num_robots],
         )
 
     def assemble_and_transform_robot(
