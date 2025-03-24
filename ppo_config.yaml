@@ -21,7 +21,7 @@ optimizer: ${cls:torch.optim.Adam}
 optimizer_opts:
   lr: 0.001
 scheduler: ${cls:torch.optim.lr_scheduler.CosineAnnealingLR}
-total_frames: 1048576
+total_frames: 5242880
 frames_per_batch: 128
 scheduler_opts:
   T_max: ${intdiv:${total_frames},${mul:${frames_per_batch},${num_robots}}}
@@ -69,10 +69,10 @@ data_collector_opts:
   exploration_type: RANDOM
 objective: ${cls:flipper_training.rl_objectives.simple_stab.SimpleStabilizationObjective}
 objective_opts:
-  higher_allowed: 0.5
-  min_dist_to_goal: 0.5
-  max_dist_to_goal: 0.8
-  start_drop: 0.1
+  higher_allowed: 0.8
+  min_dist_to_goal: 0.7
+  max_dist_to_goal: 1.0
+  start_drop: 0.3
   iteration_limit_factor: 10
   start_position_orientation: towards_goal
   goal_reached_threshold: 0.05
@@ -82,8 +82,8 @@ reward: ${cls:flipper_training.rl_rewards.rewards.RollPitchGoal}
 reward_opts:
   goal_reached_reward: 1000.0
   failed_reward: -1000.0
-  omega_weight: 1.0
-  goal_weight: 1.0
+  omega_weight: 5.0
+  goal_weight: 3.0
 observations:
   perception:
     observation: ${cls:flipper_training.observations.heightmap.Heightmap}
