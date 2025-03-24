@@ -99,7 +99,7 @@ class DPhysicsEngine(torch.nn.Module):
         """
         Calculate the spring force acting on the robot points.
         """
-        num_contacts = in_contact.sum(dim=1, keepdim=True).clamp_min(1)  # shape (B, 1)
+        num_contacts = in_contact.sum(dim=1, keepdim=True).clamp_min(1)  # shape (B, 1, 1)
         k_damping = self.config.damping_alpha * 2 * (self.robot_model.total_mass * world_config.k_stiffness / num_contacts) ** 0.5
         # F_s = -k * dh - b * v_n, multiply by -n to get the force vector
         xd_points_n = (xd_points * n).sum(dim=-1, keepdim=True)  # normal component of the velocity

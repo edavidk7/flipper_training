@@ -1,6 +1,6 @@
 import torch
-import warnings
-from tqdm import tqdm
+import logging
+from tqdm import trange
 from typing import Literal, override
 from dataclasses import dataclass
 from flipper_training.engine.engine_state import PhysicsState
@@ -11,7 +11,11 @@ from flipper_training.utils.geometry import euler_to_quaternion, quaternion_to_r
 @dataclass
 class SimpleStabilizationObjective(BaseObjective):
     """
-    Objective manager that generates start/goal positions for the robots in the environment. The start position is generated randomly within the suitable area of the world, while the goal position is generated randomly within the suitable area of the world and at a minimum distance from the start position, but not further than the maximum distance. It is ensured that the goal position is not too high above the start position (to avoid unreachable goals).
+    Objective manager that generates start/goal positions for the robots in the environment.
+    The start position is generated randomly within the suitable area of the world,
+    while the goal position is generated randomly within the suitable area of the world
+    and at a minimum distance from the start position, but not further than the maximum distance.
+    It is ensured that the goal position is not too high above the start position (to avoid unreachable goals).
     The robot is rewarded for minimizing the rotational velocities and for moving towards the goal position.
     """
 
@@ -32,43 +36,64 @@ class SimpleStabilizationObjective(BaseObjective):
         self._init_cache()
 
     def _init_cache(self) -> None:
-        """
-        Initializes the cache for the start/goal positions.
-        """
         B = self.physics_config.num_robots
+        total_needed_per_robot = self.cache_size  # Number of cache entries per robot
+
+        # Initialize cache tensors
         start_pos_cache = torch.empty((self.cache_size, B, 3), dtype=torch.float32)
         goal_pos_cache = torch.empty((self.cache_size, B, 3), dtype=torch.float32)
-        remaining = self.cache_size * B
-        remaining_mask = torch.ones((self.cache_size, B), dtype=torch.bool)
-        pbar = tqdm(total=remaining, desc=f"{self.__class__.__name__}: generating start/goal position cache")
-        while remaining > 0:
-            start_ij = torch.randint(0, self.world_config.grid_size, (self.cache_size, B, 2), dtype=torch.int32, generator=self.rng)
-            goal_ij = torch.randint(0, self.world_config.grid_size, (self.cache_size, B, 2), dtype=torch.int32, generator=self.rng)
-            start_xyz = self.world_config.ij_to_xyz(start_ij).cpu()
-            goal_xyz = self.world_config.ij_to_xyz(goal_ij).cpu()
-            start_suit = self.world_config.ij_to_suited_mask(start_ij).bool().cpu()
-            goal_suit = self.world_config.ij_to_suited_mask(goal_ij).bool().cpu()
-            copy_mask = remaining_mask & start_suit & goal_suit & self._is_start_goal_xyz_valid(start_xyz, goal_xyz)
-            start_pos_cache[copy_mask] = start_xyz[copy_mask]
-            goal_pos_cache[copy_mask] = goal_xyz[copy_mask]
-            added = copy_mask.sum().item()
-            remaining -= added
-            remaining_mask[copy_mask] = False
-            pbar.update(added)
-        pbar.close()
-        self.cache = {}
-        self.cache["start"] = start_pos_cache
-        self.cache["goal"] = goal_pos_cache
+
+        # Process each robot's terrain separately
+        for b in trange(B, desc="Initializing start/goal position cache"):
+            # Get valid indices for this robot's terrain (batch index b)
+            valid_indices = torch.nonzero(self.world_config.suitable_mask[b], as_tuple=False)  # Shape: (N_valid_b, 2)
+            n_valid = valid_indices.shape[0]
+            # Oversample start and goal indices from valid set
+            oversample_factor = 1
+            collected = 0
+            while collected < total_needed_per_robot:
+                remaining = total_needed_per_robot - collected
+                n_samples = int(remaining * oversample_factor)
+                start_idx = torch.randperm(n_valid, generator=self.rng)[:n_samples]
+                goal_idx = torch.randperm(n_valid, generator=self.rng)[:n_samples]
+                # Convert to ij coordinates for this robot, adding batch dimension
+                start_ij = valid_indices[start_idx].unsqueeze(1)  # Shape: (n_samples, 1, 2)
+                goal_ij = valid_indices[goal_idx].unsqueeze(1)  # Shape: (n_samples, 1, 2)
+                # Compute xyz coordinates using this robot's terrain data
+                start_xyz = self.world_config.ij_to_xyz(start_ij)[:, 0, :]  # Shape: (n_samples, 3)
+                goal_xyz = self.world_config.ij_to_xyz(goal_ij)[:, 0, :]  # Shape: (n_samples, 3)
+                # Validate pairs (ensure batch dimension is respected in _is_start_goal_xyz_valid)
+                valid_mask = self._is_start_goal_xyz_valid(start_xyz.unsqueeze(1), goal_xyz.unsqueeze(1)).squeeze(1)
+                valid_start = start_xyz[valid_mask]
+                valid_goal = goal_xyz[valid_mask]
+                n_new = min(valid_start.shape[0], remaining)
+                # Store in cache for this robot (batch index b)
+                start_pos_cache[collected : collected + n_new, b, :] = valid_start[:remaining]
+                goal_pos_cache[collected : collected + n_new, b, :] = valid_goal[:n_new]
+                collected += n_new
+                oversample_factor *= 2
+        # Store the cache
+        self.cache = {
+            "start": start_pos_cache,
+            "goal": goal_pos_cache,
+            "ori": self._get_initial_orientation_quat(start_pos_cache, goal_pos_cache),
+            "iteration_limits": self._compute_iteration_limits(start_pos_cache, goal_pos_cache),
+        }
         self._cache_cursor = 0
 
-    def _construct_full_start_goal_states(self, start_pos: torch.Tensor, goal_pos: torch.Tensor) -> tuple[PhysicsState, PhysicsState]:
+    def _construct_full_start_goal_states(
+        self, start_pos: torch.Tensor, goal_pos: torch.Tensor, oris: torch.Tensor
+    ) -> tuple[PhysicsState, PhysicsState]:
         """
         Constructs the full start and goal states for the robots in the
         environment by adding the initial orientation and drop height.
         """
-        oris = self._get_initial_orientation_quat(start_pos, goal_pos).to(self.device)
-        start_state = PhysicsState.dummy(robot_model=self.robot_model,batch_size=start_pos.shape[0], device=self.device,x=start_pos.to(self.device), q=oris)
-        goal_state = PhysicsState.dummy(robot_model=self.robot_model,batch_size=goal_pos.shape[0], device=self.device,x=goal_pos.to(self.device), q=oris)
+        start_state = PhysicsState.dummy(
+            robot_model=self.robot_model, batch_size=start_pos.shape[0], device=self.device, x=start_pos.to(self.device), q=oris
+        )
+        goal_state = PhysicsState.dummy(
+            robot_model=self.robot_model, batch_size=goal_pos.shape[0], device=self.device, x=goal_pos.to(self.device), q=oris
+        )
         start_state.x[..., 2] += self.start_drop
         return start_state, goal_state
 
@@ -108,13 +133,16 @@ class SimpleStabilizationObjective(BaseObjective):
         """
         if self._cache_cursor < self.cache_size:
             start_state, goal_state = self._construct_full_start_goal_states(
-                self.cache["start"][self._cache_cursor], self.cache["goal"][self._cache_cursor]
+                self.cache["start"][self._cache_cursor],
+                self.cache["goal"][self._cache_cursor],
+                self.cache["ori"][self._cache_cursor],
             )
-            iteration_limits = self._compute_iteration_limits(start_state, goal_state)
+            iteration_limits = self.cache["iteration_limits"][self._cache_cursor]
             self._cache_cursor += 1
             return start_state, goal_state, iteration_limits
         else:
-            warnings.warn(f"{self.__class__.__name__} cache exhausted, generating new start/goal positions")
+            logging.warning("Start/goal cache exhausted, doubling size and generating new start/goal positions")
+            self.cache_size *= 2
             self._init_cache()
             return self.generate_start_goal_states()
 
@@ -137,10 +165,10 @@ class SimpleStabilizationObjective(BaseObjective):
 
     def _compute_iteration_limits(
         self,
-        start_state: PhysicsState,
-        goal_state: PhysicsState,
+        start_pos: torch.Tensor,
+        goal_pos: torch.Tensor,
     ) -> torch.IntTensor:
-        dists = torch.linalg.norm(goal_state.x - start_state.x, dim=-1)  # distances from starts to goals
+        dists = torch.linalg.norm(goal_pos - start_pos, dim=-1)  # distances from starts to goals
         fastest_traversal = dists / (self.robot_model.v_max * self.physics_config.dt)  # time to reach the furthest goal
         steps = (fastest_traversal * self.iteration_limit_factor).ceil()
         return steps.int()
