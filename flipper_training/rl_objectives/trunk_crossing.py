@@ -229,7 +229,7 @@ class FixedTrunkCrossing(BaseObjective):
         - A tuple of PhysicsState objects containing the start and goal positions for the robots.
         - A tensor containing the iteration limits for the robots.
         """
-        iteration_limits = torch.full((self.physics_config.num_robots,), self.iteration_limit, device=self.start_pos.device).int()
+        iteration_limits = torch.full((self.physics_config.num_robots,), self.iteration_limit, device=self.device).int()
         start_state, goal_state = self._construct_full_start_goal_states()
         return start_state, goal_state, iteration_limits
 
