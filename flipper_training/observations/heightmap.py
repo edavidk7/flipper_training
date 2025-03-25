@@ -41,11 +41,12 @@ class Heightmap(Observation):
     ) -> torch.Tensor:
         global_percep_points = local_to_global_q(curr_state.x, curr_state.q, self.percep_grid_points)
         z_coords = interpolate_grid(self.env.world_cfg.z_grid, global_percep_points[..., :2], self.env.world_cfg.max_coord)
-        return z_coords.reshape(-1, 1, self.percep_shape[0], self.percep_shape[1]) - curr_state.x[..., 2].reshape(-1, 1, 1, 1)
+        hm = z_coords.reshape(-1, 1, self.percep_shape[0], self.percep_shape[1]) - curr_state.x[..., 2].reshape(-1, 1, 1, 1)
+        return hm.to(self.env.out_dtype)
 
     def get_spec(self) -> Unbounded:
         return Unbounded(
             shape=(self.env.n_robots, 1, self.percep_shape[0], self.percep_shape[1]),
-            dtype=torch.float32,
             device=self.env.device,
+            dtype=self.env.out_dtype,
         )

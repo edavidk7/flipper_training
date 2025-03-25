@@ -113,9 +113,9 @@ def make_actor_value_policy(
     actor_mlp_layers: int,
     value_mlp_layers: int,
 ) -> ActorValueOperator:
-    encoder = PolicyObservationEncoder(env.observation_spec, hidden_dim)
+    encoder = PolicyObservationEncoder(env.observation_spec, hidden_dim).to(env.out_dtype)
     encoder_module = TensorDictModule(encoder, in_keys=["perception", "observation"], out_keys=["y_shared"])
-    actor = ActorPolicy(hidden_dim, env.action_spec, actor_mlp_layers)
+    actor = ActorPolicy(hidden_dim, env.action_spec, actor_mlp_layers).to(env.out_dtype)
     actor_td = TensorDictModule(actor, in_keys=["y_shared"], out_keys=["loc", "scale"])
     actor_module = ProbabilisticActor(
         module=actor_td,
@@ -128,7 +128,7 @@ def make_actor_value_policy(
         },
         return_log_prob=True,
     )
-    value = ValueFunction(hidden_dim, value_mlp_layers)
+    value = ValueFunction(hidden_dim, value_mlp_layers).to(env.out_dtype)
     value_module = ValueOperator(value, in_keys=["y_shared"])
     actor_value = ActorValueOperator(encoder_module, actor_module, value_module)
     return actor_value

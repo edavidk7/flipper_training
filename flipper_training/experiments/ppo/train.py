@@ -1,92 +1,20 @@
-from typing import TYPE_CHECKING, Tuple
-from flipper_training.configs.experiment_config import make_partial_observations
-from config import PPOExperimentConfig
-from flipper_training.utils.logging import RunLogger
-from flipper_training.utils.torch_utils import set_device
-import logging
+from typing import TYPE_CHECKING
+
 import torch
-from torchrl.data import LazyTensorStorage, SamplerWithoutReplacement, TensorDictReplayBuffer
-from torchrl.collectors import SyncDataCollector
-from torchrl.envs.utils import check_env_specs, set_exploration_type, ExplorationType
+from common import make_transformed_env, prepare_configs, prepare_data_collection
+from config import PPOExperimentConfig
+from torchrl.envs.utils import ExplorationType, check_env_specs, set_exploration_type
 from torchrl.objectives import ClipPPOLoss
 from torchrl.objectives.value import GAE
-from flipper_training.configs import PhysicsEngineConfig, RobotModelConfig, WorldConfig
-from flipper_training.environment.env import Env
-from flipper_training.policies import make_actor_value_policy
-from torchrl.envs import (
-    Compose,
-    ObservationNorm,
-    StepCounter,
-    TransformedEnv,
-)
 from tqdm import tqdm
 
+from flipper_training.configs.experiment_config import make_partial_observations
+from flipper_training.environment.env import Env
+from flipper_training.policies import make_actor_value_policy
+from flipper_training.utils.logging import RunLogger
+
 if TYPE_CHECKING:
-    from torchrl.modules import SafeSequential
     from omegaconf import DictConfig
-    
-logging.getLogger().setLevel(logging.INFO)
-
-def prepare_configs(rng: torch.Generator, cfg: PPOExperimentConfig):
-    heightmap_gen = cfg.heightmap_gen(**cfg.heightmap_gen_opts)
-    x, y, z, suit = heightmap_gen(cfg.grid_res, cfg.max_coord, cfg.num_robots, rng)
-    world_config = WorldConfig(
-        x_grid=x,
-        y_grid=y,
-        z_grid=z,
-        suitable_mask=suit,
-        **cfg.world_opts,
-        grid_res=cfg.grid_res,
-        max_coord=cfg.max_coord,
-    )
-    robot_model = RobotModelConfig(**cfg.robot_model_opts)
-    physics_config = PhysicsEngineConfig(num_robots=cfg.num_robots, **cfg.engine_opts)
-    device = set_device(cfg.device)
-    robot_model.to(device)
-    world_config.to(device)
-    physics_config.to(device)
-    return world_config, physics_config, robot_model, device
-
-
-def make_transformed_env(env: Env, cfg: PPOExperimentConfig):
-    tf_env = TransformedEnv(
-        env,
-        Compose(
-            ObservationNorm(in_keys=["observation"], standard_normal=True),
-            ObservationNorm(in_keys=["perception"], standard_normal=True),
-            StepCounter(),
-        ),
-    )
-    for t in tf_env.transform:
-        if isinstance(t, ObservationNorm):
-            t.init_stats(cfg.norm_init_iters, reduce_dim=(0, 1), cat_dim=1)
-    tf_env.reset(reset_all=True)
-    return tf_env
-
-
-def prepare_data_collection(env: Env, policy: "SafeSequential", cfg: PPOExperimentConfig) -> Tuple[SyncDataCollector, TensorDictReplayBuffer]:
-    collector = SyncDataCollector(
-        env,
-        policy,
-        frames_per_batch=cfg.frames_per_batch * cfg.num_robots,
-        total_frames=cfg.total_frames,
-        **cfg.data_collector_opts,
-        device=env.device,
-    )
-    # Replay Buffer
-    replay_buffer = TensorDictReplayBuffer(
-        storage=LazyTensorStorage(
-            max_size=cfg.frames_per_batch * cfg.num_robots,
-            ndim=1,  # This storage will mix the batch and time dimensions
-            device=env.device,
-            compilable=True,
-        ),
-        sampler=SamplerWithoutReplacement(drop_last=True),
-        batch_size=cfg.frames_per_sub_batch * cfg.num_robots,  # sample flattened and mixed data
-        dim_extend=0,
-        compilable=True,
-    )
-    return collector, replay_buffer
 
 
 def main(train_omegaconf: "DictConfig"):
@@ -102,11 +30,10 @@ def main(train_omegaconf: "DictConfig"):
         rng=rng,
         **train_config.objective_opts,
     )
-    reward = train_config.reward(**train_config.reward_opts)
     # Create environment
     base_env = Env(
         objective=training_objective,
-        reward=reward,
+        reward=train_config.reward(**train_config.reward_opts),
         observations=make_partial_observations(train_config.observations),
         world_config=world_config,
         physics_config=physics_config,
@@ -115,6 +42,7 @@ def main(train_omegaconf: "DictConfig"):
         batch_size=[train_config.num_robots],
         differentiable=False,
         engine_compile_opts=train_config.engine_compile_opts,
+        out_dtype=train_config.training_dtype,
     )
     check_env_specs(base_env)
     # Add some transformations to the environment
@@ -131,7 +59,9 @@ def main(train_omegaconf: "DictConfig"):
     advantage_module = GAE(
         **train_config.gae_opts, value_network=value_operator, time_dim=1, device=device, differentiable=False
     )  # here we still expect (B, T, ...) collected data
+    advantage_module = advantage_module.to(train_config.training_dtype)
     loss_module = ClipPPOLoss(actor_operator, value_operator, **train_config.ppo_opts)
+    loss_module = loss_module.to(train_config.training_dtype)
     # Compile
     if train_config.gae_compile_opts:
         advantage_module.compile(**train_config.gae_compile_opts)
@@ -197,7 +127,7 @@ def main(train_omegaconf: "DictConfig"):
             ):
                 env.reset(reset_all=True)
                 eval_rollout = env.rollout(train_config.max_eval_steps, actor_operator)
-                
+
                 eval_log = {
                     "eval/reward": eval_rollout["next", "reward"].mean().item(),
                     "eval/step_count": eval_rollout["step_count"].max().item(),
@@ -216,12 +146,12 @@ def main(train_omegaconf: "DictConfig"):
                     f"eval/step_count: {eval_log['eval/step_count']} "
                     f"(init: {init_log['eval/step_count']})"
                 )
-                
+
                 log.update(eval_log)
 
                 del eval_rollout
             actor_value_policy.train()
-        
+
         logger.log_data(log, total_collected_frames)
 
         if i % train_config.save_weights_every == 0:
@@ -236,8 +166,9 @@ def main(train_omegaconf: "DictConfig"):
 
 
 if __name__ == "__main__":
-    from omegaconf import OmegaConf, DictConfig
     from argparse import ArgumentParser
+
+    from omegaconf import DictConfig, OmegaConf
 
     parser = ArgumentParser()
     parser.add_argument("--config", type=str, required=True)

@@ -1,18 +1,21 @@
 import math
+from ast import literal_eval
 from dataclasses import dataclass
-from importlib import import_module
 from functools import partial
-from typing import TYPE_CHECKING, Any, Type, TypedDict, Dict
+from importlib import import_module
+from typing import TYPE_CHECKING, Any, Dict, Type, TypedDict
 
+import torch
 from omegaconf import OmegaConf
 
 if TYPE_CHECKING:
     from torch.optim import Optimizer
     from torch.optim.lr_scheduler import LRScheduler
+
     from flipper_training.observations import Observation
-    from flipper_training.utils.heightmap_generators import BaseHeightmapGenerator
     from flipper_training.rl_objectives import BaseObjective
     from flipper_training.rl_rewards.rewards import Reward
+    from flipper_training.heightmaps import BaseHeightmapGenerator
 
 
 def resolve_class(type: str) -> Type:
@@ -25,6 +28,9 @@ OmegaConf.register_new_resolver("mul", lambda *args: math.prod(args))
 OmegaConf.register_new_resolver("div", lambda a, b: a / b)
 OmegaConf.register_new_resolver("intdiv", lambda a, b: a // b)
 OmegaConf.register_new_resolver("cls", resolve_class)
+OmegaConf.register_new_resolver("lmbda", lambda s: literal_eval(s))  # evaluate a lambda string
+OmegaConf.register_new_resolver("dtype", lambda s: getattr(torch, s))  # get a torch dtype
+OmegaConf.register_new_resolver("tensor", lambda s: torch.tensor(s))
 
 
 class ObservationConfig(TypedDict):
@@ -40,6 +46,8 @@ def make_partial_observations(observations: Dict[str, ObservationConfig]):
 class BaseExperimentConfig:
     type: "Type[BaseExperimentConfig]"
     name: str
+    comment: str
+    training_dtype: torch.dtype
     use_wandb: bool
     seed: int
     device: str

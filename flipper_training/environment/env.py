@@ -34,6 +34,7 @@ class Env(EnvBase):
         physics_config: PhysicsEngineConfig,
         robot_model_config: RobotModelConfig,
         device: torch.device | str = "cpu",
+        out_dtype: torch.dtype = torch.float32,
         differentiable: bool = False,
         engine_compile_opts: dict | None = None,
         **kwargs,
@@ -43,6 +44,7 @@ class Env(EnvBase):
         self._set_seed(kwargs.get("seed", None))
         self.n_robots = self.batch_size[0]
         self.differentiable = differentiable
+        self.out_dtype = out_dtype
         # Physics configs
         self.phys_cfg = physics_config.to(device)
         self.robot_cfg = robot_model_config.to(device)
@@ -73,13 +75,7 @@ class Env(EnvBase):
             self._compile_engine(**engine_compile_opts)
         self.reset(reset_all=True)
 
-    def _compile_engine(
-        self,
-        correctness_iters: int = 100, 
-        benchmark_iters: int = 1000, 
-        atol: float = 1e-3,
-        rtol: float = 1e-3, 
-        **kwargs) -> None:
+    def _compile_engine(self, correctness_iters: int = 100, benchmark_iters: int = 1000, atol: float = 1e-3, rtol: float = 1e-3, **kwargs) -> None:
         logging.info(f"Environment: Compiling engine with options {kwargs}")
         act = self.action_spec.rand()
         state = self.start.clone()  # Dummy state
@@ -142,7 +138,7 @@ class Env(EnvBase):
     def _make_reward_spec(self) -> Unbounded:
         return Unbounded(
             shape=(self.n_robots, 1),
-            dtype=torch.float32,
+            dtype=self.out_dtype,
             device=self.device,
         )
 

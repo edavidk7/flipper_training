@@ -40,7 +40,7 @@ class RobotStateVector(Observation):
                 goal_vecs_local,
             ],
             dim=1,
-        )
+        ).to(self.env.out_dtype)
 
     def get_spec(self) -> Unbounded:
         dim = 3  # velocity vector
@@ -51,6 +51,6 @@ class RobotStateVector(Observation):
         dim += 3  # goal vector
         return Unbounded(
             shape=(self.env.n_robots, dim),
-            dtype=torch.float32,
             device=self.env.device,
+            dtype=self.env.out_dtype,
         )

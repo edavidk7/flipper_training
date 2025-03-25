@@ -43,11 +43,11 @@ class Pointcloud(Observation):
         z = interpolate_grid(self.env.world_cfg.z_grid, global_percep_points[..., :2], self.env.world_cfg.max_coord)
         global_percep_points[..., 2] = z.squeeze(-1)
         local_percep_points = global_to_local_q(curr_state.x, curr_state.q, global_percep_points)  # shape (B, N, 3)
-        return local_percep_points.permute(0, 2, 1).reshape(-1, 3, self.percep_shape[0], self.percep_shape[1])
+        return local_percep_points.permute(0, 2, 1).reshape(-1, 3, self.percep_shape[0], self.percep_shape[1]).to(self.env.out_dtype)
 
     def get_spec(self) -> Unbounded:
         return Unbounded(
             shape=(self.env.n_robots, 3, self.percep_shape[0], self.percep_shape[1]),
-            dtype=torch.float32,
             device=self.env.device,
+            dtype=self.env.out_dtype,
         )

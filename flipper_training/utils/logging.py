@@ -8,7 +8,6 @@ import csv
 import torch
 import wandb
 from omegaconf import OmegaConf, DictConfig
-import atexit
 import threading
 
 PROJECT = "flipper_training"
@@ -40,7 +39,6 @@ class RunLogger:
             )
             wandb.define_metric(self.step_metric_name)
         self._save_config()
-        atexit.register(self.close)
         self.write_thread = threading.Thread(target=self._write, daemon=True)
         self.write_thread.start()
 
@@ -65,12 +63,14 @@ class RunLogger:
     def _write_row(self, row: dict[str, Any], step: int):
         for topic, names in groupby(row.items(), key=lambda x: x[0].rsplit("/", maxsplit=1)[0]):
             topic_row = dict(names)
-            writer = self.writers.get(topic, None) or self._init_logfile(topic,topic_row)
+            writer = self.writers.get(topic, None) or self._init_logfile(topic, topic_row)
             writer.writerow(topic_row | {self.step_metric_name: step})
 
     def _write(self):
         while True:
             (step, row) = self.log_queue.get()
+            if step == -1:
+                break
             if self.use_wandb:
                 wandb.log(data=row | {self.step_metric_name: step})
             self._write_row(row, step)
@@ -80,6 +80,8 @@ class RunLogger:
             f.close()
         if self.use_wandb:
             wandb.finish()
+        self.log_queue.put((-1, {}))
+        self.write_thread.join()
 
     def save_weights(self, state_dict: dict, name: str):
         model_path = self.weights_path / f"{name}.pth"

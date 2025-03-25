@@ -5,34 +5,25 @@ from typing import Literal, override
 from dataclasses import dataclass
 from flipper_training.engine.engine_state import PhysicsState
 from flipper_training.rl_objectives import BaseObjective
-from flipper_training.utils.geometry import euler_to_quaternion, quaternion_to_roll
+from flipper_training.utils.geometry import euler_to_quaternion, quaternion_to_pitch
+from flipper_training.heightmaps.trunks import TrunkSide
 
 
 @dataclass
-class SimpleStabilizationObjective(BaseObjective):
-    """
-    Objective manager that generates start/goal positions for the robots in the environment.
-    The start position is generated randomly within the suitable area of the world,
-    while the goal position is generated randomly within the suitable area of the world
-    and at a minimum distance from the start position, but not further than the maximum distance.
-    It is ensured that the goal position is not too high above the start position (to avoid unreachable goals).
-    The robot is rewarded for minimizing the rotational velocities and for moving towards the goal position.
-    """
-
-    higher_allowed: float
+class TrunkCrossing(BaseObjective):
     min_dist_to_goal: float
     max_dist_to_goal: float
     goal_reached_threshold: float
     start_drop: float
     iteration_limit_factor: float
-    max_feasible_roll: float
+    max_feasible_pitch: float
     start_position_orientation: Literal["random", "towards_goal"]
     cache_size: int
     _cache_cursor: int = 0
 
     def __post_init__(self) -> None:
-        if self.world_config.grid_extras is None or "suitable_mask" not in self.world_config.grid_extras:
-            raise ValueError("World configuration must contain a suitable mask in the grid extras for start/goal positions.")
+        if self.world_config.grid_extras is None or "trunk_sides" not in self.world_config.grid_extras:
+            raise ValueError("World configuration must contain the trunk sides in the grid extras for start/goal positions.")
         self._init_cache()
 
     def _init_cache(self) -> None:
@@ -46,19 +37,22 @@ class SimpleStabilizationObjective(BaseObjective):
         # Process each robot's terrain separately
         for b in trange(B, desc="Initializing start/goal position cache"):
             # Get valid indices for this robot's terrain (batch index b)
-            valid_indices = torch.nonzero(self.world_config.grid_extras["suitable_mask"][b], as_tuple=False).cpu()  # Shape: (N_valid_b, 2)
-            n_valid = valid_indices.shape[0]
+            left_indices = torch.nonzero(self.world_config.grid_extras["trunk_sides"][b] == TrunkSide.LEFT, as_tuple=False).cpu()
+            right_indices = torch.nonzero(self.world_config.grid_extras["trunk_sides"][b] == TrunkSide.RIGHT, as_tuple=False).cpu()
             # Oversample start and goal indices from valid set
             oversample_factor = 1
             collected = 0
             while collected < total_needed_per_robot:
                 remaining = total_needed_per_robot - collected
                 n_samples = int(remaining * oversample_factor)
-                start_idx = torch.randperm(n_valid, generator=self.rng)[:n_samples].cpu()
-                goal_idx = torch.randperm(n_valid, generator=self.rng)[:n_samples].cpu()
-                # Convert to ij coordinates for this robot, adding batch dimension
-                start_ij = valid_indices[start_idx]  # Shape: (n_samples, 2)
-                goal_ij = valid_indices[goal_idx]  # Shape: (n_samples, 2)
+                n_samples = min(n_samples, left_indices.shape[0], right_indices.shape[0])
+                left_idx = torch.randperm(left_indices.shape[0], generator=self.rng)[:n_samples].cpu()
+                right_idx = torch.randperm(right_indices.shape[0], generator=self.rng)[:n_samples].cpu()
+                left_ij = left_indices[left_idx]
+                right_ij = right_indices[right_idx]
+                is_start_left_mask = torch.bernoulli(torch.full((n_samples,), 0.5), generator=self.rng).bool().unsqueeze(-1)
+                start_ij = torch.where(is_start_left_mask, left_ij, right_ij)
+                goal_ij = torch.where(is_start_left_mask, right_ij, left_ij)
                 # Compute xyz coordinates using this robot's terrain data
                 start_xyz = torch.stack(
                     [g[b, *start_ij.unbind(-1)] for g in [self.world_config.x_grid, self.world_config.y_grid, self.world_config.z_grid]],
@@ -69,7 +63,7 @@ class SimpleStabilizationObjective(BaseObjective):
                     dim=-1,
                 ).to("cpu")
                 # Validate pairs (ensure batch dimension is respected in _is_start_goal_xyz_valid)
-                valid_mask = self._is_start_goal_xyz_valid(start_xyz.unsqueeze(1), goal_xyz.unsqueeze(1)).squeeze(1)
+                valid_mask = self._is_start_goal_xyz_valid(start_xyz, goal_xyz)
                 valid_start = start_xyz[valid_mask]
                 valid_goal = goal_xyz[valid_mask]
                 n_new = min(valid_start.shape[0], remaining)
@@ -88,14 +82,22 @@ class SimpleStabilizationObjective(BaseObjective):
         self._cache_cursor = 0
 
     def _construct_full_start_goal_states(
-        self, start_pos: torch.Tensor, goal_pos: torch.Tensor, oris: torch.Tensor
+        self,
+        start_pos: torch.Tensor,
+        goal_pos: torch.Tensor,
+        oris: torch.Tensor,
     ) -> tuple[PhysicsState, PhysicsState]:
         """
         Constructs the full start and goal states for the robots in the
         environment by adding the initial orientation and drop height.
         """
         start_state = PhysicsState.dummy(
-            robot_model=self.robot_model, batch_size=start_pos.shape[0], device=self.device, x=start_pos.to(self.device), q=oris
+            robot_model=self.robot_model,
+            batch_size=start_pos.shape[0],
+            device=self.device,
+            x=start_pos.to(self.device),
+            q=oris,
+            thetas=self.robot_model.joint_limits[None, 1].to(self.device).repeat(start_pos.shape[0], 1),
         )
         goal_state = PhysicsState.dummy(
             robot_model=self.robot_model, batch_size=goal_pos.shape[0], device=self.device, x=goal_pos.to(self.device), q=oris
@@ -108,20 +110,18 @@ class SimpleStabilizationObjective(BaseObjective):
         Checks if the start and goal positions are valid based on the suitability mask of the world configuration.
 
         Args:
-        - start_xyz: Tensor of shape (B, 3) representing the start positions.
-        - goal_xyz: Tensor of shape (B, 3) representing the goal positions.
+        - start_xyz: Tensor of shape (N, 3) representing the start positions.
+        - goal_xyz: Tensor of shape (N, 3) representing the goal positions.
 
         Returns:
         - A boolean tensor indicating whether each start/goal pair is valid.
         """
         dist = torch.linalg.norm(start_xyz - goal_xyz, dim=-1)  # distance
-        z_diff = goal_xyz[..., 2] - start_xyz[..., 2]  # height difference
         start_xy_to_edge = self.world_config.max_coord - start_xyz[..., :2].abs()  # vector from start to edge
         goal_xy_to_edge = self.world_config.max_coord - goal_xyz[..., :2].abs()  # vector from goal to edge
         return (
             (dist >= self.min_dist_to_goal)
             & (dist <= self.max_dist_to_goal)
-            & (z_diff <= self.higher_allowed)
             & (start_xy_to_edge.min(dim=-1).values > (2 * self.robot_model.radius))
             & (goal_xy_to_edge.min(dim=-1).values > (2 * self.robot_model.radius))
         )
@@ -139,9 +139,7 @@ class SimpleStabilizationObjective(BaseObjective):
         """
         if self._cache_cursor < self.cache_size:
             start_state, goal_state = self._construct_full_start_goal_states(
-                self.cache["start"][self._cache_cursor],
-                self.cache["goal"][self._cache_cursor],
-                self.cache["ori"][self._cache_cursor],
+                self.cache["start"][self._cache_cursor], self.cache["goal"][self._cache_cursor], self.cache["ori"][self._cache_cursor]
             )
             iteration_limits = self.cache["iteration_limits"][self._cache_cursor].to(self.device)
             self._cache_cursor += 1
@@ -167,7 +165,7 @@ class SimpleStabilizationObjective(BaseObjective):
         return torch.linalg.norm(state.x - goal.x, dim=-1) <= self.goal_reached_threshold
 
     def check_terminated_wrong(self, state: PhysicsState, goal: PhysicsState) -> torch.BoolTensor:
-        return (quaternion_to_roll(state.q).abs() > self.max_feasible_roll) | (state.x.abs() > self.world_config.max_coord).any(dim=-1)
+        return (quaternion_to_pitch(state.q).abs() > self.max_feasible_pitch) | (state.x.abs() > self.world_config.max_coord).any(dim=-1)
 
     def _compute_iteration_limits(
         self,
@@ -178,3 +176,65 @@ class SimpleStabilizationObjective(BaseObjective):
         fastest_traversal = dists / (self.robot_model.v_max * self.physics_config.dt)  # time to reach the furthest goal
         steps = (fastest_traversal * self.iteration_limit_factor).ceil()
         return steps.int()
+
+
+@dataclass
+class FixedTrunkCrossing(BaseObjective):
+    start_x_y_z: torch.Tensor
+    goal_x_y_z: torch.Tensor
+    iteration_limit: int
+    max_feasible_pitch: float
+    goal_reached_threshold: float
+
+    def __post_init__(self) -> None:
+        if self.world_config.grid_extras is None or "trunk_sides" not in self.world_config.grid_extras:
+            raise ValueError("World configuration must contain the trunk sides in the grid extras for start/goal positions.")
+        self.start_pos = self.start_x_y_z.repeat(self.physics_config.num_robots, 1)
+        self.goal_pos = self.goal_x_y_z.repeat(self.physics_config.num_robots, 1)
+        diff_vecs = self.goal_pos[..., :2] - self.start_pos[..., :2]
+        self.initial_q = euler_to_quaternion(
+            torch.zeros_like(diff_vecs[..., 0]),
+            torch.zeros_like(diff_vecs[..., 0]),
+            torch.atan2(diff_vecs[..., 1], diff_vecs[..., 0]),
+        )
+
+    def _construct_full_start_goal_states(
+        self,
+    ) -> tuple[PhysicsState, PhysicsState]:
+        """
+        Constructs the full start and goal states for the robots in the
+        environment by adding the initial orientation and drop height.
+        """
+        start_state = PhysicsState.dummy(
+            robot_model=self.robot_model,
+            batch_size=self.physics_config.num_robots,
+            device=self.device,
+            x=self.start_pos.to(self.device),
+            q=self.initial_q.to(self.device),
+            thetas=self.robot_model.joint_limits[None, 1].to(self.device).repeat(self.physics_config.num_robots, 1),
+        )
+        goal_state = PhysicsState.dummy(
+            robot_model=self.robot_model, batch_size=self.physics_config.num_robots, device=self.device, x=self.goal_pos.to(self.device)
+        )
+        return start_state, goal_state
+
+    @override
+    def generate_start_goal_states(self) -> tuple[PhysicsState, PhysicsState, torch.IntTensor | torch.LongTensor]:
+        """
+        Generates start/goal positions for the robots in the environment.
+
+        The world configuration must contain a suitability mask that indicates which parts of the world are suitable for start/goal positions.
+
+        Returns:
+        - A tuple of PhysicsState objects containing the start and goal positions for the robots.
+        - A tensor containing the iteration limits for the robots.
+        """
+        iteration_limits = torch.full((self.physics_config.num_robots,), self.iteration_limit, device=self.start_pos.device).int()
+        start_state, goal_state = self._construct_full_start_goal_states()
+        return start_state, goal_state, iteration_limits
+
+    def check_reached_goal(self, state: PhysicsState, goal: PhysicsState) -> torch.BoolTensor:
+        return torch.linalg.norm(state.x - goal.x, dim=-1) <= self.goal_reached_threshold
+
+    def check_terminated_wrong(self, state: PhysicsState, goal: PhysicsState) -> torch.BoolTensor:
+        return (quaternion_to_pitch(state.q).abs() > self.max_feasible_pitch) | (state.x.abs() > self.world_config.max_coord).any(dim=-1)

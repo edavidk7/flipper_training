@@ -21,8 +21,6 @@ from flipper_training.utils.meshes import (
     sample_points_from_convex_hull,
 )
 
-np.random.seed(0)
-
 MESHDIR = ROOT / "meshes"
 YAMLDIR = ROOT / "robots"
 POINTCACHE = ROOT / ".robot_cache"
@@ -90,44 +88,25 @@ class RobotModelConfig(BaseConfig):
         driving_parts = list_of_dicts_to_dict_of_lists(robot_params["driving_parts"])
         self.driving_part_bboxes = torch.tensor(driving_parts["bbox"])
         self.driving_part_masses = torch.tensor(driving_parts["mass"])
+        self.driving_part_pivot_signs = torch.tensor(driving_parts["pivot_sign"])
         self.track_wheels = [TrackWheels.from_dict(wheel) for wheel in driving_parts["wheels"]]
         self.joint_positions = torch.tensor(driving_parts["joint_position"])
         self.joint_limits = torch.tensor(driving_parts["joint_limits"]).T  # transpose from shape (num_driving_parts, 2) to (2, num_driving_parts)
         self.joint_max_pivot_vels = torch.tensor(driving_parts["max_pivot_vel"])
         self.total_mass = self.body_mass + self.driving_part_masses.sum().item()
         self.mesh_file = robot_params["mesh"]
-        self.driving_part_movable_mask = torch.tensor(driving_parts["is_movable"]).float()
 
     def __repr__(self) -> str:
         s = f"RobotModelConfig for {self.kind}"
-        s += f"\nBody mass: {self.body_mass}"
         s += f"\nTotal mass: {self.total_mass}"
-        s += f"\nBody bbox: {self.body_bbox}"
-        s += f"\nNumber of driving parts: {self.num_driving_parts}"
-        s += f"\nDriving part masses: {self.driving_part_masses}"
-        s += f"\nDriving part bboxes: {self.driving_part_bboxes}"
-        s += f"\nJoint positions: {self.joint_positions}"
-        s += f"\nJoint limits: {self.joint_limits}"
-        s += f"\nJoint max pivot vels: {self.joint_max_pivot_vels}"
-        s += f"\nTrack wheels: {self.track_wheels}"
-        s += f"\nMax velocity: {self.v_max}"
-        s += f"\nDriving direction: {self.driving_direction}"
-        s += f"\nBody voxel size: {self.mesh_voxel_size}"
-        s += f"\nPoints per driving part: {self.points_per_driving_part}"
-        s += f"\nWheel assignment margin: {self.wheel_assignment_margin}"
-        s += f"\nLinear track assignment margin: {self.linear_track_assignment_margin}"
-        s += f"\nTotal number of points: {self.points_per_body + self.points_per_driving_part * self.num_driving_parts}"
-        self._print_tensor_info()
+        for name, tensor in self.__dict__.items():
+            if isinstance(tensor, torch.Tensor):
+                print(f"{name}: {tensor.shape}")
         return s
 
     @property
     def _descr_str(self) -> str:
         return f"{self.kind}_{self.mesh_voxel_size:.3f}_dp{self.points_per_driving_part}b_{self.points_per_body}_whl{self.wheel_assignment_margin}_trck{self.linear_track_assignment_margin}_{self.yaml_hash}"
-
-    def _print_tensor_info(self):
-        for name, tensor in self.__dict__.items():
-            if isinstance(tensor, torch.Tensor):
-                print(f"{name}: {tensor.shape}")
 
     def vw_to_vels(self, v: float | torch.Tensor, w: float | torch.Tensor) -> torch.Tensor:
         """

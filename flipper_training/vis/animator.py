@@ -75,7 +75,7 @@ def animate_trajectory(
     ffriction = aux_info_vec.F_friction[:, robot_index].cpu().numpy()
     contact_masks = aux_info_vec.in_contact[:, robot_index].squeeze(-1).cpu().numpy() > 1e-3
     thrust_vectors = aux_info_vec.global_thrust_vectors[:, robot_index].cpu().numpy()
-    act_forces = aux_info_vec.act_forces[:, robot_index].cpu().numpy()
+    act_forces = fspring + ffriction
 
     # trajectory
     traj_vis = mlab.plot3d(xs[:, 0], xs[:, 1], xs[:, 2], color=(0, 1, 0), line_width=0.2)

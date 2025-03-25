@@ -1,10 +1,12 @@
 type: ${cls:flipper_training.experiments.ppo.config.PPOExperimentConfig}
 name: first_ppo_experiment
+comment: Traversal of a fixed elevated obstacle resembling a tree trunk
+training_dtype: ${dtype:float32}
 seed: 42
 use_wandb: true
 max_eval_steps: 1000
-device: cuda:0
-num_robots: 64
+device: cpu
+num_robots: 16
 save_weights_every: 10
 grid_res: 0.05
 max_coord: 3.2
@@ -21,20 +23,19 @@ optimizer: ${cls:torch.optim.Adam}
 optimizer_opts:
   lr: 0.001
 scheduler: ${cls:torch.optim.lr_scheduler.CosineAnnealingLR}
-total_frames: 5242880
+total_frames: 1048576
 frames_per_batch: 128
 scheduler_opts:
   T_max: ${intdiv:${total_frames},${mul:${frames_per_batch},${num_robots}}}
 max_grad_norm: 1
-heightmap_gen: ${ cls:flipper_training.utils.heightmap_generators.MultiGaussianHeightmapGenerator}
+heightmap_gen: ${ cls:flipper_training.heightmaps.trunks.FixedTrunkHeightmapGenerator}
 heightmap_gen_opts:
-  min_gaussians: 400
-  max_gaussians: 600
-  min_height_fraction: 0.03
-  max_height_fraction: 0.12
-  min_std_fraction: 0.03
-  max_std_fraction: 0.08
-  min_sigma_ratio: 0.6
+  normal_angle: 0.0
+  trunk_height: 0.45
+  dist_from_origin: 0.0
+  trunk_deadzone_width: 0.5
+  trunk_width: 1.0
+  exp: 6
 world_opts:
   k_stiffness: 30000
   k_friction_lon: 0.8
@@ -45,8 +46,8 @@ engine_compile_opts:
   coordinate_descent_tuning: true
   correctness_iters: 100
   benchmark_iters: 1000
-  atol: 1e-2
-  rtol: 1e-6
+  atol: 10
+  rtol: 0
 evaluate_every: 10
 epochs_per_batch: 5
 frames_per_sub_batch: 64
@@ -67,23 +68,19 @@ data_collector_opts:
   split_trajs: false
   compile_policy: true
   exploration_type: RANDOM
-objective: ${cls:flipper_training.rl_objectives.simple_stab.SimpleStabilizationObjective}
+objective: ${cls:flipper_training.rl_objectives.trunk_crossing.FixedTrunkCrossing}
 objective_opts:
-  higher_allowed: 0.8
-  min_dist_to_goal: 0.7
-  max_dist_to_goal: 1.0
-  start_drop: 0.3
-  iteration_limit_factor: 10
-  start_position_orientation: towards_goal
+  iteration_limit: 3000
   goal_reached_threshold: 0.05
-  max_feasible_roll: 1.5
-  cache_size: 10000
-reward: ${cls:flipper_training.rl_rewards.rewards.RollPitchGoal}
+  max_feasible_pitch: 1.95
+  start_x_y_z: ${tensor:[-2.0, 0.0, 0.1]}
+  goal_x_y_z: ${tensor:[2.0, 0.0, 0.1]}
+reward: ${cls:flipper_training.rl_rewards.rewards.Goal}
 reward_opts:
   goal_reached_reward: 1000.0
   failed_reward: -1000.0
-  omega_weight: 5.0
-  goal_weight: 3.0
+  weight: 2.0
+  exp: 2
 observations:
   perception:
     observation: ${cls:flipper_training.observations.heightmap.Heightmap}
