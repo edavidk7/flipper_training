@@ -141,8 +141,8 @@ def main(train_omegaconf: "DictConfig"):
                     logger.save_weights(actor_value_policy.state_dict(), "best")
 
                 eval_str = (
-                    f"eval/reward: {eval_log['eval/reward']:0.4f} "
-                    f"(init: {init_log['eval/reward']: 4.4f}), "
+                    f"eval/reward: {eval_log['eval/reward']:.4f} "
+                    f"(init: {init_log['eval/reward']:.4f}), "
                     f"eval/step_count: {eval_log['eval/step_count']} "
                     f"(init: {init_log['eval/step_count']})"
                 )

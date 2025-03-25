@@ -27,11 +27,11 @@ total_frames: 5242880
 frames_per_batch: 128
 scheduler_opts:
   T_max: ${intdiv:${total_frames},${mul:${frames_per_batch},${num_robots}}}
-max_grad_norm: 1
+max_grad_norm: 10
 heightmap_gen: ${ cls:flipper_training.heightmaps.trunks.FixedTrunkHeightmapGenerator}
 heightmap_gen_opts:
   normal_angle: 0.0
-  trunk_height: 0.45
+  trunk_height: 0.3
   dist_from_origin: 0.0
   trunk_deadzone_width: 0.5
   trunk_width: 1.0
@@ -49,7 +49,7 @@ engine_compile_opts:
   atol: 10
   rtol: 0
 evaluate_every: 10
-epochs_per_batch: 5
+epochs_per_batch: 2
 frames_per_sub_batch: 64
 gae_compile_opts: null
 ppo_compile_opts: null
@@ -70,7 +70,7 @@ data_collector_opts:
   exploration_type: RANDOM
 objective: ${cls:flipper_training.rl_objectives.trunk_crossing.FixedTrunkCrossing}
 objective_opts:
-  iteration_limit: 3000
+  iteration_limit: 2000
   goal_reached_threshold: 0.05
   max_feasible_pitch: 1.95
   start_x_y_z: ${tensor:[-2.0, 0.0, 0.1]}
@@ -80,7 +80,7 @@ reward_opts:
   goal_reached_reward: 1000.0
   failed_reward: -1000.0
   weight: 2.0
-  exp: 2
+  exp: 1
 observations:
   perception:
     observation: ${cls:flipper_training.observations.heightmap.Heightmap}

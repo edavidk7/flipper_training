@@ -75,7 +75,7 @@ class Goal(Reward):
     ) -> torch.Tensor:
         goal_diff_curr = (env.goal.x - curr_state.x).norm(dim=-1, keepdim=True)
         goal_diff_prev = (env.goal.x - prev_state.x).norm(dim=-1, keepdim=True)
-        diff_delta = goal_diff_curr - goal_diff_prev
+        diff_delta = goal_diff_prev - goal_diff_curr # if the robot is moving towards the goal, this will be positive
         reward = self.weight * torch.sign(diff_delta) * diff_delta.abs() ** self.exp
         reward[success] = self.goal_reached_reward
         reward[fail] = self.failed_reward
