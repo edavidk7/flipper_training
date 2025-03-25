@@ -5,8 +5,8 @@ training_dtype: ${dtype:float32}
 seed: 42
 use_wandb: true
 max_eval_steps: 1000
-device: cpu
-num_robots: 16
+device: cuda:0
+num_robots: 64
 save_weights_every: 10
 grid_res: 0.05
 max_coord: 3.2
@@ -23,7 +23,7 @@ optimizer: ${cls:torch.optim.Adam}
 optimizer_opts:
   lr: 0.001
 scheduler: ${cls:torch.optim.lr_scheduler.CosineAnnealingLR}
-total_frames: 1048576
+total_frames: 5242880
 frames_per_batch: 128
 scheduler_opts:
   T_max: ${intdiv:${total_frames},${mul:${frames_per_batch},${num_robots}}}
