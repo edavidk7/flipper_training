@@ -5,7 +5,7 @@ from typing import Literal, override
 from dataclasses import dataclass
 from flipper_training.engine.engine_state import PhysicsState
 from flipper_training.rl_objectives import BaseObjective
-from flipper_training.utils.geometry import euler_to_quaternion, quaternion_to_pitch
+from flipper_training.utils.geometry import euler_to_quaternion, quaternion_to_euler
 from flipper_training.heightmaps.trunks import TrunkSide
 
 
@@ -17,6 +17,7 @@ class TrunkCrossing(BaseObjective):
     start_drop: float
     iteration_limit_factor: float
     max_feasible_pitch: float
+    max_feasible_roll: float
     start_position_orientation: Literal["random", "towards_goal"]
     cache_size: int
     _cache_cursor: int = 0
@@ -165,7 +166,12 @@ class TrunkCrossing(BaseObjective):
         return torch.linalg.norm(state.x - goal.x, dim=-1) <= self.goal_reached_threshold
 
     def check_terminated_wrong(self, state: PhysicsState, goal: PhysicsState) -> torch.BoolTensor:
-        return (quaternion_to_pitch(state.q).abs() > self.max_feasible_pitch) | (state.x.abs() > self.world_config.max_coord).any(dim=-1)
+        rolls, pitches, _ = quaternion_to_euler(state.q)
+        return (
+            (pitches.abs() > self.max_feasible_pitch)
+            | (rolls.abs() > self.max_feasible_roll)
+            | (state.x.abs() > self.world_config.max_coord).any(dim=-1)
+        )
 
     def _compute_iteration_limits(
         self,
@@ -176,65 +182,3 @@ class TrunkCrossing(BaseObjective):
         fastest_traversal = dists / (self.robot_model.v_max * self.physics_config.dt)  # time to reach the furthest goal
         steps = (fastest_traversal * self.iteration_limit_factor).ceil()
         return steps.int()
-
-
-@dataclass
-class FixedTrunkCrossing(BaseObjective):
-    start_x_y_z: torch.Tensor
-    goal_x_y_z: torch.Tensor
-    iteration_limit: int
-    max_feasible_pitch: float
-    goal_reached_threshold: float
-
-    def __post_init__(self) -> None:
-        if self.world_config.grid_extras is None or "trunk_sides" not in self.world_config.grid_extras:
-            raise ValueError("World configuration must contain the trunk sides in the grid extras for start/goal positions.")
-        self.start_pos = self.start_x_y_z.repeat(self.physics_config.num_robots, 1)
-        self.goal_pos = self.goal_x_y_z.repeat(self.physics_config.num_robots, 1)
-        diff_vecs = self.goal_pos[..., :2] - self.start_pos[..., :2]
-        self.initial_q = euler_to_quaternion(
-            torch.zeros_like(diff_vecs[..., 0]),
-            torch.zeros_like(diff_vecs[..., 0]),
-            torch.atan2(diff_vecs[..., 1], diff_vecs[..., 0]),
-        )
-
-    def _construct_full_start_goal_states(
-        self,
-    ) -> tuple[PhysicsState, PhysicsState]:
-        """
-        Constructs the full start and goal states for the robots in the
-        environment by adding the initial orientation and drop height.
-        """
-        start_state = PhysicsState.dummy(
-            robot_model=self.robot_model,
-            batch_size=self.physics_config.num_robots,
-            device=self.device,
-            x=self.start_pos.to(self.device),
-            q=self.initial_q.to(self.device),
-            thetas=self.robot_model.joint_limits[None, 1].to(self.device).repeat(self.physics_config.num_robots, 1),
-        )
-        goal_state = PhysicsState.dummy(
-            robot_model=self.robot_model, batch_size=self.physics_config.num_robots, device=self.device, x=self.goal_pos.to(self.device)
-        )
-        return start_state, goal_state
-
-    @override
-    def generate_start_goal_states(self) -> tuple[PhysicsState, PhysicsState, torch.IntTensor | torch.LongTensor]:
-        """
-        Generates start/goal positions for the robots in the environment.
-
-        The world configuration must contain a suitability mask that indicates which parts of the world are suitable for start/goal positions.
-
-        Returns:
-        - A tuple of PhysicsState objects containing the start and goal positions for the robots.
-        - A tensor containing the iteration limits for the robots.
-        """
-        iteration_limits = torch.full((self.physics_config.num_robots,), self.iteration_limit, device=self.device).int()
-        start_state, goal_state = self._construct_full_start_goal_states()
-        return start_state, goal_state, iteration_limits
-
-    def check_reached_goal(self, state: PhysicsState, goal: PhysicsState) -> torch.BoolTensor:
-        return torch.linalg.norm(state.x - goal.x, dim=-1) <= self.goal_reached_threshold
-
-    def check_terminated_wrong(self, state: PhysicsState, goal: PhysicsState) -> torch.BoolTensor:
-        return (quaternion_to_pitch(state.q).abs() > self.max_feasible_pitch) | (state.x.abs() > self.world_config.max_coord).any(dim=-1)

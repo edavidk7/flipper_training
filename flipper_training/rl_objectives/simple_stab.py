@@ -5,7 +5,7 @@ from typing import Literal, override
 from dataclasses import dataclass
 from flipper_training.engine.engine_state import PhysicsState
 from flipper_training.rl_objectives import BaseObjective
-from flipper_training.utils.geometry import euler_to_quaternion, quaternion_to_roll
+from flipper_training.utils.geometry import euler_to_quaternion, quaternion_to_euler
 
 
 @dataclass
@@ -26,6 +26,7 @@ class SimpleStabilizationObjective(BaseObjective):
     start_drop: float
     iteration_limit_factor: float
     max_feasible_roll: float
+    max_feasible_pitch: float
     start_position_orientation: Literal["random", "towards_goal"]
     cache_size: int
     _cache_cursor: int = 0
@@ -167,7 +168,12 @@ class SimpleStabilizationObjective(BaseObjective):
         return torch.linalg.norm(state.x - goal.x, dim=-1) <= self.goal_reached_threshold
 
     def check_terminated_wrong(self, state: PhysicsState, goal: PhysicsState) -> torch.BoolTensor:
-        return (quaternion_to_roll(state.q).abs() > self.max_feasible_roll) | (state.x.abs() > self.world_config.max_coord).any(dim=-1)
+        rolls, pitches, _ = quaternion_to_euler(state.q)
+        return (
+            (pitches.abs() > self.max_feasible_pitch)
+            | (rolls.abs() > self.max_feasible_roll)
+            | (state.x.abs() > self.world_config.max_coord).any(dim=-1)
+        )
 
     def _compute_iteration_limits(
         self,
