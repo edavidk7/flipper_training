@@ -250,4 +250,5 @@ class Env(EnvBase):
         obs_td["done"] = failed | reached_goal | truncated
         obs_td["reward"] = self.reward(prev_state, action, state_der, next_state, aux_info, reached_goal, failed, self)
         self.step_count += 1
+        self.done |= obs_td["done"]
         return obs_td

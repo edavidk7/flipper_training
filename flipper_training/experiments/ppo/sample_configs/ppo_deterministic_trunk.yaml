@@ -1,5 +1,5 @@
 type: ${cls:flipper_training.experiments.ppo.config.PPOExperimentConfig}
-name: first_ppo_experiment
+name: ppo_deterministic_trunk
 comment: Traversal of a fixed elevated obstacle resembling a tree trunk
 training_dtype: ${dtype:float32}
 seed: 42
