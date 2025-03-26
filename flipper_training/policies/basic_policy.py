@@ -33,10 +33,10 @@ class TerrainEncoder(torch.nn.Module):
 class PolicyObservationEncoder(torch.nn.Module):
     def __init__(self, obs_spec, hidden_dim):
         super(PolicyObservationEncoder, self).__init__()
-        self.ter_enc = TerrainEncoder(obs_spec["perception"].shape[1:], hidden_dim)
+        self.ter_enc = TerrainEncoder(obs_spec["perception"].shape[1:], hidden_dim) if "perception" in obs_spec else None
         self.hidden_dim = hidden_dim
         self.state_enc = torch.nn.Sequential(
-            torch.nn.Linear(obs_spec["observation"].shape[-1], hidden_dim),
+            torch.nn.Linear(obs_spec["state"].shape[-1], hidden_dim),
             torch.nn.Tanh(),
             torch.nn.LayerNorm(hidden_dim),
             torch.nn.Linear(hidden_dim, hidden_dim),
@@ -44,7 +44,7 @@ class PolicyObservationEncoder(torch.nn.Module):
             torch.nn.LayerNorm(hidden_dim),
         )
         self.shared_state_enc = torch.nn.Sequential(
-            torch.nn.Linear(2 * hidden_dim, hidden_dim),
+            torch.nn.Linear(hidden_dim + hidden_dim * (self.ter_enc is not None), hidden_dim),
             torch.nn.Tanh(),
             torch.nn.LayerNorm(hidden_dim),
             torch.nn.Linear(hidden_dim, hidden_dim),
@@ -54,18 +54,24 @@ class PolicyObservationEncoder(torch.nn.Module):
 
     def forward(
         self,
-        perception: torch.Tensor,
-        observation: torch.Tensor,
+        **kwargs,
     ):
-        if perception.ndim > 4:
-            B, T = perception.shape[:2]
-            perception = perception.flatten(0, 1)
-            y_ter = self.ter_enc.forward(perception)
-            y_ter = y_ter.reshape((B, T, -1))
-        else:
-            y_ter = self.ter_enc.forward(perception)
+        observation = kwargs["state"]
         y_state = self.state_enc(observation)
-        y_shared = self.shared_state_enc(torch.cat([y_ter, y_state], dim=-1))
+        if self.ter_enc is not None:
+            perception = kwargs["perception"]
+            y_ter = self.ter_enc.forward(perception)
+            if perception.ndim > 4:
+                B, T = perception.shape[:2]
+                perception = perception.flatten(0, 1)
+                y_ter = self.ter_enc.forward(perception)
+                y_ter = y_ter.reshape((B, T, -1))
+            else:
+                y_ter = self.ter_enc.forward(perception)
+            y_comb = torch.cat([y_ter, y_state], dim=-1)
+        else:
+            y_comb = y_state
+        y_shared = self.shared_state_enc(y_comb)
         return y_shared
 
 
@@ -114,7 +120,11 @@ def make_actor_value_policy(
     value_mlp_layers: int,
 ) -> ActorValueOperator:
     encoder = PolicyObservationEncoder(env.observation_spec, hidden_dim).to(env.out_dtype)
-    encoder_module = TensorDictModule(encoder, in_keys=["perception", "observation"], out_keys=["y_shared"])
+    encoder_module = TensorDictModule(encoder,
+        in_keys={
+            k: k for k in env.observation_spec.keys()
+        },
+        out_keys=["y_shared"])
     actor = ActorPolicy(hidden_dim, env.action_spec, actor_mlp_layers).to(env.out_dtype)
     actor_td = TensorDictModule(actor, in_keys=["y_shared"], out_keys=["loc", "scale"])
     actor_module = ProbabilisticActor(

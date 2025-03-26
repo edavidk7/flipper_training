@@ -1,6 +1,6 @@
 type: ${cls:flipper_training.experiments.ppo.config.PPOExperimentConfig}
-name: ppo_deterministic_trunk
-comment: Traversal of a fixed elevated obstacle resembling a tree trunk
+name: deterministic_flat_fixed_goal_navigation
+comment: Driving from start to goal on a flat surface with fixed start and goal
 training_dtype: ${dtype:float32}
 seed: 42
 use_wandb: true
@@ -10,8 +10,7 @@ num_robots: 64
 save_weights_every: 10
 grid_res: 0.05
 max_coord: 3.2
-learning_rate: 0.001
-norm_init_iters: 1000
+norm_init_iters: 5000
 robot_model_opts:
   kind: marv
   mesh_voxel_size: 0.01
@@ -21,12 +20,14 @@ robot_model_opts:
   linear_track_assignment_margin: 0.05
 optimizer: ${cls:torch.optim.Adam}
 optimizer_opts:
-  lr: 0.001
-scheduler: ${cls:torch.optim.lr_scheduler.CosineAnnealingLR}
+  lr: 3e-4
+  amsgrad: true
+scheduler: ${cls:torch.optim.lr_scheduler.StepLR}
 total_frames: 5242880
 frames_per_batch: 128
 scheduler_opts:
-  T_max: ${intdiv:${total_frames},${mul:${frames_per_batch},${num_robots}}}
+  step_size: ${intdiv:${intdiv:${total_frames},${mul:${frames_per_batch},${num_robots}}},4} 
+  gamma: 0.5
 max_grad_norm: 10
 heightmap_gen: ${ cls:flipper_training.heightmaps.flat.FlatHeightmapGenerator}
 heightmap_gen_opts: {}
@@ -40,7 +41,7 @@ engine_compile_opts:
   coordinate_descent_tuning: true
   correctness_iters: 100
   benchmark_iters: 1000
-  atol: 10
+  atol: 1
   rtol: 0
 evaluate_every: 10
 epochs_per_batch: 2
@@ -64,12 +65,13 @@ data_collector_opts:
   exploration_type: RANDOM
 objective: ${cls:flipper_training.rl_objectives.fixed_goal.FixedStartGoalNavigation}
 objective_opts:
-  iteration_limit: 500
+  iteration_limit: 300
   goal_reached_threshold: 0.05
   max_feasible_pitch: 1.0
   max_feasible_roll: 1.0
   start_x_y_z: ${tensor:[-1.0, 0.0, 0.2]}
-  goal_x_y_z: ${tensor:[§.0, 0.0, 0.0]}
+  goal_x_y_z: ${tensor:[1.0, 0.0, 0.0]}
+  init_joint_angles: max
 reward: ${cls:flipper_training.rl_rewards.rewards.Goal}
 reward_opts:
   goal_reached_reward: 1000.0
@@ -77,23 +79,12 @@ reward_opts:
   weight: 2.0
   exp: 1
 observations:
-  perception:
-    observation: ${cls:flipper_training.observations.heightmap.Heightmap}
-    opts:
-      percep_shape:
-        - 128
-        - 128
-      percep_extent:
-        - 1.0
-        - 1.0
-        - -1.0
-        - -1.0
-  observation:
+  state:
     observation: ${cls:flipper_training.observations.robot_state.RobotStateVector}
     opts: {}
 policy_opts:
   hidden_dim: 64
-  value_mlp_layers: 2
-  actor_mlp_layers: 2
+  value_mlp_layers: 4
+  actor_mlp_layers: 4
 engine_opts:
   damping_alpha: 5.0

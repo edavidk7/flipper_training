@@ -45,17 +45,6 @@ class RollPitchGoal(Reward):
 
 @dataclass
 class Goal(Reward):
-    """
-    Guide the robot towards the goal position.
-
-    The robot is rewarded for moving towards the goal position and penalized for moving away from the goal position.
-
-    Attributes:
-        goal_reached_reward (float): Reward for reaching the goal.
-        failed_reward (float): Reward for failing.
-        weight (float): Weight of the reward.
-        exp (float | int): Exponent for the reward function. Default is 2.
-    """
 
     goal_reached_reward: float
     failed_reward: float
@@ -73,10 +62,8 @@ class Goal(Reward):
         fail: torch.BoolTensor,
         env: "Env",
     ) -> torch.Tensor:
-        goal_diff_curr = (env.goal.x - curr_state.x).norm(dim=-1, keepdim=True)
-        goal_diff_prev = (env.goal.x - prev_state.x).norm(dim=-1, keepdim=True)
-        diff_delta = goal_diff_prev - goal_diff_curr # if the robot is moving towards the goal, this will be positive
-        reward = self.weight * torch.sign(diff_delta) * diff_delta.abs() ** self.exp
-        reward[success] = self.goal_reached_reward
-        reward[fail] = self.failed_reward
+        goal_diff = (env.goal.x - curr_state.x).norm(dim=-1, keepdim=True)
+        reward = -self.weight * goal_diff.pow(self.exp) 
+        reward[success] += self.goal_reached_reward
+        reward[fail] += self.failed_reward
         return reward.to(env.out_dtype)

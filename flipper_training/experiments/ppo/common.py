@@ -48,8 +48,7 @@ def make_transformed_env(env: "Env", cfg: "PPOExperimentConfig"):
     tf_env = TransformedEnv(
         env,
         Compose(
-            ObservationNorm(in_keys=["observation"], standard_normal=True),
-            ObservationNorm(in_keys=["perception"], standard_normal=True),
+            *[ObservationNorm(in_keys=[k], standard_normal=True) for k in cfg.observations],
             StepCounter(),
         ),
     )

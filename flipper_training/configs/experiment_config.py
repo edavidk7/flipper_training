@@ -54,7 +54,6 @@ class BaseExperimentConfig:
     num_robots: int
     grid_res: float
     max_coord: float
-    learning_rate: float
     robot_model_opts: dict[str, Any]
     optimizer: "Type[Optimizer]"
     optimizer_opts: dict[str, Any]
