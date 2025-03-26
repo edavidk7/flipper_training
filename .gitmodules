@@ -1,0 +1,3 @@
+[submodule "simview"]
+	path = simview
+	url = git@github.com:aleskucera/simview.git
