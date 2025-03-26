@@ -26,9 +26,9 @@ scheduler: ${cls:torch.optim.lr_scheduler.StepLR}
 total_frames: 5242880
 frames_per_batch: 128
 scheduler_opts:
-  step_size: ${intdiv:${intdiv:${total_frames},${mul:${frames_per_batch},${num_robots}}},4} 
+  step_size: ${intdiv:${intdiv:${total_frames},${mul:${frames_per_batch},${num_robots}}},2} 
   gamma: 0.5
-max_grad_norm: 10
+max_grad_norm: 5
 heightmap_gen: ${ cls:flipper_training.heightmaps.flat.FlatHeightmapGenerator}
 heightmap_gen_opts: {}
 world_opts:
@@ -74,9 +74,9 @@ objective_opts:
   init_joint_angles: max
 reward: ${cls:flipper_training.rl_rewards.rewards.Goal}
 reward_opts:
-  goal_reached_reward: 1000.0
-  failed_reward: -1000.0
-  weight: 2.0
+  goal_reached_reward: 10.0
+  failed_reward: -10.0
+  weight: 1.0
   exp: 1
 observations:
   state:
