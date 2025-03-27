@@ -6,7 +6,7 @@ seed: 42
 use_wandb: true
 max_eval_steps: 1000
 device: cuda:0
-num_robots: 64
+num_robots: 256
 save_weights_every: 10
 grid_res: 0.05
 max_coord: 3.2
@@ -18,15 +18,15 @@ robot_model_opts:
   points_per_body: 512
   wheel_assignment_margin: 0.02
   linear_track_assignment_margin: 0.05
-optimizer: ${cls:torch.optim.Adam}
+optimizer: ${cls:torch.optim.AdamW}
 optimizer_opts:
   lr: 3e-4
   amsgrad: true
 scheduler: ${cls:torch.optim.lr_scheduler.StepLR}
-total_frames: 5242880
+total_frames: ${mul:5242880,10}
 frames_per_batch: 128
 scheduler_opts:
-  step_size: ${intdiv:${intdiv:${total_frames},${mul:${frames_per_batch},${num_robots}}},2} 
+  step_size: ${intdiv:${intdiv:${total_frames},${mul:${frames_per_batch},${num_robots}}},2}
   gamma: 0.5
 max_grad_norm: 5
 heightmap_gen: ${ cls:flipper_training.heightmaps.flat.FlatHeightmapGenerator}
@@ -65,17 +65,17 @@ data_collector_opts:
   exploration_type: RANDOM
 objective: ${cls:flipper_training.rl_objectives.fixed_goal.FixedStartGoalNavigation}
 objective_opts:
-  iteration_limit: 300
+  iteration_limit: 500
   goal_reached_threshold: 0.05
   max_feasible_pitch: 1.0
   max_feasible_roll: 1.0
-  start_x_y_z: ${tensor:[-1.0, 0.0, 0.2]}
+  start_x_y_z: ${tensor:[-1.0, 0.0, 0.15]}
   goal_x_y_z: ${tensor:[1.0, 0.0, 0.0]}
   init_joint_angles: max
 reward: ${cls:flipper_training.rl_rewards.rewards.Goal}
 reward_opts:
-  goal_reached_reward: 10.0
-  failed_reward: -10.0
+  goal_reached_reward: 1000.0
+  failed_reward: -1000.0
   weight: 1.0
   exp: 1
 observations:
