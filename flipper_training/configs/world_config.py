@@ -7,9 +7,9 @@ from flipper_training.utils.environment import compute_heightmap_gradients
 
 
 @dataclass
-class WorldConfig(BaseConfig):
+class TerrainConfig(BaseConfig):
     """
-    World configuration. Contains the physical constants of the world, coordinates of the world frame etc.
+    Terrain configuration. Contains the physical constants of the world, coordinates of the world frame etc.
 
     **Note**:
         1) the convention for grids is torch's "xy" indexing of the meshgrid. This means that the first

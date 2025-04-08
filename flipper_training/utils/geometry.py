@@ -33,7 +33,26 @@ __all__ = [
     "rodrigues_rotation_matrix",
     "bbox_limits_to_points",
     "q_to_R",
+    "compose_quaternion_affine",
 ]
+
+
+def compose_quaternion_affine(t1: torch.Tensor, q1: torch.Tensor, t2: torch.Tensor, q2: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+    """
+    Composes two quaternion-affine transformations.
+
+    Parameters:
+    - t1: Translation vector of the first transformation.
+    - q1: Rotation quaternion of the first transformation.
+    - t2: Translation vector of the second transformation.
+    - q2: Rotation quaternion of the second transformation.
+    Returns:
+    - t: Composed translation vector.
+    - q: Composed rotation quaternion.
+    """
+    t = t1 + rotate_vector_by_quaternion(t2.unsqueeze(1), q1).squeeze(1)
+    q = quaternion_multiply(q1, q2)
+    return t, q
 
 
 def rodrigues_rotation_matrix(axis: torch.Tensor, angle: torch.Tensor) -> torch.Tensor:

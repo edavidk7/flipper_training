@@ -4,10 +4,10 @@ import torch
 
 from flipper_training.configs.engine_config import PhysicsEngineConfig
 from flipper_training.configs.robot_config import RobotModelConfig
-from flipper_training.configs.world_config import WorldConfig
-from flipper_training.engine.engine_state import AuxEngineInfo, PhysicsState, PhysicsStateDer
+from flipper_training.configs.world_config import TerrainConfig
+from flipper_training.engine.engine_state import PhysicsState, PhysicsStateDer
 from flipper_training.utils.environment import interpolate_grid, surface_normals_from_grads
-from flipper_training.utils.geometry import q_to_R, rot_Y, normalized, rotate_vector_by_quaternion
+from flipper_training.utils.geometry import normalized, q_to_R, rot_Y, rotate_vector_by_quaternion
 from flipper_training.utils.numerical import integrate_quaternion
 
 
@@ -24,14 +24,14 @@ class DPhysicsEngine(torch.nn.Module):
         )
         self._I_3x3 = torch.eye(3, device=self.device, requires_grad=False).view(1, 1, 1, 3, 3)
 
-    def forward(self, state: PhysicsState, controls: torch.Tensor, world_config: WorldConfig) -> tuple[PhysicsState, PhysicsStateDer, AuxEngineInfo]:
+    def forward(self, state: PhysicsState, controls: torch.Tensor, world_config: TerrainConfig) -> tuple[PhysicsState, PhysicsStateDer]:
         """
         Forward pass of the physics engine.
         """
-        state_der, aux_info = self.forward_kinematics(state, controls, world_config)
-        return self.update_state(state, state_der), state_der, aux_info
+        state_der = self.forward_kinematics(state, controls, world_config)
+        return self.update_state(state, state_der), state_der
 
-    def forward_kinematics(self, state: PhysicsState, controls: torch.Tensor, world_config: WorldConfig) -> Tuple[PhysicsStateDer, AuxEngineInfo]:
+    def forward_kinematics(self, state: PhysicsState, controls: torch.Tensor, world_config: TerrainConfig) -> PhysicsStateDer:
         robot_points, global_thrust_vectors, global_cogs, inertia = self.assemble_and_transform_robot(state, controls)
 
         # find the contact points
@@ -71,20 +71,19 @@ class DPhysicsEngine(torch.nn.Module):
         # joint rotational velocities, shape (B, n_joints)
         thetas_d = self.compute_joint_angular_velocities(controls)
 
-        # next state derivative
-        next_state_der = PhysicsStateDer(xd=state.xd, xdd=xdd, omega_d=omega_d, thetas_d=thetas_d, batch_size=[self.config.num_robots])
-
-        # auxiliary information (e.g. for visualization)
-        aux_info = AuxEngineInfo(
-            F_spring=F_spring,
-            F_friction=F_friction,
+        # state derivative
+        state_der = PhysicsStateDer(
+            xdd=xdd,
+            omega_d=omega_d,
+            thetas_d=thetas_d,
+            f_spring=F_spring,
+            f_friction=F_friction,
             in_contact=in_contact,
             torque=torque,
-            global_robot_points=robot_points,
-            global_thrust_vectors=global_thrust_vectors,
+            thrust_vectors=global_thrust_vectors,
             batch_size=[self.config.num_robots],
         )
-        return next_state_der, aux_info
+        return state_der
 
     def calculate_spring_force(
         self,
@@ -92,7 +91,7 @@ class DPhysicsEngine(torch.nn.Module):
         xd_points: torch.Tensor,
         in_contact: torch.Tensor,
         n: torch.Tensor,
-        world_config: WorldConfig,
+        world_config: TerrainConfig,
     ) -> torch.Tensor:
         """
         Calculate the spring force acting on the robot points.
@@ -175,7 +174,7 @@ class DPhysicsEngine(torch.nn.Module):
     def find_contact_points(
         self,
         robot_points: torch.Tensor,
-        world_config: WorldConfig,
+        world_config: TerrainConfig,
     ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """
         Find the contact points on the robot.

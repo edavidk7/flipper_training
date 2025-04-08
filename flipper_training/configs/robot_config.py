@@ -66,6 +66,10 @@ class RobotModelConfig(BaseConfig):
             if isinstance(val, torch.Tensor):
                 val.requires_grad = False
 
+    @property
+    def n_pts(self) -> int:
+        return self.points_per_body + self.num_driving_parts * self.points_per_driving_part
+
     def load_robot_params_from_yaml(self) -> None:
         """
         Loads the robot parameters from a yaml file.
@@ -89,6 +93,7 @@ class RobotModelConfig(BaseConfig):
         self.driving_part_bboxes = torch.tensor(driving_parts["bbox"])
         self.driving_part_masses = torch.tensor(driving_parts["mass"])
         self.driving_part_pivot_signs = torch.tensor(driving_parts["pivot_sign"])
+        self.driving_part_names = driving_parts["name"]
         self.track_wheels = [TrackWheels.from_dict(wheel) for wheel in driving_parts["wheels"]]
         self.joint_positions = torch.tensor(driving_parts["joint_position"])
         self.joint_limits = torch.tensor(driving_parts["joint_limits"]).T  # transpose from shape (num_driving_parts, 2) to (2, num_driving_parts)

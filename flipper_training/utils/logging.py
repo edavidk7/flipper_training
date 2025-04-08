@@ -1,16 +1,40 @@
-from flipper_training import ROOT
-from queue import Queue
-from typing import Any
+import csv
+import logging
+import threading
+import time
 from dataclasses import dataclass, field
 from itertools import groupby
-import time
-import csv
+from queue import Queue
+from typing import Any
+from pathlib import Path
+
 import torch
+from omegaconf import DictConfig, OmegaConf
+
 import wandb
-from omegaconf import OmegaConf, DictConfig
-import threading
+from flipper_training import ROOT
 
 PROJECT = "flipper_training"
+
+
+def red(s):
+    return f"\033[91m{s}\033[00m"
+
+
+def green(s):
+    return f"\033[92m{s}\033[00m"
+
+
+def yellow(s):
+    return f"\033[93m{s}\033[00m"
+
+
+def blue(s):
+    return f"\033[94m{s}\033[00m"
+
+
+def bold_red(s):
+    return f"\033[31;1m{s}\033[00m"
 
 
 @dataclass
@@ -91,3 +115,74 @@ class RunLogger:
                 path=model_path,
                 name=name,
             )
+
+
+@dataclass
+class LocalRunReader:
+    source: str | Path
+
+    def __post_init__(self):
+        self.path = Path(self.source).resolve()
+        if not self.path.exists():
+            raise FileNotFoundError(self.path)
+        csvs = list(self.path.glob("*.csv"))
+        print(f"Found available logs: {', '.join(map(str, csvs))}")
+
+    def get_weights_path(self, name: str) -> Path:
+        return self.path / "weights" / f"{name}.pth"
+
+    def load_config(self) -> DictConfig:
+        return OmegaConf.load(self.path / "config.yaml")
+
+
+@dataclass
+class WandbRunReader:
+    run: str
+    category: str
+    default_weigths_path: Path = ROOT / "runs"
+
+    def __post_init__(self):
+        self.api = wandb.Api()
+        self.run = self.api.run(f"{PROJECT}/{self.run}")
+        self.history = self.run.scan_history()
+        self.weights_root = self.default_weigths_path / f"{self.category}/{self.run}/wandb_weights"
+
+    def get_weights_path(self, name: str) -> Path:
+        self.run.file(name).download(self.weights_root)
+        return self.weights_root / name
+
+    def load_config(self) -> DictConfig:
+        return OmegaConf.create(self.run.config)
+
+    def get_metric(self, name: str) -> list:
+        return [x[name] for x in self.history]
+
+
+def get_run_reader(source: str, category: str) -> LocalRunReader | WandbRunReader:
+    if source.startswith("wandb:"):
+        return WandbRunReader(source.split(":")[1], category)
+    return LocalRunReader(source)
+
+
+class ColoredFormatter(logging.Formatter):
+    base_fmt = "%(asctime)s [%(name)s][%(levelname)s]: %(message)s (%(filename)s:%(lineno)d)"
+
+    def __init__(self):
+        super().__init__()
+        self.formatters = {}
+        for fun, level in zip([blue, green, yellow, red, bold_red], [logging.DEBUG, logging.INFO, logging.WARNING, logging.ERROR, logging.CRITICAL]):
+            level_fmt = self.base_fmt.replace("%(levelname)s", fun("%(levelname)s"))
+            self.formatters[level] = logging.Formatter(level_fmt)
+
+    def format(self, record):
+        formatter = self.formatters.get(record.levelno)
+        return formatter.format(record)
+
+
+def get_terminal_logger(name: str) -> logging.Logger:
+    logger = logging.getLogger(name)
+    logger.setLevel(logging.DEBUG)
+    handler = logging.StreamHandler()
+    handler.setFormatter(ColoredFormatter())
+    logger.addHandler(handler)
+    return logger

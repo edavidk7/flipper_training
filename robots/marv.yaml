@@ -8,6 +8,7 @@ body:
 
 driving_parts: # each entry corresponds to a driving part in order left -> right, front -> back
   - mass: 5. # kg
+    name: "Front left flipper"
     joint_position: [0.2565, 0.25, 0.0] # considered the origin of the driving part, pivot point on the robot body
     joint_limits: [-1.57, 1.57] # minimum and maximum pivot angle
     max_pivot_vel: 1.0 # maximum pivot angular velocity
@@ -18,6 +19,7 @@ driving_parts: # each entry corresponds to a driving part in order left -> right
       position: [[0.2565, 0.25, 0.0], [0.558, 0.287, 0.]]
       rot_axis: [0., 1., 0.]
   - mass: 5. # kg
+    name: "Front right flipper"
     joint_position: [0.256, -0.25, 0.0]
     joint_limits: [-1.57, 1.57]
     max_pivot_vel: 1.0
@@ -28,6 +30,7 @@ driving_parts: # each entry corresponds to a driving part in order left -> right
       position: [[0.256, -0.25, 0.0], [0.558, -0.287, 0.]]
       rot_axis: [0., 1., 0.]
   - mass: 5. # kg
+    name: "Back left flipper"
     joint_position: [-0.256, 0.25, 0.0]
     joint_limits: [-1.57, 1.57]
     max_pivot_vel: 1.0
@@ -38,6 +41,7 @@ driving_parts: # each entry corresponds to a driving part in order left -> right
       position: [[-0.256, 0.25, 0.0], [-0.558, 0.287, 0.]]
       rot_axis: [0., 1., 0.]
   - mass: 5. # kg
+    name: "Back right flipper"
     joint_position: [-0.25666667, -0.25, 0.0]
     joint_limits: [-1.57, 1.57]
     max_pivot_vel: 1.0

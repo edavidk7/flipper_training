@@ -1,10 +1,13 @@
-import torch
-from .obs import Observation, PhysicsState
-from flipper_training.engine.engine_state import PhysicsStateDer, AuxEngineInfo
 from dataclasses import dataclass
-from flipper_training.utils.geometry import local_to_global_q, global_to_local_q
-from flipper_training.utils.environment import interpolate_grid
+
+import torch
 from torchrl.data import Unbounded
+
+from flipper_training.engine.engine_state import PhysicsState, PhysicsStateDer
+from flipper_training.utils.environment import interpolate_grid
+from flipper_training.utils.geometry import global_to_local_q, local_to_global_q
+
+from . import Observation
 
 
 @dataclass
@@ -37,7 +40,6 @@ class Pointcloud(Observation):
         action: torch.Tensor,
         state_der: PhysicsStateDer,
         curr_state: PhysicsState,
-        aux_info: AuxEngineInfo,
     ) -> torch.Tensor:
         global_percep_points = local_to_global_q(curr_state.x, curr_state.q, self.percep_grid_points)
         z = interpolate_grid(self.env.world_cfg.z_grid, global_percep_points[..., :2], self.env.world_cfg.max_coord)

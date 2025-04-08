@@ -5,7 +5,7 @@ from typing import Iterable, Any
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 from matplotlib.collections import LineCollection
-from flipper_training.configs import WorldConfig
+from flipper_training.configs import TerrainConfig
 from flipper_training.engine.engine_state import (
     PhysicsState,
     vectorize_iter_of_states,
@@ -168,7 +168,7 @@ def plot_heightmap_3d(x: torch.Tensor, y: torch.Tensor, z: torch.Tensor, **kwarg
 
 
 def plot_birdview_trajectory(
-    world_config: WorldConfig,
+    world_config: TerrainConfig,
     states: Iterable[PhysicsState],
     robot_idx: int = 0,
     iter_step: int = 30,
@@ -237,7 +237,7 @@ def plot_birdview_trajectory(
 
 
 def plot_3d_trajectory(
-    world_config: WorldConfig,
+    world_config: TerrainConfig,
     states: Iterable[PhysicsState],
     auxs: Iterable[AuxEngineInfo],
     robot_idx: int = 0,

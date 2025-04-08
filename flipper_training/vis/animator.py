@@ -1,12 +1,12 @@
 import time
 from typing import Iterable
 from flipper_training.engine.engine_state import PhysicsState, AuxEngineInfo, vectorize_iter_of_states
-from flipper_training.configs import WorldConfig, PhysicsEngineConfig
+from flipper_training.configs import TerrainConfig, PhysicsEngineConfig
 import mayavi.mlab as mlab
 
 
 def animate_trajectory(
-    world_config: WorldConfig,
+    world_config: TerrainConfig,
     engine_config: PhysicsEngineConfig,
     states: Iterable[PhysicsState],
     aux_info: Iterable[AuxEngineInfo],

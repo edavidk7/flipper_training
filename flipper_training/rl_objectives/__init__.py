@@ -3,7 +3,7 @@ from dataclasses import dataclass
 
 import torch
 
-from flipper_training.configs import PhysicsEngineConfig, RobotModelConfig, WorldConfig
+from flipper_training.configs import PhysicsEngineConfig, RobotModelConfig, TerrainConfig
 from flipper_training.engine.engine_state import PhysicsState
 
 
@@ -29,7 +29,7 @@ class BaseObjective(ABC):
     device: torch.device | str
     physics_config: PhysicsEngineConfig
     robot_model: RobotModelConfig
-    world_config: WorldConfig
+    world_config: TerrainConfig
     rng: torch.Generator
 
     @abstractmethod

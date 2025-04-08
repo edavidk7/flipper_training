@@ -8,7 +8,7 @@ from flipper_training.engine.engine import DPhysicsEngine
 from flipper_training.engine.engine_state import PhysicsState
 from flipper_training.utils.torch_utils import set_device
 from flipper_training.utils.environment import make_x_y_grids
-from flipper_training.configs import WorldConfig, PhysicsEngineConfig, RobotModelConfig
+from flipper_training.configs import TerrainConfig, PhysicsEngineConfig, RobotModelConfig
 import matplotlib
 import matplotlib.pyplot as plt
 
@@ -52,7 +52,7 @@ def main(args):
         x_grid = x_grid.to(device)
         y_grid = y_grid.to(device)
         z_grid = torch.zeros_like(x_grid)
-        world_config = WorldConfig(x_grid, y_grid, z_grid, grid_res, max_coord)
+        world_config = TerrainConfig(x_grid, y_grid, z_grid, grid_res, max_coord)
         physics_engine_config = PhysicsEngineConfig(B)
         state = PhysicsState.dummy(batch_size=B, robot_model=robot_model).to(device)
         engine = DPhysicsEngine(physics_engine_config, robot_model, device)

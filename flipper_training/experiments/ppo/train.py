@@ -1,16 +1,13 @@
 from typing import TYPE_CHECKING
 
 import torch
-from common import make_transformed_env, prepare_configs, prepare_data_collection
+from common import prepare_data_collection, prepare_env, make_policy
 from config import PPOExperimentConfig
-from torchrl.envs.utils import ExplorationType, check_env_specs, set_exploration_type
+from torchrl.envs.utils import ExplorationType, set_exploration_type
 from torchrl.objectives import ClipPPOLoss
 from torchrl.objectives.value import GAE
 from tqdm import tqdm
 
-from flipper_training.configs.experiment_config import make_partial_observations
-from flipper_training.environment.env import Env
-from flipper_training.policies import make_actor_value_policy
 from flipper_training.utils.logging import RunLogger
 
 if TYPE_CHECKING:
@@ -19,37 +16,8 @@ if TYPE_CHECKING:
 
 def main(train_omegaconf: "DictConfig"):
     train_config = PPOExperimentConfig(**train_omegaconf)
-    rng = torch.manual_seed(train_config.seed)
-    # Init configs and RL-related objects
-    world_config, physics_config, robot_model, device = prepare_configs(rng, train_config)
-    training_objective = train_config.objective(
-        device=device,
-        physics_config=physics_config,
-        robot_model=robot_model,
-        world_config=world_config,
-        rng=rng,
-        **train_config.objective_opts,
-    )
-    # Create environment
-    base_env = Env(
-        objective=training_objective,
-        reward=train_config.reward(**train_config.reward_opts),
-        observations=make_partial_observations(train_config.observations),
-        world_config=world_config,
-        physics_config=physics_config,
-        robot_model_config=robot_model,
-        device=device,
-        batch_size=[train_config.num_robots],
-        differentiable=False,
-        engine_compile_opts=train_config.engine_compile_opts,
-        out_dtype=train_config.training_dtype,
-    )
-    check_env_specs(base_env)
-    # Add some transformations to the environment
-    env = make_transformed_env(base_env, train_config)
-    # Create policy
-    actor_value_policy = make_actor_value_policy(env, **train_config.policy_opts)
-    actor_value_policy.to(device)
+    env, device, rng = prepare_env(train_config, mode="train")
+    actor_value_policy = make_policy(env, train_config, device)
     actor_value_policy.train()
     actor_operator = actor_value_policy.get_policy_operator()
     value_operator = actor_value_policy.get_value_operator()
@@ -88,6 +56,8 @@ def main(train_omegaconf: "DictConfig"):
     pbar = tqdm(total=train_config.total_frames)
     for i, tensordict_data in enumerate(collector):
         # collected (B, T, *specs) where B is the batch size and T the number of steps
+        tensordict_data.pop("physics_state")  # we don't need this
+        tensordict_data.pop(("next", "physics_state"))
         for _ in range(train_config.epochs_per_batch):
             advantage_module(tensordict_data)
             replay_buffer.extend(tensordict_data.reshape(-1))  # we can now safely flatten the data
@@ -104,29 +74,22 @@ def main(train_omegaconf: "DictConfig"):
 
         log = {
             "train/reward": tensordict_data["next", "reward"].mean().item(),
-            "train/step_count": tensordict_data["step_count"].max().item(),
             "train/lr": optim.param_groups[0]["lr"],
         }
 
         if not init_log:
             init_log |= log
 
-        train_str = (
-            f"train/reward: {log['train/reward']:.4f} "
-            f"(init: {init_log['train/reward']: .4f}), "
-            f"train/step_count: {log['train/step_count']} "
-            f"(init: {init_log['train/step_count']}), "
-            f"train/lr: {log['train/lr']:0.6f}"
-        )
+        train_str = f"train/reward: {log['train/reward']:.4f} (init: {init_log['train/reward']: .4f}), train/lr: {log['train/lr']:0.6f}"
 
         if i % train_config.evaluate_every == 0:
             actor_value_policy.eval()
+            env.set_truncation(False)
             with (
                 set_exploration_type(ExplorationType.DETERMINISTIC),
                 torch.no_grad(),
             ):
-                env.reset(reset_all=True)
-                eval_rollout = env.rollout(train_config.max_eval_steps, actor_operator)
+                eval_rollout = env.rollout(train_config.max_eval_steps, actor_operator, break_when_all_done=True, auto_reset=True)
 
                 eval_log = {
                     "eval/reward": eval_rollout["next", "reward"].mean().item(),
@@ -150,6 +113,7 @@ def main(train_omegaconf: "DictConfig"):
                 log.update(eval_log)
 
                 del eval_rollout
+            env.set_truncation(True)
             actor_value_policy.train()
 
         logger.log_data(log, total_collected_frames)
@@ -172,8 +136,10 @@ if __name__ == "__main__":
 
     parser = ArgumentParser()
     parser.add_argument("--config", type=str, required=True)
-    args = parser.parse_args()
-    train_omegaconf = OmegaConf.load(args.config)
+    args, unknown = parser.parse_known_args()
+    file_omegaconf = OmegaConf.load(args.config)
+    cli_omegaconf = OmegaConf.from_dotlist(unknown)
+    train_omegaconf = OmegaConf.merge(file_omegaconf, cli_omegaconf)
     if not isinstance(train_omegaconf, DictConfig):
         raise ValueError("Config must be a DictConfig")
     if train_omegaconf["type"].__name__ != PPOExperimentConfig.__name__:

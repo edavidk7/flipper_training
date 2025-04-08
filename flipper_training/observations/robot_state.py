@@ -3,18 +3,18 @@ from dataclasses import dataclass
 import torch
 from torchrl.data import Unbounded
 
-from flipper_training.engine.engine_state import AuxEngineInfo, PhysicsState, PhysicsStateDer
+from flipper_training.engine.engine_state import PhysicsState, PhysicsStateDer
 from flipper_training.utils.geometry import (
     inverse_quaternion,
     quaternion_to_euler,
     rotate_vector_by_quaternion,
 )
 
-from .obs import Observation
+from . import Observation
 
 
 @dataclass
-class RobotStateVector(Observation):
+class LocalStateVector(Observation):
     """
     Generates the observation vector for the robot state from kinematics and dynamics.
     """
@@ -25,15 +25,16 @@ class RobotStateVector(Observation):
         action: torch.Tensor,
         state_der: PhysicsStateDer,
         curr_state: PhysicsState,
-        aux_info: AuxEngineInfo,
     ) -> torch.Tensor:
         goal_vecs = self.env.goal.x - curr_state.x  # (n_robots, 3)
         goal_vecs_local = rotate_vector_by_quaternion(goal_vecs.unsqueeze(1), inverse_quaternion(curr_state.q)).squeeze(1)  # (n_robots, 3)
         rolls, pitches, _ = quaternion_to_euler(curr_state.q)
+        xd_local = rotate_vector_by_quaternion(curr_state.xd.unsqueeze(1), inverse_quaternion(curr_state.q)).squeeze(1)
+        omega_local = rotate_vector_by_quaternion(curr_state.omega.unsqueeze(1), inverse_quaternion(curr_state.q)).squeeze(1)
         return torch.cat(
             [
-                curr_state.xd,
-                curr_state.omega,
+                xd_local,
+                omega_local,
                 curr_state.thetas,
                 rolls.unsqueeze(-1),
                 pitches.unsqueeze(-1),

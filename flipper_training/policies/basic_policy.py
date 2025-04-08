@@ -1,5 +1,6 @@
 import torch
 from flipper_training.environment.env import Env
+from pathlib import Path
 from tensordict.nn import TensorDictModule
 from torchrl.modules import NormalParamExtractor, ProbabilisticActor, TanhNormal, ValueOperator, ActorValueOperator
 
@@ -118,13 +119,10 @@ def make_actor_value_policy(
     hidden_dim: int,
     actor_mlp_layers: int,
     value_mlp_layers: int,
+    weights_path: str | Path | None = None,
 ) -> ActorValueOperator:
     encoder = PolicyObservationEncoder(env.observation_spec, hidden_dim).to(env.out_dtype)
-    encoder_module = TensorDictModule(encoder,
-        in_keys={
-            k: k for k in env.observation_spec.keys()
-        },
-        out_keys=["y_shared"])
+    encoder_module = TensorDictModule(encoder, in_keys={k: k for k in env.observation_spec.keys()}, out_keys=["y_shared"])
     actor = ActorPolicy(hidden_dim, env.action_spec, actor_mlp_layers).to(env.out_dtype)
     actor_td = TensorDictModule(actor, in_keys=["y_shared"], out_keys=["loc", "scale"])
     actor_module = ProbabilisticActor(
@@ -141,4 +139,6 @@ def make_actor_value_policy(
     value = ValueFunction(hidden_dim, value_mlp_layers).to(env.out_dtype)
     value_module = ValueOperator(value, in_keys=["y_shared"])
     actor_value = ActorValueOperator(encoder_module, actor_module, value_module)
+    if weights_path is not None:
+        actor_value.load_state_dict(torch.load(weights_path, map_location="cpu"))
     return actor_value

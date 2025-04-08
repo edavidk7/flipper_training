@@ -1,10 +1,13 @@
-import torch
-from flipper_training.engine.engine_state import PhysicsState, AuxEngineInfo, PhysicsStateDer
-from flipper_training.utils.geometry import local_to_global_q
-from .obs import Observation
 from dataclasses import dataclass
-from flipper_training.utils.environment import interpolate_grid
+
+import torch
 from torchrl.data import Unbounded
+
+from flipper_training.engine.engine_state import PhysicsState, PhysicsStateDer
+from flipper_training.utils.environment import interpolate_grid
+from flipper_training.utils.geometry import local_to_global_q
+
+from .obs import Observation
 
 
 @dataclass
@@ -37,7 +40,6 @@ class Heightmap(Observation):
         action: torch.Tensor,
         state_der: PhysicsStateDer,
         curr_state: PhysicsState,
-        aux_info: AuxEngineInfo,
     ) -> torch.Tensor:
         global_percep_points = local_to_global_q(curr_state.x, curr_state.q, self.percep_grid_points)
         z_coords = interpolate_grid(self.env.world_cfg.z_grid, global_percep_points[..., :2], self.env.world_cfg.max_coord)

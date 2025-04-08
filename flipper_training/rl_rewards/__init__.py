@@ -1,8 +1,10 @@
-import torch
+from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
-from flipper_training.engine.engine_state import PhysicsState, AuxEngineInfo, PhysicsStateDer
-from abc import ABC, abstractmethod
+
+import torch
+
+from flipper_training.engine.engine_state import PhysicsState, PhysicsStateDer
 
 if TYPE_CHECKING:
     from flipper_training.environment.env import Env
@@ -21,7 +23,6 @@ class Reward(ABC):
         action: torch.Tensor,
         state_der: PhysicsStateDer,
         curr_state: PhysicsState,
-        aux_info: AuxEngineInfo,
         success: torch.BoolTensor,
         fail: torch.BoolTensor,
         env: "Env",
@@ -34,7 +35,6 @@ class Reward(ABC):
             action (torch.Tensor): The action taken in the environment.
             state_der (PhysicsStateDer): The state derivative of the environment.
             curr_state (PhysicsState): The current state of the environment.
-            aux_info (AuxEngineInfo): The auxiliary information from the engine.
             success (torch.BoolTensor): The success tensor.
             fail (torch.BoolTensor): The fail tensor.
             env (Env): The environment.

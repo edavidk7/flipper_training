@@ -1,4 +1,5 @@
 import math
+import hashlib
 from ast import literal_eval
 from dataclasses import dataclass
 from functools import partial
@@ -11,7 +12,7 @@ from omegaconf import OmegaConf
 if TYPE_CHECKING:
     from torch.optim import Optimizer
     from torch.optim.lr_scheduler import LRScheduler
-
+    from omegaconf import DictConfig
     from flipper_training.observations import Observation
     from flipper_training.rl_objectives import BaseObjective
     from flipper_training.rl_rewards.rewards import Reward
@@ -40,6 +41,12 @@ class ObservationConfig(TypedDict):
 
 def make_partial_observations(observations: Dict[str, ObservationConfig]):
     return {k: partial(v["observation"], **v["opts"]) for k, v in observations.items()}
+
+
+def hash_omegaconf(omegaconf: "DictConfig") -> str:
+    """Hashes the omegaconf config to a string."""
+    s = OmegaConf.to_yaml(omegaconf, sort_keys=True)
+    return hashlib.sha256(s.encode()).hexdigest()
 
 
 @dataclass

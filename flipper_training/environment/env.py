@@ -2,21 +2,19 @@ import time
 from typing import TYPE_CHECKING, Callable
 
 import torch
-import logging
-from flipper_training.configs import PhysicsEngineConfig, RobotModelConfig, WorldConfig
-from flipper_training.engine.engine import DPhysicsEngine
-from flipper_training.engine.engine_state import AuxEngineInfo, PhysicsState, PhysicsStateDer
-from flipper_training.rl_objectives import BaseObjective
-from flipper_training.rl_rewards.rewards import Reward
-from flipper_training.vis.static_vis import plot_heightmap_3d
 from tensordict import TensorDict, assert_allclose_td
 from torchrl.data import Bounded, Composite, Unbounded
-from torchrl.envs import EnvBase
+from torchrl.envs import EnvBase, make_composite_from_td
+
+from flipper_training.configs import PhysicsEngineConfig, RobotModelConfig, TerrainConfig
+from flipper_training.engine.engine import DPhysicsEngine
+from flipper_training.engine.engine_state import PhysicsState, PhysicsStateDer
+from flipper_training.rl_objectives import BaseObjective
+from flipper_training.rl_rewards.rewards import Reward
+from flipper_training.utils.logging import get_terminal_logger
 
 if TYPE_CHECKING:
     from flipper_training.observations import Observation
-
-DEFAULT_SEED = 0
 
 
 class Env(EnvBase):
@@ -30,37 +28,35 @@ class Env(EnvBase):
             str,
             Callable[["Env"], "Observation"],
         ],
-        world_config: WorldConfig,
+        terrain_config: TerrainConfig,
         physics_config: PhysicsEngineConfig,
         robot_model_config: RobotModelConfig,
         device: torch.device | str = "cpu",
         out_dtype: torch.dtype = torch.float32,
         differentiable: bool = False,
         engine_compile_opts: dict | None = None,
+        return_derivative: bool = False,
         **kwargs,
     ):
         super().__init__(device=device, **kwargs)
         # Misc
-        self._set_seed(kwargs.get("seed", None))
         self.n_robots = self.batch_size[0]
         self.differentiable = differentiable
         self.out_dtype = out_dtype
+        self.logger = get_terminal_logger("environment")
+        self.return_derivative = return_derivative
+        self.truncate = True
         # Physics configs
         self.phys_cfg = physics_config.to(device)
         self.robot_cfg = robot_model_config.to(device)
-        self.world_cfg = world_config.to(device)
+        self.terrain_cfg = terrain_config.to(device)
         # Engine
         self.engine = DPhysicsEngine(physics_config, robot_model_config, device)
-        # Engine state variables
-        self.state: PhysicsState | None = None
-        self.last_step_aux_info: AuxEngineInfo | None = None
-        self.last_step_der: PhysicsStateDer | None = None
         # RL components
         self.observations = {k: o(self) for k, o in observations.items()}
         self.objective = objective
         self.reward = reward
         # RL State variables
-        self.done = torch.ones((self.n_robots,), device=self.device, dtype=torch.bool)
         self.step_count = torch.zeros((self.n_robots,), device=self.device, dtype=torch.int32)
         self.iteration_limits = torch.zeros((self.n_robots,), device=self.device, dtype=torch.int32)
         self.start = PhysicsState.dummy(batch_size=self.n_robots, robot_model=robot_model_config, device=self.device)
@@ -73,43 +69,50 @@ class Env(EnvBase):
         # Reset the environment
         if engine_compile_opts is not None:
             self._compile_engine(**engine_compile_opts)
-        self.reset(reset_all=True)
+        self.reset()
+        self.train()
 
-    def _compile_engine(self, correctness_iters: int = 100, benchmark_iters: int = 1000, atol: float = 1e-3, rtol: float = 1e-3, **kwargs) -> None:
-        logging.info(f"Environment: Compiling engine with options {kwargs}")
+    def set_truncation(self, val: bool):
+        self.truncate = val
+
+    def _compile_engine(
+        self,
+        correctness_iters: int = 100,
+        benchmark_iters: int = 1000,
+        atol: float = 1e-3,
+        rtol: float = 1e-3,
+        **kwargs,
+    ) -> None:
+        self.logger.info(f"Environment: Compiling engine with options {kwargs}")
         act = self.action_spec.rand()
         state = self.start.clone()  # Dummy state
         # Capture the return tensors from the engine for correctness
-        states, state_ders, aux_infos = [], [], []
+        states, state_ders = [], []
         for _ in range(correctness_iters):
-            state, state_der, aux_info = self.engine(state, act, self.world_cfg)
+            state, state_der = self.engine(state, act, self.terrain_cfg)
             states.append(state)
             state_ders.append(state_der)
-            aux_infos.append(aux_info)
         # Compile the engine
         self.engine = torch.compile(self.engine, options=kwargs)
-        self.engine(state, act, self.world_cfg)  # Dummy forward pass to compile the engine, record the return tensors
+        self.engine(state, act, self.terrain_cfg)  # Dummy forward pass to compile the engine, record the return tensors
         state = self.start.clone()  # Reset the state
-        logging.info(f"Engine compiled successfully, testing correctness with {atol=}, {rtol=}")
+        self.logger.info(f"Engine compiled successfully, testing correctness with {atol=}, {rtol=}")
         for _ in range(correctness_iters):
-            next_state, state_der, aux_info = self.engine(state, act, self.world_cfg)
+            next_state, state_der = self.engine(state, act, self.terrain_cfg)
             # Check correctness
             assert_allclose_td(next_state, states.pop(0), atol=atol, rtol=rtol, msg="compiled engine produced incorrect state")
             assert_allclose_td(state_der, state_ders.pop(0), atol=atol, rtol=rtol, msg="compiled engine produced incorrect state der")
-            assert_allclose_td(aux_info, aux_infos.pop(0), atol=atol, rtol=rtol, msg="compiled engine produced incorrect aux info")
             state = next_state.clone()
-        logging.info("Compiled engine passed correctness test")
+        self.logger.info("Compiled engine passed correctness test")
         # Benchmark the compiled engine
         start_time = time.perf_counter_ns()
         for _ in range(benchmark_iters):
-            _ = self.engine(state, act, self.world_cfg)
+            _ = self.engine(state, act, self.terrain_cfg)
         end_time = time.perf_counter_ns()
-        logging.info(f"Compiled engine takes {((end_time - start_time) / benchmark_iters) / 1e6} ms per step")
+        self.logger.info(f"Compiled engine takes {((end_time - start_time) / benchmark_iters) / 1e6} ms per step")
 
     def _set_seed(self, seed: int | None):
-        rng = torch.Generator(device=self.device)
-        rng.manual_seed(seed or DEFAULT_SEED)
-        self.rng = rng
+        self.logger.warning(f"This environment is not seedable, ignoring seed {seed}, please set the default generator seed")
 
     def _make_action_spec(self) -> Composite:
         track_low = torch.full(
@@ -129,8 +132,16 @@ class Env(EnvBase):
         )
 
     def _make_observation_spec(self) -> Composite:
+        obs_specs = {k: obs.get_spec() for k, obs in self.observations.items()}
+        state_spec = {"physics_state": make_composite_from_td(self.start)}
+        if self.return_derivative:
+            der_spec = {
+                "physics_state_der": make_composite_from_td(PhysicsStateDer.dummy(self.robot_cfg, device=self.device, batch_size=self.n_robots))
+            }
+        else:
+            der_spec = {}
         return Composite(
-            {k: obs.get_spec() for k, obs in self.observations.items()},
+            obs_specs | state_spec | der_spec,  # Include the physics state in the observation spec
             device=self.device,
             shape=(self.n_robots,),
         )
@@ -152,7 +163,6 @@ class Env(EnvBase):
         )
         return Composite(
             {
-                "done": bool_spec,
                 "truncated": bool_spec,
                 "terminated": bool_spec,
             },
@@ -166,89 +176,61 @@ class Env(EnvBase):
         action: torch.Tensor,
         state_der: PhysicsStateDer,
         curr_state: PhysicsState,
-        aux_info: AuxEngineInfo,
     ) -> TensorDict:
-        return TensorDict(
-            {k: obs(prev_state, action, state_der, curr_state, aux_info) for k, obs in self.observations.items()},
+        obs_td = TensorDict(
+            {k: obs(prev_state, action, state_der, curr_state) for k, obs in self.observations.items()},
             device=self.device,
             batch_size=[self.n_robots],
         )
+        obs_td["physics_state"] = curr_state.to_tensordict()
+        if self.return_derivative:
+            obs_td["physics_state_der"] = state_der.to_tensordict()
+        return obs_td
 
-    def visualize_curr_state(self):
-        """
-        Visualize the current state of the environment
-        """
-        for i in range(self.n_robots):
-            plot_heightmap_3d(
-                self.world_cfg.x_grid[i],
-                self.world_cfg.y_grid[i],
-                self.world_cfg.z_grid[i],
-                start=self.start.x[i],
-                end=self.goal.x[i],
-                robot_points=self.last_step_aux_info.global_robot_points[i],
-            ).show()
-
-    def _step_engine(self, action: torch.Tensor) -> tuple[PhysicsState, PhysicsStateDer, AuxEngineInfo, PhysicsState]:
-        prev_state = self.state.clone()
-        action = action.to(self.device)
+    def _step_engine(self, prev_state: PhysicsState, action: torch.Tensor) -> tuple[PhysicsStateDer, PhysicsState]:
         if self.differentiable:
-            next_state, state_der, aux_info = self.engine(prev_state, action, self.world_cfg)
+            next_state, state_der = self.engine(prev_state, action, self.terrain_cfg)
         else:
             with torch.no_grad():
-                next_state, state_der, aux_info = self.engine(prev_state, action, self.world_cfg)
-        return prev_state, state_der.clone(), aux_info.clone(), next_state.clone()
+                next_state, state_der = self.engine(prev_state, action, self.terrain_cfg)
+        return state_der.clone(), next_state.clone()
 
     def _reset(self, tensordict=None, **kwargs) -> TensorDict:
         # Generate start and goal states, iteration limits for done/terminated robots
         new_start, new_goal, new_iteration_limits = self.objective.generate_start_goal_states()
         # Update the state variables for the done robots
-        reset_mask = self.done | kwargs.get("reset_all", False)
+        if tensordict is not None and "_reset" in tensordict:
+            reset_mask = tensordict["_reset"].squeeze(-1)
+        else:
+            reset_mask = torch.full((self.n_robots,), True, device=self.device, dtype=torch.bool)
         self.start[reset_mask] = new_start[reset_mask]
         self.goal[reset_mask] = new_goal[reset_mask]
         self.iteration_limits[reset_mask] = new_iteration_limits[reset_mask]
-        self.done[reset_mask] = False
         self.step_count[reset_mask] = 0
-        # Reset the environment
-        if self.state is None:
-            self.state = self.start.clone()
+        # Take a dummy step to get the first observation
+        if tensordict is not None and "physics_state" in tensordict:
+            prev_state = PhysicsState(**tensordict.get("physics_state"))
         else:
-            self.state[reset_mask] = self.start[reset_mask].clone()
-        # Step the engine to get the first observation
+            prev_state = self.start.clone()
         zeros_action = self.action_spec.zeros()
-        prev_state, state_der, aux_info, next_state = self._step_engine(zeros_action)
-        # Set the state variables for reset robots
-        self.state[reset_mask] = next_state[reset_mask].clone()  # Update the state for the reset robots
-        # Update the last step aux info and state der for the reset robots
-        if self.last_step_aux_info is None:
-            self.last_step_aux_info = aux_info
-        else:
-            self.last_step_aux_info[reset_mask] = aux_info[reset_mask]
-        if self.last_step_der is None:
-            self.last_step_der = state_der
-        else:
-            self.last_step_der[reset_mask] = state_der[reset_mask]
+        state_der, next_state = self._step_engine(prev_state, zeros_action)
         # Output tensordict
-        obs_td = self._get_observations(prev_state, zeros_action, state_der, next_state, aux_info)
-        obs_td["action"] = zeros_action
+        obs_td = self._get_observations(prev_state, zeros_action, state_der, next_state)
         return obs_td
 
     def _step(self, tensordict) -> TensorDict:
         action = tensordict.get("action").to(self.device)
+        prev_state = PhysicsState.from_tensordict(tensordict.get("physics_state"))
         # Step the engine
-        prev_state, state_der, aux_info, next_state = self._step_engine(action)
-        self.state = next_state
-        self.last_step_aux_info = aux_info
-        self.last_step_der = state_der
+        state_der, next_state = self._step_engine(prev_state, action)
         # Check if the robots have reached the goal or terminated
-        reached_goal = self.objective.check_reached_goal(self.state, self.goal)
-        failed = self.objective.check_terminated_wrong(self.state, self.goal)
+        reached_goal = self.objective.check_reached_goal(next_state, self.goal)
+        failed = self.objective.check_terminated_wrong(next_state, self.goal)
         truncated = self.step_count >= self.iteration_limits
         # Output tensordict
-        obs_td = self._get_observations(prev_state, action, state_der, next_state, aux_info)
+        obs_td = self._get_observations(prev_state, action, state_der, next_state)
         obs_td["terminated"] = failed | reached_goal
-        obs_td["truncated"] = truncated
-        obs_td["done"] = failed | reached_goal | truncated
-        obs_td["reward"] = self.reward(prev_state, action, state_der, next_state, aux_info, reached_goal, failed, self)
+        obs_td["truncated"] = truncated * self.truncate
+        obs_td["reward"] = self.reward(prev_state, action, state_der, next_state, reached_goal, failed, self)
         self.step_count += 1
-        self.done |= obs_td["done"]
         return obs_td
