@@ -510,4 +510,3 @@ torch_compile*
 runs/*
 runs
 wandb
-test_configs
