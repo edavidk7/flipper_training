@@ -85,14 +85,13 @@ class RobotModelConfig(BaseConfig):
             canonical = yaml.dump(robot_params, sort_keys=True)  # ensure consistent order
         self.yaml_hash = hashlib.sha256(canonical.encode()).hexdigest()
         self.v_max = robot_params["v_max"]
-        self.driving_direction = torch.tensor(robot_params["forward_direction"])
+        self.driving_direction = torch.tensor([1.0, 0.0, 0.0])
         self.body_mass = robot_params["body"]["mass"]
         self.body_bbox = torch.tensor(robot_params["body"]["bbox"]) if "bbox" in robot_params["body"] else None
         self.num_driving_parts = len(robot_params["driving_parts"])
         driving_parts = list_of_dicts_to_dict_of_lists(robot_params["driving_parts"])
         self.driving_part_bboxes = torch.tensor(driving_parts["bbox"])
         self.driving_part_masses = torch.tensor(driving_parts["mass"])
-        self.driving_part_pivot_signs = torch.tensor(driving_parts["pivot_sign"])
         self.driving_part_names = driving_parts["name"]
         self.track_wheels = [TrackWheels.from_dict(wheel) for wheel in driving_parts["wheels"]]
         self.joint_positions = torch.tensor(driving_parts["joint_position"])
@@ -111,7 +110,15 @@ class RobotModelConfig(BaseConfig):
 
     @property
     def _descr_str(self) -> str:
-        return f"{self.kind}_{self.mesh_voxel_size:.3f}_dp{self.points_per_driving_part}b_{self.points_per_body}_whl{self.wheel_assignment_margin}_trck{self.linear_track_assignment_margin}_{self.yaml_hash}"
+        return f"""
+    {self.kind}
+    _vx{self.mesh_voxel_size:.3f}
+    _dp{self.points_per_driving_part}
+    _b{self.points_per_body}
+    _whl{self.wheel_assignment_margin}
+    _trck{self.linear_track_assignment_margin}
+    _{self.yaml_hash}
+    """
 
     def vw_to_vels(self, v: float | torch.Tensor, w: float | torch.Tensor) -> torch.Tensor:
         """

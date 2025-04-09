@@ -7,16 +7,31 @@ from torchrl.envs.utils import ExplorationType, set_exploration_type
 from torchrl.objectives import ClipPPOLoss
 from torchrl.objectives.value import GAE
 from tqdm import tqdm
-
+from torchrl.envs import (
+    Compose,
+    VecNorm,
+    StepCounter,
+    TransformedEnv,
+)
+from flipper_training.environment.env import Env
 from flipper_training.utils.logging import RunLogger
 
 if TYPE_CHECKING:
     from omegaconf import DictConfig
 
 
+def make_normed_env(env: "Env", train_config: "PPOExperimentConfig") -> TransformedEnv:
+    transforms = Compose(
+        StepCounter(),
+        VecNorm(in_keys=list(train_config.observations.keys()) + ["reward"], **train_config.vecnorm_opts),
+    )
+    return TransformedEnv(env, transforms)
+
+
 def main(train_omegaconf: "DictConfig"):
     train_config = PPOExperimentConfig(**train_omegaconf)
     env, device, rng = prepare_env(train_config, mode="train")
+    env = make_normed_env(env, train_config)
     actor_value_policy = make_policy(env, train_config, device)
     actor_value_policy.train()
     actor_operator = actor_value_policy.get_policy_operator()
@@ -56,8 +71,10 @@ def main(train_omegaconf: "DictConfig"):
     pbar = tqdm(total=train_config.total_frames)
     for i, tensordict_data in enumerate(collector):
         # collected (B, T, *specs) where B is the batch size and T the number of steps
-        tensordict_data.pop("physics_state")  # we don't need this
-        tensordict_data.pop(("next", "physics_state"))
+        tensordict_data.pop(Env.STATE_KEY)  # we don't need this
+        tensordict_data.pop(("next", Env.STATE_KEY))  # we don't need this
+        actor_value_policy.train()
+        env.train()
         for _ in range(train_config.epochs_per_batch):
             advantage_module(tensordict_data)
             replay_buffer.extend(tensordict_data.reshape(-1))  # we can now safely flatten the data
@@ -84,7 +101,7 @@ def main(train_omegaconf: "DictConfig"):
 
         if i % train_config.evaluate_every == 0:
             actor_value_policy.eval()
-            env.set_truncation(False)
+            env.eval()
             with (
                 set_exploration_type(ExplorationType.DETERMINISTIC),
                 torch.no_grad(),
@@ -102,6 +119,7 @@ def main(train_omegaconf: "DictConfig"):
                 if eval_log["eval/reward"] > best_reward:
                     best_reward = eval_log["eval/reward"]
                     logger.save_weights(actor_value_policy.state_dict(), "best")
+                    logger.save_weights(env.transform[-1].state_dict(), "vecnorm_best")
 
                 eval_str = (
                     f"eval/reward: {eval_log['eval/reward']:.4f} "
@@ -113,13 +131,12 @@ def main(train_omegaconf: "DictConfig"):
                 log.update(eval_log)
 
                 del eval_rollout
-            env.set_truncation(True)
-            actor_value_policy.train()
 
         logger.log_data(log, total_collected_frames)
 
         if i % train_config.save_weights_every == 0:
             logger.save_weights(actor_value_policy.state_dict(), f"weights_{total_collected_frames}")
+            logger.save_weights(env.transform[-1].state_dict(), f"vecnorm_weights_{total_collected_frames}")
 
         pbar.set_description(", ".join([eval_str, train_str]))
         pbar.update(train_config.frames_per_batch * train_config.num_robots)

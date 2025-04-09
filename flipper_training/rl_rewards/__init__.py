@@ -21,7 +21,7 @@ class Reward(ABC):
         self,
         prev_state: PhysicsState,
         action: torch.Tensor,
-        state_der: PhysicsStateDer,
+        prev_state_der: PhysicsStateDer,
         curr_state: PhysicsState,
         success: torch.BoolTensor,
         fail: torch.BoolTensor,
@@ -33,7 +33,7 @@ class Reward(ABC):
         Args:
             prev_state (PhysicsState): The previous state of the environment.
             action (torch.Tensor): The action taken in the environment.
-            state_der (PhysicsStateDer): The state derivative of the environment.
+            prev_state_der (PhysicsStateDer): The state derivative of the environment.
             curr_state (PhysicsState): The current state of the environment.
             success (torch.BoolTensor): The success tensor.
             fail (torch.BoolTensor): The fail tensor.

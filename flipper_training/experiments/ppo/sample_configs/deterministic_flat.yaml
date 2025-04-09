@@ -6,7 +6,7 @@ seed: 42
 use_wandb: true
 max_eval_steps: 1000
 device: cuda:0
-num_robots: 256
+num_robots: 16
 save_weights_every: 10
 grid_res: 0.05
 max_coord: 3.2
@@ -14,8 +14,8 @@ norm_init_iters: 5000
 robot_model_opts:
   kind: marv
   mesh_voxel_size: 0.01
-  points_per_driving_part: 384
-  points_per_body: 512
+  points_per_driving_part: 192
+  points_per_body: 256
   wheel_assignment_margin: 0.02
   linear_track_assignment_margin: 0.05
 optimizer: ${cls:torch.optim.AdamW}
@@ -23,8 +23,8 @@ optimizer_opts:
   lr: 3e-4
   amsgrad: true
 scheduler: ${cls:torch.optim.lr_scheduler.StepLR}
-total_frames: ${mul:5242880,10}
-frames_per_batch: 128
+total_frames: ${mul:5242880,2}
+frames_per_batch: 64
 scheduler_opts:
   step_size: ${intdiv:${intdiv:${total_frames},${mul:${frames_per_batch},${num_robots}}},2}
   gamma: 0.5

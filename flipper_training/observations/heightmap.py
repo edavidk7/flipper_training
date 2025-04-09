@@ -38,7 +38,7 @@ class Heightmap(Observation):
         self,
         prev_state: PhysicsState,
         action: torch.Tensor,
-        state_der: PhysicsStateDer,
+        prev_state_der: PhysicsStateDer,
         curr_state: PhysicsState,
     ) -> torch.Tensor:
         global_percep_points = local_to_global_q(curr_state.x, curr_state.q, self.percep_grid_points)

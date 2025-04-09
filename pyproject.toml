@@ -19,7 +19,7 @@ dependencies = [
     "plotly",
     "plotly_express",
     "omegaconf",
-    "simview"
+    "simview @ git+https://github.com/aleskucera/simview.git",
 ]
 
 

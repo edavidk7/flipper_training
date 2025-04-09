@@ -96,7 +96,7 @@ def physics_state_to_simview_body_states(
     driving_part_contacts = driving_part_contacts.view(-1, robot_config.num_driving_parts, robot_config.points_per_driving_part)
     rot_y_vec = torch.tensor([[0.0, 1.0, 0.0]], device=physics_state.x.device)  # shape (1,3)
     for i in range(robot_config.num_driving_parts):
-        theta = physics_state.thetas[..., i] * robot_config.driving_part_pivot_signs[i]
+        theta = physics_state.thetas[..., i]
         theta_d = physics_state_der.thetas_d[..., i]
         q_local = euler_to_quaternion(torch.zeros_like(theta), theta, torch.zeros_like(theta))
         t_local = robot_config.joint_positions[i].unsqueeze(0)

@@ -219,8 +219,9 @@ class DPhysicsEngine(torch.nn.Module):
         self, state: PhysicsState, controls: torch.Tensor
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         # 1.  Prepare joint rotations and construct the driving parts in the robot's local frame
-        thetas = state.thetas * self.robot_model.driving_part_pivot_signs.view(1, -1)  # shape (B, n_joints)
-        rots = rot_Y(thetas.view(-1, 1)).view(self.config.num_robots, self.robot_model.num_driving_parts, 1, 3, 3)  # shape (B, n_joints, 1, 3, 3)
+        rots = rot_Y(state.thetas.view(-1, 1)).view(
+            self.config.num_robots, self.robot_model.num_driving_parts, 1, 3, 3
+        )  # shape (B, n_joints, 1, 3, 3)
         # All of these are expressed in the robot's local frame.
         # The joint points are first rotated in their own frame and then translated to the robot's frame.
         rot_driving_part_pts = torch.matmul(

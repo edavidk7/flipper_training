@@ -11,4 +11,4 @@ class FlatHeightmapGenerator(BaseHeightmapGenerator):
     """
 
     def _generate_heightmap(self, x, y, max_coord, rng=None):
-        return torch.zeros_like(x), {}
+        return torch.zeros_like(x), {"suitable_mask": torch.ones_like(x, dtype=torch.bool)}

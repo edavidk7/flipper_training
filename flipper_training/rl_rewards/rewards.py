@@ -16,7 +16,8 @@ __all__ = ["RollPitchGoal", "Goal"]
 class RollPitchGoal(Reward):
     """
     Reward function for the environment.
-    Robot is rewarded for minimizing the roll and pitch angles and for moving towards the goal position, penalized for moving away from the goal position.
+    Robot is rewarded for minimizing the roll and pitch angles and for moving towards the goal position,
+    penalized for moving away from the goal position.
     """
 
     goal_reached_reward: float
@@ -28,7 +29,7 @@ class RollPitchGoal(Reward):
         self,
         prev_state: PhysicsState,
         action: torch.Tensor,
-        state_der: PhysicsStateDer,
+        prev_state_der: PhysicsStateDer,
         curr_state: PhysicsState,
         success: torch.BoolTensor,
         fail: torch.BoolTensor,
@@ -55,7 +56,7 @@ class Goal(Reward):
         self,
         prev_state: PhysicsState,
         action: torch.Tensor,
-        state_der: PhysicsStateDer,
+        prev_state_der: PhysicsStateDer,
         curr_state: PhysicsState,
         success: torch.BoolTensor,
         fail: torch.BoolTensor,

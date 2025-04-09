@@ -1,6 +1,7 @@
 import math
 import hashlib
 from ast import literal_eval
+from abc import ABC
 from dataclasses import dataclass
 from functools import partial
 from importlib import import_module
@@ -49,8 +50,8 @@ def hash_omegaconf(omegaconf: "DictConfig") -> str:
     return hashlib.sha256(s.encode()).hexdigest()
 
 
-@dataclass
-class BaseExperimentConfig:
+@dataclass(kw_only=True)
+class BaseExperimentConfig(ABC):
     type: "Type[BaseExperimentConfig]"
     name: str
     comment: str
@@ -72,7 +73,7 @@ class BaseExperimentConfig:
     heightmap_gen: "Type[BaseHeightmapGenerator]"
     heightmap_gen_opts: dict[str, Any]
     world_opts: dict[str, float]
-    engine_compile_opts: dict[str, Any] | None
+    engine_compile_opts: dict[str, Any] | None = None
     engine_opts: dict[str, Any]
     observations: Dict[str, ObservationConfig]
     objective: "Type[BaseObjective]"

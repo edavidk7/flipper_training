@@ -25,15 +25,15 @@ class Observation(ABC):
 
     @abstractmethod
     def __call__(
-        self, prev_state: PhysicsState, action: torch.Tensor, state_der: PhysicsStateDer, curr_state: PhysicsState
+        self, prev_state: PhysicsState, action: torch.Tensor, prev_state_der: PhysicsStateDer, curr_state: PhysicsState
     ) -> torch.Tensor | TensorDict:
         """
         Generate observations from the current state of the environment.
 
         Args:
             prev_state (PhysicsState): The previous state of the environment.
-            action (torch.Tensor): The action taken in the environment.
-            state_der (PhysicsStateDer): The state derivative of the environment.
+            action (torch.Tensor): The action taken in previous state.
+            prev_state_der (PhysicsStateDer): The derivative of the previous state.
             curr_state (PhysicsState): The current state of the environment.
 
         Returns:

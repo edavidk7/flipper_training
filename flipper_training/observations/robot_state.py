@@ -23,7 +23,7 @@ class LocalStateVector(Observation):
         self,
         prev_state: PhysicsState,
         action: torch.Tensor,
-        state_der: PhysicsStateDer,
+        prev_state_der: PhysicsStateDer,
         curr_state: PhysicsState,
     ) -> torch.Tensor:
         goal_vecs = self.env.goal.x - curr_state.x  # (n_robots, 3)

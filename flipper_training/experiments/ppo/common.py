@@ -3,12 +3,6 @@ from typing import TYPE_CHECKING, Literal, Tuple
 import torch
 from torchrl.collectors import SyncDataCollector
 from torchrl.data import LazyTensorStorage, SamplerWithoutReplacement, TensorDictReplayBuffer
-from torchrl.envs import (
-    Compose,
-    ObservationNorm,
-    StepCounter,
-    TransformedEnv,
-)
 from torchrl.envs.utils import check_env_specs
 
 from flipper_training.configs import PhysicsEngineConfig, RobotModelConfig, TerrainConfig
@@ -41,21 +35,6 @@ def prepare_configs(rng: torch.Generator, cfg: "PPOExperimentConfig") -> Tuple[T
     world_config.to(device)
     physics_config.to(device)
     return world_config, physics_config, robot_model, device
-
-
-def make_transformed_env(env: "Env", cfg: "PPOExperimentConfig"):
-    tf_env = TransformedEnv(
-        env,
-        Compose(
-            *[ObservationNorm(in_keys=[k], standard_normal=True) for k in cfg.observations],
-            StepCounter(),
-        ),
-    )
-    for t in tf_env.transform:
-        if isinstance(t, ObservationNorm):
-            t.init_stats(cfg.norm_init_iters, reduce_dim=(0, 1), cat_dim=1)
-    tf_env.reset(reset_all=True)
-    return tf_env
 
 
 def prepare_data_collection(env: "Env", policy: "SafeSequential", cfg: "PPOExperimentConfig") -> Tuple[SyncDataCollector, TensorDictReplayBuffer]:
@@ -111,12 +90,12 @@ def prepare_env(train_config: "PPOExperimentConfig", mode: Literal["train", "eva
         return_derivative=mode == "eval",  # needed for evaluation
     )
     check_env_specs(base_env)
-    # Add some transformations to the environment
-    env = make_transformed_env(base_env, train_config)
-    return env, device, rng
+    return base_env, device, rng
 
 
-def make_policy(env: "Env", cfg: "PPOExperimentConfig", device: torch.device) -> "SafeSequential":
+def make_policy(env: "Env", cfg: "PPOExperimentConfig", device: torch.device, weights_path: str | None = None) -> "SafeSequential":
     actor_value_policy = make_actor_value_policy(env, **cfg.policy_opts)
     actor_value_policy.to(device)
+    if weights_path is not None:
+        actor_value_policy.load_state_dict(torch.load(weights_path, map_location=device))
     return actor_value_policy
