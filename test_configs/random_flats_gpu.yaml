@@ -1,0 +1,97 @@
+type: ${cls:flipper_training.experiments.ppo.config.PPOExperimentConfig}
+name: random_start_goal_flat_terrain_navigation
+comment: Debugging config
+training_dtype: ${dtype:float32}
+seed: 42
+use_wandb: true
+max_eval_steps: 1000
+device: cuda:0
+num_robots: 64
+save_weights_every: 10
+grid_res: 0.05
+max_coord: 3.2
+vecnorm_opts:
+  decay: 0.9
+  eps: 1e-4
+robot_model_opts:
+  kind: marv
+  mesh_voxel_size: 0.01
+  points_per_driving_part: 384
+  points_per_body: 512
+  wheel_assignment_margin: 0.02
+  linear_track_assignment_margin: 0.05
+optimizer: ${cls:torch.optim.AdamW}
+optimizer_opts:
+  lr: 3e-4
+  amsgrad: true
+scheduler: ${cls:torch.optim.lr_scheduler.StepLR}
+total_frames: ${mul:5242880,2}
+frames_per_batch: 128
+scheduler_opts:
+  step_size: ${intdiv:${intdiv:${total_frames},${mul:${frames_per_batch},${num_robots}}},2}
+  gamma: 0.5
+max_grad_norm: 5
+heightmap_gen: ${ cls:flipper_training.heightmaps.flat.FlatHeightmapGenerator}
+heightmap_gen_opts: {}
+world_opts:
+  k_stiffness: 30000
+  k_friction_lon: 0.8
+  k_friction_lat: 0.5
+engine_compile_opts:
+  max-autotune: true
+  triton.cudagraphs: true
+  coordinate_descent_tuning: true
+  correctness_iters: 100
+  benchmark_iters: 1000
+  atol: 1
+  rtol: 0
+evaluate_every: 10
+epochs_per_batch: 2
+frames_per_sub_batch: 32
+gae_compile_opts: null
+ppo_compile_opts: null
+gae_opts:
+  gamma: 0.99
+  lmbda: 0.95
+  average_gae: true
+  skip_existing: false
+ppo_opts:
+  clip_epsilon: 0.2
+  entropy_bonus: true
+  entropy_coef: 0.01
+  critic_coef: 1.0
+  loss_critic_type: smooth_l1
+data_collector_opts:
+  split_trajs: false
+  compile_policy: false
+  exploration_type: RANDOM
+objective: ${cls:flipper_training.rl_objectives.random_nav.RandomNavigationObjective}
+objective_opts:
+  higher_allowed: 0.8
+  min_dist_to_goal: 0.7
+  max_dist_to_goal: 1.0
+  start_drop: 0.2
+  goal_z_offset: 0.1
+  iteration_limit_factor: 20
+  start_position_orientation: towards_goal
+  goal_reached_threshold: 0.15
+  max_feasible_roll: 1.5
+  max_feasible_pitch: 1.5
+  cache_size: 30000
+reward: ${cls:flipper_training.rl_rewards.rewards.Goal}
+reward_opts:
+  goal_reached_reward: 10.0
+  failed_reward: -10.0
+  weight: 1.0
+  exp: 1
+observations:
+  state:
+    observation: ${cls:flipper_training.observations.robot_state.LocalStateVector}
+    opts: {}
+policy_opts:
+  hidden_dim: 32
+  value_mlp_layers: 2
+  actor_mlp_layers: 2
+engine_opts:
+  damping_alpha: 5.0
+  dt: 0.01

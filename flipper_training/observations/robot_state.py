@@ -27,10 +27,11 @@ class LocalStateVector(Observation):
         curr_state: PhysicsState,
     ) -> torch.Tensor:
         goal_vecs = self.env.goal.x - curr_state.x  # (n_robots, 3)
-        goal_vecs_local = rotate_vector_by_quaternion(goal_vecs.unsqueeze(1), inverse_quaternion(curr_state.q)).squeeze(1)  # (n_robots, 3)
+        inv_q = inverse_quaternion(curr_state.q)  # (n_robots, 4)
+        goal_vecs_local = rotate_vector_by_quaternion(goal_vecs.unsqueeze(1), inv_q).squeeze(1)  # (n_robots, 3)
         rolls, pitches, _ = quaternion_to_euler(curr_state.q)
-        xd_local = rotate_vector_by_quaternion(curr_state.xd.unsqueeze(1), inverse_quaternion(curr_state.q)).squeeze(1)
-        omega_local = rotate_vector_by_quaternion(curr_state.omega.unsqueeze(1), inverse_quaternion(curr_state.q)).squeeze(1)
+        xd_local = rotate_vector_by_quaternion(curr_state.xd.unsqueeze(1), inv_q).squeeze(1)
+        omega_local = rotate_vector_by_quaternion(curr_state.omega.unsqueeze(1), inv_q).squeeze(1)
         return torch.cat(
             [
                 xd_local,

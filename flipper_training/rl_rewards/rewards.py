@@ -39,7 +39,7 @@ class RollPitchGoal(Reward):
         goal_diff_curr = (env.goal.x - curr_state.x).norm(dim=-1, keepdim=True)
         goal_diff_prev = (env.goal.x - prev_state.x).norm(dim=-1, keepdim=True)
         diff_delta = goal_diff_curr - goal_diff_prev
-        reward = -self.omega_weight * roll_pitch_rates_sq.sum(dim=-1, keepdim=True) + self.goal_weight * diff_delta
+        reward = self.omega_weight * roll_pitch_rates_sq.sum(dim=-1, keepdim=True) - self.goal_weight * diff_delta
         reward[success] = self.goal_reached_reward
         reward[fail] = self.failed_reward
         return reward.to(env.out_dtype)
@@ -64,6 +64,32 @@ class Goal(Reward):
     ) -> torch.Tensor:
         goal_diff = (env.goal.x - curr_state.x).norm(dim=-1, keepdim=True)
         reward = -self.weight * goal_diff.pow(self.exp)
+        reward[success] += self.goal_reached_reward
+        reward[fail] += self.failed_reward
+        return reward.to(env.out_dtype)
+
+
+@dataclass
+class IncrementalGoal(Reward):
+    goal_reached_reward: float
+    failed_reward: float
+    weight: float
+    exp: float | int = 1
+
+    def __call__(
+        self,
+        prev_state: PhysicsState,
+        action: torch.Tensor,
+        prev_state_der: PhysicsStateDer,
+        curr_state: PhysicsState,
+        success: torch.BoolTensor,
+        fail: torch.BoolTensor,
+        env: "Env",
+    ) -> torch.Tensor:
+        goal_diff_curr = (env.goal.x - curr_state.x).norm(dim=-1, keepdim=True)
+        goal_diff_prev = (env.goal.x - prev_state.x).norm(dim=-1, keepdim=True)
+        diff_delta = goal_diff_curr - goal_diff_prev
+        reward = -self.weight * diff_delta.abs().pow(self.exp) * diff_delta.sign()
         reward[success] += self.goal_reached_reward
         reward[fail] += self.failed_reward
         return reward.to(env.out_dtype)
