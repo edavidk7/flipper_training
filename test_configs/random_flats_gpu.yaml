@@ -70,7 +70,7 @@ objective_opts:
   higher_allowed: 0.8
   min_dist_to_goal: 0.7
   max_dist_to_goal: 1.0
-  start_drop: 0.2
+  start_z_offset: 0.2
   goal_z_offset: 0.1
   iteration_limit_factor: 20
   start_position_orientation: towards_goal

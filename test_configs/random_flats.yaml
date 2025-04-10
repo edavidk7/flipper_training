@@ -4,7 +4,7 @@ comment: Debugging config
 training_dtype: ${dtype:float32}
 seed: 42
 use_wandb: true
-max_eval_steps: 5000
+max_eval_steps: 1000
 device: cpu
 num_robots: 16
 save_weights_every: 10
@@ -70,7 +70,8 @@ objective_opts:
   higher_allowed: 0.8
   min_dist_to_goal: 0.7
   max_dist_to_goal: 1.0
-  start_drop: 0.2
+  start_z_offset: 0.2
+  goal_z_offset: 0.1
   iteration_limit_factor: 50
   start_position_orientation: towards_goal
   goal_reached_threshold: 0.15

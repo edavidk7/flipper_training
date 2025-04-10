@@ -74,7 +74,9 @@ def main(train_omegaconf: "DictConfig", weights_path: str, vecnorm_weights_path:
         env, rollout = get_eval_rollout(train_config, weights_path, vecnorm_weights_path)
         simview.model.add_terrain(simview_terrain_from_config(env.terrain_cfg))
         for body in simview_bodies_from_robot_config(env.robot_cfg):
-            simview.model.add_body(body.name, body)
+            simview.model.add_body(body)
+        for static_object in env.objective.start_goal_to_simview(env.start, env.goal):
+            simview.model.add_static_object(static_object)
         rollout["cumulative reward"] = rollout["next", "reward"].cumsum(dim=1).squeeze()
         for i in range(rollout.shape[1] - 1):
             s = PhysicsState.from_tensordict(rollout[Env.STATE_KEY][:, i])

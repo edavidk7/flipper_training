@@ -2,6 +2,7 @@ import csv
 import logging
 import threading
 import time
+import hashlib
 from dataclasses import dataclass, field
 from itertools import groupby
 from queue import Queue
@@ -49,16 +50,20 @@ class RunLogger:
     known_wandb_metrics: set = field(default_factory=set)
 
     def __post_init__(self):
-        ts = time.strftime("%Y-%m-%d_%H:%M:%S")
+        ts = time.strftime("%Y-%m-%d_%H-%M-%S")
         self.logpath = ROOT / f"runs/{self.category}/{self.train_config['name']}_{ts}"
         self.logpath.mkdir(parents=True, exist_ok=True)
         self.weights_path = self.logpath / "weights"
         self.weights_path.mkdir(exist_ok=True)
         if self.use_wandb:
+            self.wandb_run_id = hashlib.sha256(self.logpath.name.encode()).hexdigest()
+            confdict = OmegaConf.to_container(self.train_config, resolve=False)
             wandb.init(
                 project=PROJECT,
-                name=f"{self.category}_{self.train_config['name']}_{time.strftime('%Y-%m-%d_%H:%M:%S')}",
-                config=OmegaConf.to_container(self.train_config, resolve=False),
+                id=self.wandb_run_id,
+                name=f"{self.category}_{self.train_config['name']}_{ts}",
+                notes=f"For loading the run use id: {self.wandb_run_id}",
+                config=confdict,
                 save_code=True,
             )
             wandb.define_metric(self.step_metric_name)
@@ -114,6 +119,7 @@ class RunLogger:
             wandb.log_model(
                 path=model_path,
                 name=name,
+                aliases=[self.wandb_run_id],
             )
 
 
@@ -137,19 +143,22 @@ class LocalRunReader:
 
 @dataclass
 class WandbRunReader:
-    run: str
+    run_id: str
     category: str
     default_weigths_path: Path = ROOT / "runs"
 
     def __post_init__(self):
         self.api = wandb.Api()
-        self.run = self.api.run(f"{PROJECT}/{self.run}")
+        self.run = self.api.run(f"{PROJECT}/{self.run_id}")
         self.history = self.run.scan_history()
-        self.weights_root = self.default_weigths_path / f"{self.category}/{self.run}/wandb_weights"
+        self.weights_root = self.default_weigths_path / f"{self.category}/{self.run.name}/wandb_weights"
+        self.weights_root.mkdir(parents=True, exist_ok=True)
 
     def get_weights_path(self, name: str) -> Path:
-        self.run.file(name).download(self.weights_root)
-        return self.weights_root / name
+        full_model_name = f"{PROJECT}/{name}:{self.run_id}"
+        weight_artifact = self.api.artifact(full_model_name, type="model")
+        weight_artifact.download(self.weights_root, skip_cache=True)
+        return self.weights_root / f"{name}.pth"
 
     def load_config(self) -> DictConfig:
         return OmegaConf.create(self.run.config)
@@ -160,7 +169,7 @@ class WandbRunReader:
 
 def get_run_reader(source: str, category: str) -> LocalRunReader | WandbRunReader:
     if source.startswith("wandb:"):
-        return WandbRunReader(source.split(":")[1], category)
+        return WandbRunReader(source.split("wandb:")[1], category)
     return LocalRunReader(source)
 
 

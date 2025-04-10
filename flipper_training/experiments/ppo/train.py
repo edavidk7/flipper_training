@@ -110,7 +110,7 @@ def main(train_omegaconf: "DictConfig"):
 
                 eval_log = {
                     "eval/reward": eval_rollout["next", "reward"].mean().item(),
-                    "eval/step_count": eval_rollout["step_count"].mean().item(),
+                    "eval/step_count": eval_rollout["step_count"].float().mean().item(),
                 }
 
                 if eval_str == "":
@@ -123,9 +123,9 @@ def main(train_omegaconf: "DictConfig"):
 
                 eval_str = (
                     f"eval/reward: {eval_log['eval/reward']:.4f} "
-                    f"(init: {init_log['eval/reward']:.4f}), "
-                    f"eval/step_count: {eval_log['eval/step_count']} "
-                    f"(init: {init_log['eval/step_count']})"
+                    f"(init: {init_log['eval/reward']:.0f}), "
+                    f"eval/step_count: {eval_log['eval/step_count']:.0f} "
+                    f"(init: {init_log['eval/step_count']:.4f})"
                 )
 
                 log.update(eval_log)

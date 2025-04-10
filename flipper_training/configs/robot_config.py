@@ -110,15 +110,15 @@ class RobotModelConfig(BaseConfig):
 
     @property
     def _descr_str(self) -> str:
-        return f"""
-    {self.kind}
-    _vx{self.mesh_voxel_size:.3f}
-    _dp{self.points_per_driving_part}
-    _b{self.points_per_body}
-    _whl{self.wheel_assignment_margin}
-    _trck{self.linear_track_assignment_margin}
-    _{self.yaml_hash}
-    """
+        return (
+            f"{self.kind}"
+            f"_vx{self.mesh_voxel_size:.3f}"
+            f"_dp{self.points_per_driving_part}"
+            f"_b{self.points_per_body}"
+            f"_whl{self.wheel_assignment_margin}"
+            f"_trck{self.linear_track_assignment_margin}"
+            f"_{self.yaml_hash}"
+        )
 
     def vw_to_vels(self, v: float | torch.Tensor, w: float | torch.Tensor) -> torch.Tensor:
         """

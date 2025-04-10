@@ -14,7 +14,7 @@ class TrunkCrossing(BaseObjective):
     min_dist_to_goal: float
     max_dist_to_goal: float
     goal_reached_threshold: float
-    start_drop: float
+    start_z_offset: float
     iteration_limit_factor: float
     max_feasible_pitch: float
     max_feasible_roll: float
@@ -103,7 +103,7 @@ class TrunkCrossing(BaseObjective):
         goal_state = PhysicsState.dummy(
             robot_model=self.robot_model, batch_size=goal_pos.shape[0], device=self.device, x=goal_pos.to(self.device), q=oris
         )
-        start_state.x[..., 2] += self.start_drop
+        start_state.x[..., 2] += self.start_z_offset
         return start_state, goal_state
 
     def _is_start_goal_xyz_valid(self, start_xyz: torch.Tensor, goal_xyz: torch.Tensor) -> torch.BoolTensor:

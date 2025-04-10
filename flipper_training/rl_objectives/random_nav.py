@@ -22,7 +22,7 @@ class RandomNavigationObjective(BaseObjective):
     min_dist_to_goal: float
     max_dist_to_goal: float
     goal_reached_threshold: float
-    start_drop: float
+    start_z_offset: float
     goal_z_offset: float
     iteration_limit_factor: float
     max_feasible_roll: float
@@ -101,7 +101,7 @@ class RandomNavigationObjective(BaseObjective):
         goal_state = PhysicsState.dummy(
             robot_model=self.robot_model, batch_size=goal_pos.shape[0], device=self.device, x=goal_pos.to(self.device), q=oris
         )
-        start_state.x[..., 2] += self.start_drop
+        start_state.x[..., 2] += self.start_z_offset
         goal_state.x[..., 2] += self.goal_z_offset
         return start_state, goal_state
 
@@ -185,3 +185,38 @@ class RandomNavigationObjective(BaseObjective):
         fastest_traversal = dists / (self.robot_model.v_max * self.physics_config.dt)  # time to reach the furthest goal
         steps = (fastest_traversal * self.iteration_limit_factor).ceil()
         return steps.int()
+
+    def start_goal_to_simview(self, start: PhysicsState, goal: PhysicsState):
+        try:
+            from simview import SimViewStaticObject, BodyShapeType
+        except ImportError:
+            logging.warning("SimView is not installed. Cannot visualize start/goal positions.")
+            return {}
+
+        # start
+        pos = start.x
+        start_object = SimViewStaticObject.create_batched(
+            name="Start",
+            shape_type=BodyShapeType.POINTCLOUD,
+            shapes_kwargs=[
+                {
+                    "points": pos[i, None],
+                    "color": "#ff0000",
+                }
+                for i in range(pos.shape[0])
+            ],
+        )
+        # goal
+        pos = goal.x
+        goal_object = SimViewStaticObject.create_batched(
+            name="Goal",
+            shape_type=BodyShapeType.POINTCLOUD,
+            shapes_kwargs=[
+                {
+                    "points": pos[i, None],
+                    "color": "#0000ff",
+                }
+                for i in range(pos.shape[0])
+            ],
+        )
+        return [start_object, goal_object]

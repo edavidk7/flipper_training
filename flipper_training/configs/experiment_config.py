@@ -41,7 +41,7 @@ class ObservationConfig(TypedDict):
 
 
 def make_partial_observations(observations: Dict[str, ObservationConfig]):
-    return {k: partial(v["observation"], **v["opts"]) for k, v in observations.items()}
+    return {k: partial(v["observation"], **v.get("opts", {})) for k, v in observations.items()}
 
 
 def hash_omegaconf(omegaconf: "DictConfig") -> str:
@@ -71,7 +71,7 @@ class BaseExperimentConfig(ABC):
     total_frames: int
     frames_per_batch: int
     heightmap_gen: "Type[BaseHeightmapGenerator]"
-    heightmap_gen_opts: dict[str, Any]
+    heightmap_gen_opts: dict[str, Any] | None = None
     world_opts: dict[str, float]
     engine_compile_opts: dict[str, Any] | None = None
     engine_opts: dict[str, Any]

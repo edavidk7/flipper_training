@@ -1,10 +1,17 @@
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 import torch
 
 from flipper_training.configs import PhysicsEngineConfig, RobotModelConfig, TerrainConfig
 from flipper_training.engine.engine_state import PhysicsState
+
+if TYPE_CHECKING:
+    try:
+        from simview import SimViewStaticObject
+    except ImportError:
+        SimViewStaticObject = None
 
 
 @dataclass
@@ -73,3 +80,16 @@ class BaseObjective(ABC):
         Returns:
         - Tensor containing a boolean indicating whether each robot has terminated.
         """
+
+    def start_goal_to_simview(self, start: PhysicsState, goal: PhysicsState) -> list["SimViewStaticObject"]:
+        """
+        Converts the start and goal states to a dictionary of body states for visualization.
+
+        Args:
+        - start: PhysicsState object containing the start state of the robot.
+        - goal: PhysicsState object containing the goal state of the robot.
+
+        Returns:
+        - A dictionary containing the objects to be visualized in SimView.
+        """
+        raise NotImplementedError("Not implemented for this objective")

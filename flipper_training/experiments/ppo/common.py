@@ -17,7 +17,7 @@ if TYPE_CHECKING:
 
 
 def prepare_configs(rng: torch.Generator, cfg: "PPOExperimentConfig") -> Tuple[TerrainConfig, PhysicsEngineConfig, RobotModelConfig, torch.device]:
-    heightmap_gen = cfg.heightmap_gen(**cfg.heightmap_gen_opts)
+    heightmap_gen = cfg.heightmap_gen(**cfg.heightmap_gen_opts if cfg.heightmap_gen_opts else {})
     x, y, z, extras = heightmap_gen(cfg.grid_res, cfg.max_coord, cfg.num_robots, rng)
     world_config = TerrainConfig(
         x_grid=x,
