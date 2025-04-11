@@ -5,7 +5,6 @@ from flipper_training.configs.experiment_config import BaseExperimentConfig
 
 @dataclass
 class PPOExperimentConfig(BaseExperimentConfig):
-    evaluate_every: int
     epochs_per_batch: int
     frames_per_sub_batch: int
     gae_opts: dict[str, Any]
@@ -13,5 +12,6 @@ class PPOExperimentConfig(BaseExperimentConfig):
     data_collector_opts: dict[str, Any]
     policy_opts: dict[str, Any]
     vecnorm_opts: dict[str, Any]
+    vecnorm_on_reward: bool
     gae_compile_opts: dict[str, Any] | None = None
     ppo_compile_opts: dict[str, Any] | None = None

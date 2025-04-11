@@ -14,18 +14,39 @@ from torchrl.envs import (
     TransformedEnv,
 )
 from flipper_training.environment.env import Env
-from flipper_training.utils.logging import RunLogger
+from flipper_training.utils.logging import RunLogger, print_sticky_tqdm
 
 if TYPE_CHECKING:
     from omegaconf import DictConfig
 
 
 def make_normed_env(env: "Env", train_config: "PPOExperimentConfig") -> TransformedEnv:
+    vecnorm_keys = list(train_config.observations.keys())
+    if train_config.vecnorm_on_reward:
+        vecnorm_keys.append("reward")
     transforms = Compose(
         StepCounter(),
-        VecNorm(in_keys=list(train_config.observations.keys()) + ["reward"], **train_config.vecnorm_opts),
+        VecNorm(in_keys=vecnorm_keys, **train_config.vecnorm_opts),
     )
     return TransformedEnv(env, transforms)
+
+
+def make_eval_str_lines(eval_log: dict[str, int | float], init_eval_log: dict[str, int | float]) -> list[str]:
+    lines = [
+        [],  # reward,
+        [],  # step_count,
+    ]
+    for key, value in eval_log.items():
+        if "reward" in key:
+            lines[0].append(f"{key}: {value:.4f} (init {init_eval_log[key]:.4f})")
+        elif "step_count" in key:
+            lines[1].append(f"{key}: {value:.0f} (init {init_eval_log[key]:.0f})")
+
+    lines[0].sort()
+    lines[1].sort()
+    lines[0] = [f"Eval reward: {', '.join(lines[0])}"]
+    lines[1] = [f"Eval step count: {', '.join(lines[1])}"]
+    return [ln[0] for ln in lines]  # only keep the first line of each list
 
 
 def main(train_omegaconf: "DictConfig"):
@@ -59,16 +80,15 @@ def main(train_omegaconf: "DictConfig"):
     if train_config.frames_per_batch // train_config.frames_per_sub_batch == 0:
         raise ValueError("frames_per_batch must be divisible by frames_per_sub_batch")
     # Training loop
-    init_log = {}
-    eval_str = ""
-    best_reward = -float("inf")
     logger = RunLogger(
         train_config=train_omegaconf,
         category="ppo",
         use_wandb=train_config.use_wandb,
         step_metric_name="collected_frames",
     )
-    pbar = tqdm(total=train_config.total_frames)
+    pbar = tqdm(total=train_config.total_frames, desc="Training", unit="frames")
+    init_train_log = {}
+    init_eval_log = {}
     for i, tensordict_data in enumerate(collector):
         # collected (B, T, *specs) where B is the batch size and T the number of steps
         tensordict_data.pop(Env.STATE_KEY)  # we don't need this
@@ -90,55 +110,45 @@ def main(train_omegaconf: "DictConfig"):
         total_collected_frames = (i + 1) * train_config.frames_per_batch * train_config.num_robots
 
         log = {
-            "train/reward": tensordict_data["next", "reward"].mean().item(),
+            "train/mean_reward": tensordict_data["next", "reward"].mean().item(),
             "train/lr": optim.param_groups[0]["lr"],
         }
 
-        if not init_log:
-            init_log |= log
-
-        train_str = f"train/reward: {log['train/reward']:.4f} (init: {init_log['train/reward']: .4f}), train/lr: {log['train/lr']:0.6f}"
-
-        if i % train_config.evaluate_every == 0:
+        if i % train_config.eval_and_save_every == 0:
             actor_value_policy.eval()
             env.eval()
             with (
                 set_exploration_type(ExplorationType.DETERMINISTIC),
-                torch.no_grad(),
+                torch.inference_mode(),
             ):
                 eval_rollout = env.rollout(train_config.max_eval_steps, actor_operator, break_when_all_done=True, auto_reset=True)
 
                 eval_log = {
-                    "eval/reward": eval_rollout["next", "reward"].mean().item(),
-                    "eval/step_count": eval_rollout["step_count"].float().mean().item(),
+                    "eval/mean_step_reward": eval_rollout["next", "reward"].mean().item(),
+                    "eval/max_step_reward": eval_rollout["next", "reward"].max().item(),
+                    "eval/min_step_reward": eval_rollout["next", "reward"].min().item(),
+                    "eval/mean_step_count": eval_rollout["step_count"][:, -1].float().mean().item(),
+                    "eval/max_step_count": eval_rollout["step_count"][:, -1].float().max().item(),
+                    "eval/min_step_count": eval_rollout["step_count"][:, -1].float().min().item(),
                 }
 
-                if eval_str == "":
-                    init_log |= eval_log
+                if not init_eval_log:
+                    init_eval_log |= eval_log
 
-                if eval_log["eval/reward"] > best_reward:
-                    best_reward = eval_log["eval/reward"]
-                    logger.save_weights(actor_value_policy.state_dict(), "best")
-                    logger.save_weights(env.transform[-1].state_dict(), "vecnorm_best")
-
-                eval_str = (
-                    f"eval/reward: {eval_log['eval/reward']:.4f} "
-                    f"(init: {init_log['eval/reward']:.0f}), "
-                    f"eval/step_count: {eval_log['eval/step_count']:.0f} "
-                    f"(init: {init_log['eval/step_count']:.4f})"
-                )
+                eval_str_lines = make_eval_str_lines(eval_log, init_eval_log)
+                print_sticky_tqdm(eval_str_lines)
 
                 log.update(eval_log)
+                logger.save_weights(actor_value_policy.state_dict(), f"step_{total_collected_frames}")
+                logger.save_weights(env.transform[-1].state_dict(), f"vecnorm_step_{total_collected_frames}")
 
                 del eval_rollout
 
+        if not init_train_log:
+            init_train_log |= log
+
         logger.log_data(log, total_collected_frames)
-
-        if i % train_config.save_weights_every == 0:
-            logger.save_weights(actor_value_policy.state_dict(), f"weights_{total_collected_frames}")
-            logger.save_weights(env.transform[-1].state_dict(), f"vecnorm_weights_{total_collected_frames}")
-
-        pbar.set_description(", ".join([eval_str, train_str]))
+        pbar.set_postfix_str(f"lr {log['train/lr']:.2e} (init {init_train_log['train/lr']:.2e})")
         pbar.update(train_config.frames_per_batch * train_config.num_robots)
         scheduler.step()
 

@@ -27,12 +27,15 @@ if TYPE_CHECKING:
 
 
 def frozen_normed_env(env: "Env", train_config: "PPOExperimentConfig", vecnorm_weights_path: str) -> TransformedEnv:
+    vecnorm_keys = list(train_config.observations.keys())
+    if train_config.vecnorm_on_reward:
+        vecnorm_keys.append("reward")
     norm = VecNorm(
-        in_keys=list(train_config.observations.keys()) + ["reward"],
+        in_keys=vecnorm_keys,
         **train_config.vecnorm_opts,
     )
-    norm.load_state_dict(torch.load(vecnorm_weights_path))
     norm.eval()
+    norm.load_state_dict(torch.load(vecnorm_weights_path))
     norm = norm.to_observation_norm()
     transform = Compose(
         StepCounter(),
@@ -51,7 +54,7 @@ def get_eval_rollout(train_config: PPOExperimentConfig, weights_path: str, vecno
     env.eval()
     with (
         set_exploration_type(ExplorationType.DETERMINISTIC),
-        torch.no_grad(),
+        torch.inference_mode(),
     ):
         eval_rollout = env.rollout(train_config.max_eval_steps, actor_operator, auto_reset=True, break_when_all_done=True)
     return env, eval_rollout
@@ -71,13 +74,19 @@ def main(train_omegaconf: "DictConfig", weights_path: str, vecnorm_weights_path:
     if simview.is_ready:
         simview.visualize()
     else:
+        # Compose the simview model
         env, rollout = get_eval_rollout(train_config, weights_path, vecnorm_weights_path)
         simview.model.add_terrain(simview_terrain_from_config(env.terrain_cfg))
         for body in simview_bodies_from_robot_config(env.robot_cfg):
             simview.model.add_body(body)
         for static_object in env.objective.start_goal_to_simview(env.start, env.goal):
             simview.model.add_static_object(static_object)
-        rollout["cumulative reward"] = rollout["next", "reward"].cumsum(dim=1).squeeze()
+        # Correct the rewards for robots that have finished the episode
+        dones = torch.roll(rollout["next", "done"].float(), 1, 1)  # shifted by one timestep forward
+        dones[:, 0] = 0  # first timestep is not done
+        reward_masked = rollout["next", "reward"] * (1 - dones)
+        reward_masked = reward_masked.squeeze()
+        cum_reward = torch.cumsum(reward_masked, dim=1)
         for i in range(rollout.shape[1] - 1):
             s = PhysicsState.from_tensordict(rollout[Env.STATE_KEY][:, i])
             ds = PhysicsStateDer.from_tensordict(
@@ -94,8 +103,8 @@ def main(train_omegaconf: "DictConfig", weights_path: str, vecnorm_weights_path:
                 env.phys_cfg.dt * i,
                 body_states=body_states,
                 scalar_values={
-                    "cumulative reward": rollout["cumulative reward"][:, i].squeeze().tolist(),
-                    "reward": rollout["next", "reward"][:, i].squeeze().tolist(),
+                    "cumulative reward": cum_reward[:, i].squeeze().tolist(),
+                    "reward": reward_masked[:, i].squeeze().tolist(),
                     "terminated": rollout["next", "terminated"][:, i].int().squeeze().tolist(),
                     "truncated": rollout["next", "truncated"][:, i].int().squeeze().tolist(),
                 },

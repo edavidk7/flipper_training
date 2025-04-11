@@ -9,7 +9,7 @@ from flipper_training.rl_rewards import Reward
 if TYPE_CHECKING:
     from flipper_training.environment.env import Env
 
-__all__ = ["RollPitchGoal", "Goal"]
+__all__ = ["RollPitchGoal", "Goal", "IncrementalGoal"]
 
 
 @dataclass
@@ -64,17 +64,17 @@ class Goal(Reward):
     ) -> torch.Tensor:
         goal_diff = (env.goal.x - curr_state.x).norm(dim=-1, keepdim=True)
         reward = -self.weight * goal_diff.pow(self.exp)
-        reward[success] += self.goal_reached_reward
-        reward[fail] += self.failed_reward
+        reward[success] = self.goal_reached_reward
+        reward[fail] = self.failed_reward
         return reward.to(env.out_dtype)
 
 
 @dataclass
-class IncrementalGoal(Reward):
+class PotentialGoal(Reward):
     goal_reached_reward: float
     failed_reward: float
-    weight: float
-    exp: float | int = 1
+    gamma: float
+    step_penalty: float
 
     def __call__(
         self,
@@ -86,10 +86,12 @@ class IncrementalGoal(Reward):
         fail: torch.BoolTensor,
         env: "Env",
     ) -> torch.Tensor:
-        goal_diff_curr = (env.goal.x - curr_state.x).norm(dim=-1, keepdim=True)
-        goal_diff_prev = (env.goal.x - prev_state.x).norm(dim=-1, keepdim=True)
-        diff_delta = goal_diff_curr - goal_diff_prev
-        reward = -self.weight * diff_delta.abs().pow(self.exp) * diff_delta.sign()
-        reward[success] += self.goal_reached_reward
-        reward[fail] += self.failed_reward
+        curr_dist = (env.goal.x - curr_state.x).norm(dim=-1, keepdim=True)
+        prev_dist = (env.goal.x - prev_state.x).norm(dim=-1, keepdim=True)
+        # Normalized potential to bound rewards
+        neg_goal_dist_curr = -curr_dist / (1 + curr_dist)  # phi(s')
+        neg_goal_dist_prev = -prev_dist / (1 + prev_dist)  # phi(s)
+        reward = self.gamma * neg_goal_dist_curr - neg_goal_dist_prev + self.step_penalty
+        reward[success] = self.goal_reached_reward
+        reward[fail] = self.failed_reward
         return reward.to(env.out_dtype)

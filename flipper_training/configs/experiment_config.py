@@ -80,5 +80,5 @@ class BaseExperimentConfig(ABC):
     objective_opts: dict[str, Any]
     reward: "Type[Reward]"
     reward_opts: dict[str, Any]
-    save_weights_every: int
+    eval_and_save_every: int
     max_eval_steps: int
