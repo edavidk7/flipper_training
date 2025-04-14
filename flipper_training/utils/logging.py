@@ -177,12 +177,6 @@ class WandbRunReader:
         return [x[name] for x in self.history]
 
 
-def get_run_reader(source: str, category: str) -> LocalRunReader | WandbRunReader:
-    if source.startswith("wandb:"):
-        return WandbRunReader(source.split("wandb:")[1], category)
-    return LocalRunReader(source)
-
-
 class ColoredFormatter(logging.Formatter):
     base_fmt = "%(asctime)s [%(name)s][%(levelname)s]: %(message)s (%(filename)s:%(lineno)d)"
 

@@ -1,25 +1,23 @@
+import gc
 from typing import TYPE_CHECKING
 
 import torch
-import gc
 from common import make_policy, prepare_env
 from config import PPOExperimentConfig
 from simview import SimView
-from torchrl.envs.utils import ExplorationType, set_exploration_type
-
 from torchrl.envs import (
     Compose,
-    VecNorm,
     StepCounter,
     TransformedEnv,
+    VecNorm,
 )
+from torchrl.envs.utils import ExplorationType, set_exploration_type
 
 from flipper_training.configs.experiment_config import hash_omegaconf
 from flipper_training.engine.engine_state import PhysicsState, PhysicsStateDer
-from flipper_training.utils.logging import get_run_reader
-from flipper_training.vis.simview import physics_state_to_simview_body_states, simview_bodies_from_robot_config, simview_terrain_from_config
 from flipper_training.environment.env import Env
-
+from flipper_training.utils.logging import LocalRunReader, WandbRunReader
+from flipper_training.vis.simview import physics_state_to_simview_body_states, simview_bodies_from_robot_config, simview_terrain_from_config
 
 if TYPE_CHECKING:
     from omegaconf import DictConfig
@@ -35,7 +33,7 @@ def frozen_normed_env(env: "Env", train_config: "PPOExperimentConfig", vecnorm_w
         **train_config.vecnorm_opts,
     )
     norm.eval()
-    norm.load_state_dict(torch.load(vecnorm_weights_path))
+    norm.load_state_dict(torch.load(vecnorm_weights_path, map_location=env.device))
     norm = norm.to_observation_norm()
     transform = Compose(
         StepCounter(),
@@ -124,10 +122,13 @@ if __name__ == "__main__":
     from omegaconf import DictConfig, OmegaConf
 
     parser = ArgumentParser()
-    parser.add_argument("--run", type=str, required=True, help="Path to the local run directory or to the wandb run name prefixed with 'wandb:'")
+    parser.add_argument("--local", type=str, required=False, default=None, help="Path to the local run directory")
+    parser.add_argument("--wandb", type=str, required=False, default=None, help="Name of the run to evaluate")
     parser.add_argument("--weights", type=str, required=True, help="Name of the weights to evaluate")
     args, unknown = parser.parse_known_args()
-    run_reader = get_run_reader(args.run, "ppo")
+    if args.local is None and args.wandb is None:
+        raise ValueError("Either --local or --wandb must be provided")
+    run_reader = WandbRunReader(args.wandb, category="ppo") if args.wandb else LocalRunReader(args.local)
     run_omegaconf = run_reader.load_config()
     cli_omegaconf = OmegaConf.from_dotlist(unknown)
     train_omegaconf = OmegaConf.merge(run_omegaconf, cli_omegaconf)
