@@ -20,6 +20,7 @@ class FixedStartGoalNavigation(BaseObjective):
     max_feasible_roll: float
     goal_reached_threshold: float
     init_joint_angles: torch.Tensor | Literal["max", "min", "random"]
+    resample_random_joint_angles_on_reset: bool = False
 
     def __post_init__(self) -> None:
         self.start_pos = self.start_x_y_z.repeat(self.physics_config.num_robots, 1)
@@ -70,6 +71,8 @@ class FixedStartGoalNavigation(BaseObjective):
         Constructs the full start and goal states for the robots in the
         environment by adding the initial orientation and drop height.
         """
+        if self.resample_random_joint_angles_on_reset and self.init_joint_angles == "random":
+            self.initial_joint_angles = self._get_initial_joint_angles()
         start_state = PhysicsState.dummy(
             robot_model=self.robot_model,
             batch_size=self.physics_config.num_robots,

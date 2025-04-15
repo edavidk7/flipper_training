@@ -75,15 +75,18 @@ def main(train_omegaconf: "DictConfig"):
         # collected (B, T, *specs) where B is the batch size and T the number of steps
         tensordict_data.pop(Env.STATE_KEY)  # we don't need this
         tensordict_data.pop(("next", Env.STATE_KEY))  # we don't need this
+        print("Keys from collector", tensordict_data.keys())
         actor_value_policy.train()
         env.train()
         for _ in range(train_config.epochs_per_batch):
             advantage_module(tensordict_data)
+            print("Keys after advantage module", tensordict_data.keys())
             replay_buffer.extend(tensordict_data.reshape(-1))  # we can now safely flatten the data
             for _ in range(train_config.frames_per_batch // train_config.frames_per_sub_batch):
                 sub_batch = replay_buffer.sample()
                 loss_vals = loss_module(sub_batch)
                 loss_value = loss_vals["loss_objective"] + loss_vals["loss_critic"] + loss_vals["loss_entropy"]
+                print("Keys from loss module", loss_vals.keys())
                 loss_value.backward()
                 torch.nn.utils.clip_grad_norm_(loss_module.parameters(), train_config.max_grad_norm)
                 optim.step()

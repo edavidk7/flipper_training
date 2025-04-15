@@ -25,7 +25,7 @@ optimizer: ${cls:torch.optim.AdamW}
 optimizer_opts:
   lr: 3e-4
 scheduler: ${cls:torch.optim.lr_scheduler.StepLR}
-total_frames: ${mul:5242880,1}
+total_frames: ${mul:5242880,2}
 frames_per_batch: 128
 scheduler_opts:
   step_size: ${intdiv:${intdiv:${total_frames},${mul:${frames_per_batch},${num_robots}}},2}
@@ -73,7 +73,8 @@ objective_opts:
   max_feasible_roll: 1.0
   start_x_y_z: ${tensor:[-1.0, 0.0, 0.2]}
   goal_x_y_z: ${tensor:[1.0, 0.0, 0.1]}
-  init_joint_angles: ${tensor:[0.,0.,0.,0.]}
+  init_joint_angles: random
+  resample_random_joint_angles_on_reset: true
 # reward: ${cls:flipper_training.rl_rewards.rewards.Goal}
 # reward_opts:
 #   goal_reached_reward: 2.0
@@ -92,8 +93,8 @@ observations:
     opts: {}
 policy_opts:
   hidden_dim: 32
-  value_mlp_layers: 2
-  actor_mlp_layers: 2
+  value_mlp_layers: 4
+  actor_mlp_layers: 4
 engine_opts:
   damping_alpha: 5.0
   dt: 0.01
