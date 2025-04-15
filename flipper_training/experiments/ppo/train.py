@@ -1,7 +1,7 @@
 from typing import TYPE_CHECKING
 
 import torch
-from common import prepare_data_collection, prepare_env, make_policy
+from common import prepare_data_collection, prepare_env, make_policy, make_eval_str_lines, log_from_eval_rollout
 from config import PPOExperimentConfig
 from torchrl.envs.utils import ExplorationType, set_exploration_type
 from torchrl.objectives import ClipPPOLoss
@@ -29,24 +29,6 @@ def make_normed_env(env: "Env", train_config: "PPOExperimentConfig") -> Transfor
         VecNorm(in_keys=vecnorm_keys, **train_config.vecnorm_opts),
     )
     return TransformedEnv(env, transforms)
-
-
-def make_eval_str_lines(eval_log: dict[str, int | float], init_eval_log: dict[str, int | float]) -> list[str]:
-    lines = [
-        [],  # reward,
-        [],  # step_count,
-    ]
-    for key, value in eval_log.items():
-        if "reward" in key:
-            lines[0].append(f"{key}: {value:.4f} (init {init_eval_log[key]:.4f})")
-        elif "step_count" in key:
-            lines[1].append(f"{key}: {value:.0f} (init {init_eval_log[key]:.0f})")
-
-    lines[0].sort()
-    lines[1].sort()
-    lines[0] = [f"Eval reward: {', '.join(lines[0])}"]
-    lines[1] = [f"Eval step count: {', '.join(lines[1])}"]
-    return [ln[0] for ln in lines]  # only keep the first line of each list
 
 
 def main(train_omegaconf: "DictConfig"):
@@ -110,7 +92,6 @@ def main(train_omegaconf: "DictConfig"):
         total_collected_frames = (i + 1) * train_config.frames_per_batch * train_config.num_robots
 
         log = {
-            "train/mean_reward": tensordict_data["next", "reward"].mean().item(),
             "train/lr": optim.param_groups[0]["lr"],
         }
 
@@ -122,22 +103,11 @@ def main(train_omegaconf: "DictConfig"):
                 torch.inference_mode(),
             ):
                 eval_rollout = env.rollout(train_config.max_eval_steps, actor_operator, break_when_all_done=True, auto_reset=True)
-
-                eval_log = {
-                    "eval/mean_step_reward": eval_rollout["next", "reward"].mean().item(),
-                    "eval/max_step_reward": eval_rollout["next", "reward"].max().item(),
-                    "eval/min_step_reward": eval_rollout["next", "reward"].min().item(),
-                    "eval/mean_step_count": eval_rollout["step_count"][:, -1].float().mean().item(),
-                    "eval/max_step_count": eval_rollout["step_count"][:, -1].float().max().item(),
-                    "eval/min_step_count": eval_rollout["step_count"][:, -1].float().min().item(),
-                }
-
+                eval_log = log_from_eval_rollout(eval_rollout)
                 if not init_eval_log:
                     init_eval_log |= eval_log
-
                 eval_str_lines = make_eval_str_lines(eval_log, init_eval_log)
                 print_sticky_tqdm(eval_str_lines)
-
                 log.update(eval_log)
                 logger.save_weights(actor_value_policy.state_dict(), f"step_{total_collected_frames}")
                 logger.save_weights(env.transform[-1].state_dict(), f"vecnorm_step_{total_collected_frames}")

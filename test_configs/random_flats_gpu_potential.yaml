@@ -25,12 +25,12 @@ optimizer: ${cls:torch.optim.AdamW}
 optimizer_opts:
   lr: 3e-4
 scheduler: ${cls:torch.optim.lr_scheduler.StepLR}
-total_frames: ${mul:5242880,2}
+total_frames: ${mul:5242880,1}
 frames_per_batch: 128
 scheduler_opts:
   step_size: ${intdiv:${intdiv:${total_frames},${mul:${frames_per_batch},${num_robots}}},3}
   gamma: 0.5
-max_grad_norm: 5
+max_grad_norm: 1
 heightmap_gen: ${ cls:flipper_training.heightmaps.flat.FlatHeightmapGenerator}
 heightmap_gen_opts: {}
 world_opts:
@@ -45,7 +45,7 @@ engine_compile_opts:
   benchmark_iters: 1000
   atol: 1
   rtol: 0
-epochs_per_batch: 2
+epochs_per_batch: 1
 frames_per_sub_batch: 32
 gae_compile_opts: null
 ppo_compile_opts: null
@@ -80,9 +80,9 @@ objective_opts:
   cache_size: 30000
 reward: ${cls:flipper_training.rl_rewards.rewards.PotentialGoal}
 reward_opts:
-  goal_reached_reward: 100.0
-  failed_reward: -10.0
-  step_penalty: -1e-3
+  goal_reached_reward: 2.0
+  failed_reward: -2.0
+  step_penalty: -0.01
   gamma: ${gae_opts.gamma}
 observations:
   state:

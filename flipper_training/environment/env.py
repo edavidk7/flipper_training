@@ -3,7 +3,7 @@ from typing import TYPE_CHECKING, Callable
 
 import torch
 from tensordict import TensorDict, assert_allclose_td
-from torchrl.data import Bounded, Composite, Unbounded
+from torchrl.data import Bounded, Composite, Unbounded, Binary
 from torchrl.envs import EnvBase, make_composite_from_td
 
 from flipper_training.configs import PhysicsEngineConfig, RobotModelConfig, TerrainConfig
@@ -151,15 +151,15 @@ class Env(EnvBase):
         )
 
     def _make_done_spec(self) -> Bounded:
-        bool_spec = Bounded(
-            low=0,
-            high=1,
+        bool_spec = Binary(
             shape=(self.n_robots, 1),
             dtype=torch.bool,
             device=self.device,
         )
         return Composite(
             {
+                "succeeded": bool_spec,
+                "failed": bool_spec,
                 "truncated": bool_spec,
                 "terminated": bool_spec,
             },
@@ -219,6 +219,7 @@ class Env(EnvBase):
         return obs_td
 
     def _step(self, tensordict) -> TensorDict:
+        self.step_count += 1
         action = tensordict.get("action").to(self.device)
         prev_state = PhysicsState.from_tensordict(tensordict.get(Env.STATE_KEY))
         # Step the engine
@@ -229,10 +230,11 @@ class Env(EnvBase):
         truncated = self.step_count >= self.iteration_limits
         # Output tensordict
         obs_td = self._get_observations(prev_state=prev_state, action=action, prev_state_der=prev_state_der, curr_state=curr_state)
+        obs_td["succeeded"] = reached_goal
+        obs_td["failed"] = failed
         obs_td["terminated"] = failed | reached_goal
         obs_td["truncated"] = truncated
         obs_td["reward"] = self.reward(
             prev_state=prev_state, action=action, prev_state_der=prev_state_der, curr_state=curr_state, success=reached_goal, fail=failed, env=self
         )
-        self.step_count += 1
         return obs_td

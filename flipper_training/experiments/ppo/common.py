@@ -1,6 +1,7 @@
 from typing import TYPE_CHECKING, Literal, Tuple
 
 import torch
+from collections import defaultdict
 from torchrl.collectors import SyncDataCollector
 from torchrl.data import LazyTensorStorage, SamplerWithoutReplacement, TensorDictReplayBuffer
 from torchrl.envs.utils import check_env_specs
@@ -14,6 +15,27 @@ from flipper_training.utils.torch_utils import seed_all, set_device
 if TYPE_CHECKING:
     from config import PPOExperimentConfig
     from torchrl.modules import SafeSequential
+    from tensordict import TensorDict
+
+EVAL_LOG_OPT = {
+    "precision": {
+        "step_reward": 4,
+        "step_count": 0,
+        "succeeded": 3,
+        "failed": 3,
+        "truncated": 3,
+    },
+    "groups": [
+        ["step_reward"],
+        ["step_count"],
+        ["succeeded", "failed", "truncated"],
+    ],
+    "group_labels": {
+        0: "Eval per-step reward",
+        1: "Eval step count",
+        2: "Eval state statistics",
+    },
+}
 
 
 def prepare_configs(rng: torch.Generator, cfg: "PPOExperimentConfig") -> Tuple[TerrainConfig, PhysicsEngineConfig, RobotModelConfig, torch.device]:
@@ -99,3 +121,43 @@ def make_policy(env: "Env", cfg: "PPOExperimentConfig", device: torch.device, we
     if weights_path is not None:
         actor_value_policy.load_state_dict(torch.load(weights_path, map_location=device))
     return actor_value_policy
+
+
+def make_eval_str_lines(eval_log: dict[str, int | float], init_eval_log: dict[str, int | float] | None = None) -> list[str]:
+    var_dict = defaultdict(list)
+    for key, value in eval_log.items():
+        var_name = key.split("_", maxsplit=1)[1]  # remove the prefix specifying the type of value
+        prec = EVAL_LOG_OPT["precision"].get(var_name, 4)
+        s = f"{key}: {value:.{prec}f}"
+        if init_eval_log is not None and key in init_eval_log:
+            s += f" (init {init_eval_log[key]:.{prec}f})"
+        var_dict[var_name].append(s)
+
+    lines = []
+    for i, group in enumerate(EVAL_LOG_OPT["groups"]):
+        s = f"{EVAL_LOG_OPT['group_labels'][i]}: "
+        for var_name in group:
+            for entry in var_dict[var_name]:
+                s += f"{entry} "
+        lines.append(s)
+    return lines
+
+
+def log_from_eval_rollout(eval_rollout: "TensorDict") -> dict[str, int | float]:
+    """
+    Computes the statistics from the evaluation rollout and returns them as a dictionary.
+    """
+    last_step_count = eval_rollout["step_count"][:, -1].float()
+    last_succeeded_mean = eval_rollout["next", "succeeded"][:, -1].float().mean().item()
+    last_failed_mean = eval_rollout["next", "failed"][:, -1].float().mean().item()
+    return {
+        "eval/mean_step_reward": eval_rollout["next", "reward"].mean().item(),
+        "eval/max_step_reward": eval_rollout["next", "reward"].max().item(),
+        "eval/min_step_reward": eval_rollout["next", "reward"].min().item(),
+        "eval/mean_step_count": last_step_count.mean().item(),
+        "eval/max_step_count": last_step_count.max().item(),
+        "eval/min_step_count": last_step_count.min().item(),
+        "eval/pct_succeeded": last_succeeded_mean,
+        "eval/pct_failed": last_failed_mean,
+        "eval/pct_truncated": 1 - last_succeeded_mean - last_failed_mean,  # eithered none of the states at the end of the rollout
+    }

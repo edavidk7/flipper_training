@@ -1,4 +1,5 @@
 import torch
+import logging
 from typing import override, Literal
 from dataclasses import dataclass
 from flipper_training.engine.engine_state import PhysicsState
@@ -107,3 +108,38 @@ class FixedStartGoalNavigation(BaseObjective):
             | (rolls.abs() > self.max_feasible_roll)
             | (state.x.abs() > self.world_config.max_coord).any(dim=-1)
         )
+
+    def start_goal_to_simview(self, start: PhysicsState, goal: PhysicsState):
+        try:
+            from simview import SimViewStaticObject, BodyShapeType
+        except ImportError:
+            logging.warning("SimView is not installed. Cannot visualize start/goal positions.")
+            return []
+
+        # start
+        pos = start.x
+        start_object = SimViewStaticObject.create_batched(
+            name="Start",
+            shape_type=BodyShapeType.POINTCLOUD,
+            shapes_kwargs=[
+                {
+                    "points": pos[i, None],
+                    "color": "#ff0000",
+                }
+                for i in range(pos.shape[0])
+            ],
+        )
+        # goal
+        pos = goal.x
+        goal_object = SimViewStaticObject.create_batched(
+            name="Goal",
+            shape_type=BodyShapeType.POINTCLOUD,
+            shapes_kwargs=[
+                {
+                    "points": pos[i, None],
+                    "color": "#0000ff",
+                }
+                for i in range(pos.shape[0])
+            ],
+        )
+        return [start_object, goal_object]

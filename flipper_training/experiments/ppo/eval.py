@@ -2,7 +2,7 @@ import gc
 from typing import TYPE_CHECKING
 
 import torch
-from common import make_policy, prepare_env
+from common import make_policy, prepare_env, make_eval_str_lines, log_from_eval_rollout
 from config import PPOExperimentConfig
 from simview import SimView
 from torchrl.envs import (
@@ -74,6 +74,10 @@ def main(train_omegaconf: "DictConfig", weights_path: str, vecnorm_weights_path:
     else:
         # Compose the simview model
         env, rollout = get_eval_rollout(train_config, weights_path, vecnorm_weights_path)
+        str_lines = make_eval_str_lines(
+            log_from_eval_rollout(rollout),
+        )
+        print(*str_lines, sep="\n")
         simview.model.add_terrain(simview_terrain_from_config(env.terrain_cfg))
         for body in simview_bodies_from_robot_config(env.robot_cfg):
             simview.model.add_body(body)
@@ -85,11 +89,14 @@ def main(train_omegaconf: "DictConfig", weights_path: str, vecnorm_weights_path:
         reward_masked = rollout["next", "reward"] * (1 - dones)
         reward_masked = reward_masked.squeeze()
         cum_reward = torch.cumsum(reward_masked, dim=1)
-        for i in range(rollout.shape[1] - 1):
+        for i in range(rollout.shape[1]):
             s = PhysicsState.from_tensordict(rollout[Env.STATE_KEY][:, i])
-            ds = PhysicsStateDer.from_tensordict(
-                rollout[Env.PREV_STATE_DER_KEY][:, i + 1]
-            )  # Derivative of current state is returned with the next state
+            # Derivative of current state is returned with the next state
+            ds = (
+                PhysicsStateDer.from_tensordict(rollout[Env.PREV_STATE_DER_KEY][:, i + 1])
+                if i < rollout.shape[1] - 1
+                else PhysicsStateDer.from_tensordict(rollout[Env.PREV_STATE_DER_KEY][:, i])
+            )
             control = rollout["action"][:, i]
             body_states = physics_state_to_simview_body_states(
                 env.robot_cfg,
@@ -118,17 +125,18 @@ def main(train_omegaconf: "DictConfig", weights_path: str, vecnorm_weights_path:
 
 if __name__ == "__main__":
     from argparse import ArgumentParser
+    from pathlib import Path
 
     from omegaconf import DictConfig, OmegaConf
 
     parser = ArgumentParser()
-    parser.add_argument("--local", type=str, required=False, default=None, help="Path to the local run directory")
-    parser.add_argument("--wandb", type=str, required=False, default=None, help="Name of the run to evaluate")
+    parser.add_argument("--local", type=Path, required=False, default=None, help="Path to the local run directory")
+    parser.add_argument("--wandb", type=Path, required=False, default=None, help="Name of the run to evaluate")
     parser.add_argument("--weights", type=str, required=True, help="Name of the weights to evaluate")
     args, unknown = parser.parse_known_args()
     if args.local is None and args.wandb is None:
         raise ValueError("Either --local or --wandb must be provided")
-    run_reader = WandbRunReader(args.wandb, category="ppo") if args.wandb else LocalRunReader(args.local)
+    run_reader = WandbRunReader(args.wandb, category="ppo") if args.wandb else LocalRunReader(Path("runs/ppo") / args.local)
     run_omegaconf = run_reader.load_config()
     cli_omegaconf = OmegaConf.from_dotlist(unknown)
     train_omegaconf = OmegaConf.merge(run_omegaconf, cli_omegaconf)

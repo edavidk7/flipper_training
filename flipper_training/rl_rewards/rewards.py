@@ -9,7 +9,7 @@ from flipper_training.rl_rewards import Reward
 if TYPE_CHECKING:
     from flipper_training.environment.env import Env
 
-__all__ = ["RollPitchGoal", "Goal", "IncrementalGoal"]
+__all__ = ["RollPitchGoal", "Goal", "PotentialGoal"]
 
 
 @dataclass
@@ -50,7 +50,7 @@ class Goal(Reward):
     goal_reached_reward: float
     failed_reward: float
     weight: float
-    exp: float | int = 2
+    exp: float | int = 1
 
     def __call__(
         self,
@@ -62,10 +62,10 @@ class Goal(Reward):
         fail: torch.BoolTensor,
         env: "Env",
     ) -> torch.Tensor:
-        goal_diff = (env.goal.x - curr_state.x).norm(dim=-1, keepdim=True)
+        goal_diff = (env.goal.x - curr_state.x).norm(dim=-1, keepdim=True) / (env.terrain_cfg.max_coord * 2**0.5)
         reward = -self.weight * goal_diff.pow(self.exp)
-        reward[success] = self.goal_reached_reward
-        reward[fail] = self.failed_reward
+        reward[success] += self.goal_reached_reward
+        reward[fail] += self.failed_reward
         return reward.to(env.out_dtype)
 
 
@@ -86,12 +86,12 @@ class PotentialGoal(Reward):
         fail: torch.BoolTensor,
         env: "Env",
     ) -> torch.Tensor:
-        curr_dist = (env.goal.x - curr_state.x).norm(dim=-1, keepdim=True)
-        prev_dist = (env.goal.x - prev_state.x).norm(dim=-1, keepdim=True)
+        curr_dist = (env.goal.x - curr_state.x).norm(dim=-1, keepdim=True) / (env.terrain_cfg.max_coord * 2**0.5)
+        prev_dist = (env.goal.x - prev_state.x).norm(dim=-1, keepdim=True) / (env.terrain_cfg.max_coord * 2**0.5)
         # Normalized potential to bound rewards
-        neg_goal_dist_curr = -curr_dist / (1 + curr_dist)  # phi(s')
-        neg_goal_dist_prev = -prev_dist / (1 + prev_dist)  # phi(s)
+        neg_goal_dist_curr = -curr_dist  # phi(s')
+        neg_goal_dist_prev = -prev_dist  # phi(s)
         reward = self.gamma * neg_goal_dist_curr - neg_goal_dist_prev + self.step_penalty
-        reward[success] = self.goal_reached_reward
-        reward[fail] = self.failed_reward
+        reward[success] += self.goal_reached_reward
+        reward[fail] += self.failed_reward
         return reward.to(env.out_dtype)

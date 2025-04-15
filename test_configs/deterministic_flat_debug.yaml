@@ -1,11 +1,11 @@
 type: ${cls:flipper_training.experiments.ppo.config.PPOExperimentConfig}
-name: random_start_goal_flat_terrain_navigation-potential-reward
-comment: Random start-goal navigation with randomly sampled positions on a flat terrain, potential reward + step penalty - monotonous, higher goal reached radius
+name: fixed_start_goal_flat_debugging_config
+comment: "Debugging PPO on flat terrain with fixed start and goal"
 training_dtype: ${dtype:float32}
 seed: 42
 use_wandb: true
 eval_and_save_every: 10 # steps
-max_eval_steps: 1000
+max_eval_steps: 500
 device: cuda:0
 num_robots: 128
 grid_res: 0.05
@@ -25,12 +25,12 @@ optimizer: ${cls:torch.optim.AdamW}
 optimizer_opts:
   lr: 3e-4
 scheduler: ${cls:torch.optim.lr_scheduler.StepLR}
-total_frames: ${mul:5242880,5}
+total_frames: ${mul:5242880,1}
 frames_per_batch: 128
 scheduler_opts:
-  step_size: ${intdiv:${intdiv:${total_frames},${mul:${frames_per_batch},${num_robots}}},3}
+  step_size: ${intdiv:${intdiv:${total_frames},${mul:${frames_per_batch},${num_robots}}},2}
   gamma: 0.5
-max_grad_norm: 10
+max_grad_norm: 1
 heightmap_gen: ${ cls:flipper_training.heightmaps.flat.FlatHeightmapGenerator}
 heightmap_gen_opts: {}
 world_opts:
@@ -65,31 +65,33 @@ data_collector_opts:
   split_trajs: false
   compile_policy: false
   exploration_type: RANDOM
-objective: ${cls:flipper_training.rl_objectives.random_nav.RandomNavigationObjective}
+objective: ${cls:flipper_training.rl_objectives.fixed_goal.FixedStartGoalNavigation}
 objective_opts:
-  higher_allowed: 0.8
-  min_dist_to_goal: 1.5
-  max_dist_to_goal: 3.0
-  start_z_offset: 0.2
-  goal_z_offset: 0.1
-  iteration_limit_factor: 20
-  start_position_orientation: towards_goal
+  iteration_limit: 500
   goal_reached_threshold: 0.1
-  max_feasible_roll: 1.5
-  max_feasible_pitch: 1.5
-  cache_size: 30000
-reward: ${cls:flipper_training.rl_rewards.rewards.Goal}
+  max_feasible_pitch: 1.0
+  max_feasible_roll: 1.0
+  start_x_y_z: ${tensor:[-1.0, 0.0, 0.2]}
+  goal_x_y_z: ${tensor:[1.0, 0.0, 0.1]}
+  init_joint_angles: ${tensor:[0.,0.,0.,0.]}
+# reward: ${cls:flipper_training.rl_rewards.rewards.Goal}
+# reward_opts:
+#   goal_reached_reward: 2.0
+#   failed_reward: -2.0
+#   exp: 1
+#   weight: 1.0
+reward: ${cls:flipper_training.rl_rewards.rewards.PotentialGoal}
 reward_opts:
   goal_reached_reward: 2.0
   failed_reward: -2.0
-  exp: 1
-  weight: 1.0
+  step_penalty: -0.1
+  gamma: ${gae_opts.gamma}
 observations:
   state:
     observation: ${cls:flipper_training.observations.robot_state.LocalStateVector}
     opts: {}
 policy_opts:
-  hidden_dim: 64
+  hidden_dim: 32
   value_mlp_layers: 2
   actor_mlp_layers: 2
 engine_opts:
