@@ -62,7 +62,7 @@ class Goal(Reward):
         fail: torch.BoolTensor,
         env: "Env",
     ) -> torch.Tensor:
-        goal_diff = (env.goal.x - curr_state.x).norm(dim=-1, keepdim=True) / (env.terrain_cfg.max_coord * 2**0.5)
+        goal_diff = (env.goal.x - curr_state.x).norm(dim=-1, keepdim=True) / (env.terrain_cfg.max_coord * 2**1.5)
         reward = -self.weight * goal_diff.pow(self.exp)
         reward[success] += self.goal_reached_reward
         reward[fail] += self.failed_reward
@@ -75,6 +75,7 @@ class PotentialGoal(Reward):
     failed_reward: float
     gamma: float
     step_penalty: float
+    potential_coef: float
 
     def __call__(
         self,
@@ -86,12 +87,41 @@ class PotentialGoal(Reward):
         fail: torch.BoolTensor,
         env: "Env",
     ) -> torch.Tensor:
-        curr_dist = (env.goal.x - curr_state.x).norm(dim=-1, keepdim=True) / (env.terrain_cfg.max_coord * 2**0.5)
-        prev_dist = (env.goal.x - prev_state.x).norm(dim=-1, keepdim=True) / (env.terrain_cfg.max_coord * 2**0.5)
+        curr_dist = (env.goal.x - curr_state.x).norm(dim=-1, keepdim=True) / (env.terrain_cfg.max_coord * 2**1.5)
+        prev_dist = (env.goal.x - prev_state.x).norm(dim=-1, keepdim=True) / (env.terrain_cfg.max_coord * 2**1.5)
         # Normalized potential to bound rewards
         neg_goal_dist_curr = -curr_dist  # phi(s')
         neg_goal_dist_prev = -prev_dist  # phi(s)
-        reward = self.gamma * neg_goal_dist_curr - neg_goal_dist_prev + self.step_penalty
+        reward = self.potential_coef * (self.gamma * neg_goal_dist_curr - neg_goal_dist_prev) + self.step_penalty
+        reward[success] += self.goal_reached_reward
+        reward[fail] += self.failed_reward
+        return reward.to(env.out_dtype)
+
+
+@dataclass
+class CombinedGoal(Reward):
+    goal_reached_reward: float
+    failed_reward: float
+    gamma: float
+    step_penalty: float
+    weight: float
+
+    def __call__(
+        self,
+        prev_state: PhysicsState,
+        action: torch.Tensor,
+        prev_state_der: PhysicsStateDer,
+        curr_state: PhysicsState,
+        success: torch.BoolTensor,
+        fail: torch.BoolTensor,
+        env: "Env",
+    ) -> torch.Tensor:
+        curr_dist = (env.goal.x - curr_state.x).norm(dim=-1, keepdim=True) / (env.terrain_cfg.max_coord * 2**1.5)
+        prev_dist = (env.goal.x - prev_state.x).norm(dim=-1, keepdim=True) / (env.terrain_cfg.max_coord * 2**1.5)
+        # Normalized potential to bound rewards
+        neg_goal_dist_curr = -curr_dist  # phi(s')
+        neg_goal_dist_prev = -prev_dist  # phi(s)
+        reward = self.weight * ((1 + self.gamma) * neg_goal_dist_curr - neg_goal_dist_prev) + self.step_penalty
         reward[success] += self.goal_reached_reward
         reward[fail] += self.failed_reward
         return reward.to(env.out_dtype)

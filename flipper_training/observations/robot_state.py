@@ -10,6 +10,25 @@ from flipper_training.utils.geometry import (
 )
 
 from . import Observation
+from flipper_training.policies import make_mlp_layer_module
+
+
+class LocalStateVectorEncoder(torch.nn.Module):
+    def __init__(self, input_dim: int, output_dim: int, num_hidden: int, hidden_dim: int, ln: bool):
+        super(LocalStateVectorEncoder, self).__init__()
+        self.input_dim = input_dim
+        self.output_dim = output_dim
+        self.num_hidden = num_hidden
+        self.hidden_dim = hidden_dim
+        self.ln = ln
+        self.encoder = torch.nn.Sequential(
+            make_mlp_layer_module(input_dim, hidden_dim, ln=ln),  # input dimension
+            *[make_mlp_layer_module(hidden_dim, ln=ln) for _ in range(num_hidden)],  # hidden layers
+            make_mlp_layer_module(hidden_dim, output_dim, ln=ln),  # output dimension
+        )
+
+    def forward(self, x):
+        return self.encoder(x)
 
 
 @dataclass
@@ -19,7 +38,7 @@ class LocalStateVector(Observation):
     """
 
     def __post_init__(self):
-        self.max_dist = self.env.terrain_cfg.max_coord * 2**0.5
+        self.max_dist = self.env.terrain_cfg.max_coord * 2**1.5
         self.theta_range = self.env.robot_cfg.joint_limits[1] - self.env.robot_cfg.joint_limits[0]
 
     def __call__(
@@ -56,4 +75,14 @@ class LocalStateVector(Observation):
             shape=(self.env.n_robots, dim),
             device=self.env.device,
             dtype=self.env.out_dtype,
+        )
+
+    def get_encoder(self, output_dim, num_hidden: int, hidden_dim: int, ln: bool) -> LocalStateVectorEncoder:
+        in_dim = self.get_spec().shape[-1]
+        return LocalStateVectorEncoder(
+            input_dim=in_dim,
+            output_dim=output_dim,
+            num_hidden=num_hidden,
+            hidden_dim=hidden_dim,
+            ln=ln,
         )

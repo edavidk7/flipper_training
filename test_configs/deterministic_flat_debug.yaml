@@ -13,7 +13,7 @@ max_coord: 3.2
 vecnorm_opts:
   decay: 0.95
   eps: 1e-4
-vecnorm_on_reward: false
+vecnorm_on_reward: true
 robot_model_opts:
   kind: marv
   mesh_voxel_size: 0.01
@@ -68,13 +68,12 @@ data_collector_opts:
 objective: ${cls:flipper_training.rl_objectives.fixed_goal.FixedStartGoalNavigation}
 objective_opts:
   iteration_limit: 500
-  goal_reached_threshold: 0.1
+  goal_reached_threshold: 0.05
   max_feasible_pitch: 1.0
   max_feasible_roll: 1.0
-  start_x_y_z: ${tensor:[-1.0, 0.0, 0.2]}
-  goal_x_y_z: ${tensor:[1.0, 0.0, 0.1]}
-  init_joint_angles: random
-  resample_random_joint_angles_on_reset: true
+  start_x_y_z: ${tensor:[-0.3, 0.0, 0.2]}
+  goal_x_y_z: ${tensor:[0.3, 0.0, 0.05]}
+  init_joint_angles: ${tensor:[0.0,0.0,0.0,0.0]}
 # reward: ${cls:flipper_training.rl_rewards.rewards.Goal}
 # reward_opts:
 #   goal_reached_reward: 2.0
@@ -85,7 +84,7 @@ reward: ${cls:flipper_training.rl_rewards.rewards.PotentialGoal}
 reward_opts:
   goal_reached_reward: 2.0
   failed_reward: -2.0
-  step_penalty: -0.1
+  step_penalty: -0.01
   gamma: ${gae_opts.gamma}
 observations:
   state:

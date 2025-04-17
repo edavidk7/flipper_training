@@ -9,7 +9,6 @@ from torchrl.envs.utils import check_env_specs
 from flipper_training.configs import PhysicsEngineConfig, RobotModelConfig, TerrainConfig
 from flipper_training.configs.experiment_config import make_partial_observations
 from flipper_training.environment.env import Env
-from flipper_training.policies import make_actor_value_policy
 from flipper_training.utils.torch_utils import seed_all, set_device
 
 if TYPE_CHECKING:
@@ -115,27 +114,21 @@ def prepare_env(train_config: "PPOExperimentConfig", mode: Literal["train", "eva
     return base_env, device, rng
 
 
-def make_policy(env: "Env", cfg: "PPOExperimentConfig", device: torch.device, weights_path: str | None = None) -> "SafeSequential":
-    actor_value_policy = make_actor_value_policy(env, **cfg.policy_opts)
-    actor_value_policy.to(device)
-    if weights_path is not None:
-        actor_value_policy.load_state_dict(torch.load(weights_path, map_location=device))
-    return actor_value_policy
-
-
-def make_eval_str_lines(eval_log: dict[str, int | float], init_eval_log: dict[str, int | float] | None = None) -> list[str]:
+def make_formatted_str_lines(eval_log: dict[str, int | float], format_dict: dict, init_eval_log: dict[str, int | float] | None = None) -> list[str]:
     var_dict = defaultdict(list)
     for key, value in eval_log.items():
-        var_name = key.split("_", maxsplit=1)[1]  # remove the prefix specifying the type of value
-        prec = EVAL_LOG_OPT["precision"].get(var_name, 4)
-        s = f"{key}: {value:.{prec}f}"
-        if init_eval_log is not None and key in init_eval_log:
-            s += f" (init {init_eval_log[key]:.{prec}f})"
-        var_dict[var_name].append(s)
+        statistic = key.split("/")[1]  # remove the prefix specifying the type of value
+        var_name = statistic.split("_", maxsplit=1)[-1]  # remove the prefix specifying the type of value
+        if var_name in format_dict["precision"]:
+            prec = format_dict["precision"].get(var_name, 4)
+            s = f"{key}: {value:.{prec}f}"
+            if init_eval_log is not None and key in init_eval_log:
+                s += f" (init {init_eval_log[key]:.{prec}f})"
+            var_dict[var_name].append(s)
 
     lines = []
-    for i, group in enumerate(EVAL_LOG_OPT["groups"]):
-        s = f"{EVAL_LOG_OPT['group_labels'][i]}: "
+    for i, group in enumerate(format_dict["groups"]):
+        s = f"{format_dict['group_labels'][i]}: "
         for var_name in group:
             for entry in var_dict[var_name]:
                 s += f"{entry} "

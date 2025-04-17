@@ -7,7 +7,40 @@ from flipper_training.engine.engine_state import PhysicsState, PhysicsStateDer
 from flipper_training.utils.environment import interpolate_grid
 from flipper_training.utils.geometry import local_to_global_q
 
-from .obs import Observation
+from . import Observation
+
+
+class HeightmapEncoder(torch.nn.Module):
+    def __init__(self, img_shape: tuple[int, int], output_dim: int):
+        super(HeightmapEncoder, self).__init__()
+        self.img_shape = img_shape
+        self.output_dim = output_dim
+        self.encoder = torch.nn.Sequential(
+            torch.nn.Conv2d(1, 8, 3, stride=2, padding=1),
+            torch.nn.BatchNorm2d(8, track_running_stats=False),
+            torch.nn.ReLU(),
+            torch.nn.Conv2d(8, 16, 3, stride=2, padding=1),
+            torch.nn.BatchNorm2d(16, track_running_stats=False),
+            torch.nn.ReLU(),
+            torch.nn.Conv2d(16, 32, 3, stride=2, padding=1),
+            torch.nn.BatchNorm2d(32, track_running_stats=False),
+            torch.nn.ReLU(),
+            torch.nn.Conv2d(32, 64, 3, stride=2, padding=1),
+            torch.nn.BatchNorm2d(64, track_running_stats=False),
+            torch.nn.ReLU(),
+            torch.nn.Flatten(),
+            torch.nn.Linear(64 * (img_shape[0] // 16) * (img_shape[1] // 16), output_dim),
+        )
+
+    def forward(self, hm):
+        if hm.ndim > 4:
+            B, T = hm.shape[:2]
+            hm = hm.flatten(0, 1)
+            y_ter = self.encoder(hm)
+            y_ter = y_ter.reshape((B, T, -1))
+        else:
+            y_ter = self.encoder(hm)
+        return y_ter
 
 
 @dataclass
@@ -52,3 +85,6 @@ class Heightmap(Observation):
             device=self.env.device,
             dtype=self.env.out_dtype,
         )
+
+    def get_encoder(self, output_dim) -> HeightmapEncoder:
+        return HeightmapEncoder(self.percep_shape, output_dim)

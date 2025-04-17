@@ -78,12 +78,13 @@ objective_opts:
   max_feasible_roll: 1.5
   max_feasible_pitch: 1.5
   cache_size: 10000
-reward: ${cls:flipper_training.rl_rewards.rewards.Goal}
+reward: ${cls:flipper_training.rl_rewards.rewards.CombinedGoal}
 reward_opts:
   goal_reached_reward: 2.0
   failed_reward: -2.0
+  step_penalty: -1e-4
+  gamma: ${gae_opts.gamma}
   weight: 10.0
-  exp: 1.0
 observations:
   state:
     observation: ${cls:flipper_training.observations.robot_state.LocalStateVector}

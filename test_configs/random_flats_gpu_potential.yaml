@@ -1,11 +1,11 @@
 type: ${cls:flipper_training.experiments.ppo.config.PPOExperimentConfig}
-name: random_start_goal_flat_terrain_navigation-potential-reward
-comment: Random start-goal navigation with randomly sampled positions on a flat terrain, potential reward + step penalty - monotonous, higher goal reached radius
+name: fixed_start_goal_flat_debugging_config
+comment: "Debugging PPO on flat terrain with randomized start and goal over very short distances, gamma 0.999"
 training_dtype: ${dtype:float32}
 seed: 42
 use_wandb: true
 eval_and_save_every: 10 # steps
-max_eval_steps: 1000
+max_eval_steps: 500
 device: cuda:0
 num_robots: 128
 grid_res: 0.05
@@ -23,14 +23,19 @@ robot_model_opts:
   linear_track_assignment_margin: 0.05
 optimizer: ${cls:torch.optim.AdamW}
 optimizer_opts:
-  lr: 3e-4
+  actor:
+    lr: 3e-4
+    weight_decay: 1e-5
+  critic:
+    lr: 1e-3
+    weight_decay: 1e-5
 scheduler: ${cls:torch.optim.lr_scheduler.StepLR}
-total_frames: ${mul:5242880,1}
-frames_per_batch: 128
+total_frames: ${mul:5242880,4}
+frames_per_batch: 512
 scheduler_opts:
   step_size: ${intdiv:${intdiv:${total_frames},${mul:${frames_per_batch},${num_robots}}},3}
   gamma: 0.5
-max_grad_norm: 1
+max_grad_norm: 0.5
 heightmap_gen: ${ cls:flipper_training.heightmaps.flat.FlatHeightmapGenerator}
 heightmap_gen_opts: {}
 world_opts:
@@ -46,52 +51,64 @@ engine_compile_opts:
   atol: 1
   rtol: 0
 epochs_per_batch: 1
-frames_per_sub_batch: 32
+frames_per_sub_batch: 64
 gae_compile_opts: null
 ppo_compile_opts: null
 gae_opts:
-  gamma: 0.99
-  lmbda: 0.95
-  average_gae: true
+  gamma: 0.999
+  lmbda: 0.98
+  average_gae: false
   skip_existing: false
 ppo_opts:
   clip_epsilon: 0.2
   entropy_bonus: true
-  entropy_coef: 0.01
+  entropy_coef: 0.02
   critic_coef: 1.0
   loss_critic_type: smooth_l1
-  normalize_advantage: true
+  normalize_advantage: false
 data_collector_opts:
   split_trajs: false
-  compile_policy: false
+  compile_policy: true
   exploration_type: RANDOM
 objective: ${cls:flipper_training.rl_objectives.random_nav.RandomNavigationObjective}
 objective_opts:
   higher_allowed: 0.8
-  min_dist_to_goal: 1.5
-  max_dist_to_goal: 3.0
+  min_dist_to_goal: 0.4
+  max_dist_to_goal: 0.8
   start_z_offset: 0.2
-  goal_z_offset: 0.1
+  goal_z_offset: 0.05
   iteration_limit_factor: 20
   start_position_orientation: towards_goal
-  goal_reached_threshold: 0.1
+  goal_reached_threshold: 0.05
   max_feasible_roll: 1.5
   max_feasible_pitch: 1.5
-  cache_size: 30000
+  cache_size: 10000
 reward: ${cls:flipper_training.rl_rewards.rewards.PotentialGoal}
 reward_opts:
   goal_reached_reward: 2.0
   failed_reward: -2.0
-  step_penalty: -0.01
+  step_penalty: -1e-2
   gamma: ${gae_opts.gamma}
+  potential_coef: 10.0
 observations:
   state:
     observation: ${cls:flipper_training.observations.robot_state.LocalStateVector}
     opts: {}
 policy_opts:
   hidden_dim: 32
-  value_mlp_layers: 2
-  actor_mlp_layers: 2
+  num_hidden: 2
+  ln: false
+value_function_opts:
+  hidden_dim: 32
+  num_hidden: 2
+  ln: false
+observation_encoders_opts:
+  shared: false 
+  state:
+    output_dim: 32
+    hidden_dim: 32
+    num_hidden: 2
+    ln: true
 engine_opts:
   damping_alpha: 5.0
   dt: 0.01

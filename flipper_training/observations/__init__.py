@@ -50,3 +50,13 @@ class Observation(ABC):
             The observation spec.
         """
         pass
+
+    @abstractmethod
+    def get_encoder(self, output_dim: int, *args, **kwargs) -> torch.nn.Module:
+        """
+        Get the encoder for the observation.
+
+        Returns:
+            The observation encoder.
+        """
+        pass

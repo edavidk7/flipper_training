@@ -2,7 +2,7 @@ import gc
 from typing import TYPE_CHECKING
 
 import torch
-from common import make_policy, prepare_env, make_eval_str_lines, log_from_eval_rollout
+from common import make_policy, prepare_env, make_formatted_str_lines, log_from_eval_rollout, EVAL_LOG_OPT
 from config import PPOExperimentConfig
 from simview import SimView
 from torchrl.envs import (
@@ -74,8 +74,9 @@ def main(train_omegaconf: "DictConfig", weights_path: str, vecnorm_weights_path:
     else:
         # Compose the simview model
         env, rollout = get_eval_rollout(train_config, weights_path, vecnorm_weights_path)
-        str_lines = make_eval_str_lines(
+        str_lines = make_formatted_str_lines(
             log_from_eval_rollout(rollout),
+            EVAL_LOG_OPT,
         )
         print(*str_lines, sep="\n")
         simview.model.add_terrain(simview_terrain_from_config(env.terrain_cfg))

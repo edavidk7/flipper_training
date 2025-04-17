@@ -8,6 +8,7 @@ import torch
 import yaml
 
 from flipper_training import ROOT
+from flipper_training.utils.logging import get_terminal_logger
 from flipper_training.configs.base_config import BaseConfig
 from flipper_training.utils.flipper_modeling import (
     TrackWheels,
@@ -53,10 +54,10 @@ class RobotModelConfig(BaseConfig):
     linear_track_assignment_margin: float = 0.05
 
     def __post_init__(self):
+        self.logger = get_terminal_logger("RobotModelConfig")
         self.load_robot_params_from_yaml()
         self.create_robot_geometry()
         self.disable_grads()
-        print(self)
 
     def disable_grads(self):
         """
@@ -151,10 +152,10 @@ class RobotModelConfig(BaseConfig):
         """
         confpath = POINTCACHE / self._descr_str
         if confpath.exists():
-            print(f"Loading robot model from cache: {confpath}")
+            self.logger.info(f"Loading robot model from cache: {confpath}")
             confdict = torch.load(confpath)
             if confdict["yaml_hash"] != self.yaml_hash:
-                print("Hash mismatch, re-creating robot model")
+                self.logger.error("Hash mismatch, re-creating robot model")
                 return False
             for key, val in confdict.items():
                 setattr(self, key, val)
@@ -168,7 +169,7 @@ class RobotModelConfig(BaseConfig):
         confpath = POINTCACHE / self._descr_str
         if not confpath.parent.exists():
             confpath.parent.mkdir(parents=True)
-        print(f"Saving robot model to cache: {confpath}")
+        self.logger.info(f"Saving robot model to cache: {confpath}")
         confdict = {
             "yaml_hash": self.yaml_hash,
             "driving_part_points": self.driving_part_points,
