@@ -2,6 +2,7 @@ from dataclasses import dataclass
 
 import torch
 from torchrl.data import Unbounded
+from torchrl.modules import MLP
 
 from flipper_training.engine.engine_state import PhysicsState, PhysicsStateDer
 from flipper_training.utils.geometry import (
@@ -10,25 +11,6 @@ from flipper_training.utils.geometry import (
 )
 
 from . import Observation
-from flipper_training.policies import make_mlp_layer_module
-
-
-class LocalStateVectorEncoder(torch.nn.Module):
-    def __init__(self, input_dim: int, output_dim: int, num_hidden: int, hidden_dim: int, ln: bool):
-        super(LocalStateVectorEncoder, self).__init__()
-        self.input_dim = input_dim
-        self.output_dim = output_dim
-        self.num_hidden = num_hidden
-        self.hidden_dim = hidden_dim
-        self.ln = ln
-        self.encoder = torch.nn.Sequential(
-            make_mlp_layer_module(input_dim, hidden_dim, ln=ln),  # input dimension
-            *[make_mlp_layer_module(hidden_dim, ln=ln) for _ in range(num_hidden)],  # hidden layers
-            make_mlp_layer_module(hidden_dim, output_dim, ln=ln),  # output dimension
-        )
-
-    def forward(self, x):
-        return self.encoder(x)
 
 
 @dataclass
@@ -77,12 +59,15 @@ class LocalStateVector(Observation):
             dtype=self.env.out_dtype,
         )
 
-    def get_encoder(self, output_dim, num_hidden: int, hidden_dim: int, ln: bool) -> LocalStateVectorEncoder:
+    def get_encoder(self, output_dim, **mlp_kwargs) -> MLP:
         in_dim = self.get_spec().shape[-1]
-        return LocalStateVectorEncoder(
-            input_dim=in_dim,
-            output_dim=output_dim,
-            num_hidden=num_hidden,
-            hidden_dim=hidden_dim,
-            ln=ln,
+        base_kwargs = {
+            "in_features": in_dim,
+            "out_features": output_dim,
+            "activation_class": torch.nn.Tanh,
+            "activate_last_layer": True,
+        }
+        base_kwargs.update(mlp_kwargs)
+        return MLP(
+            **base_kwargs,
         )

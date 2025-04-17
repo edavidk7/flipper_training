@@ -1,37 +1,61 @@
 import torch
 from flipper_training.environment.env import Env
 from tensordict.nn import TensorDictModule
-from torchrl.modules import NormalParamExtractor, ProbabilisticActor, TanhNormal, ValueOperator
+from torchrl.modules import NormalParamExtractor, ProbabilisticActor, TanhNormal, ValueOperator, MLP
+from collections import defaultdict
 from torchrl.data import TensorSpec
-from . import make_mlp_layer_module
+from flipper_training.observations import Observation
+from config import PolicyConfig
 
 __all__ = ["make_policy", "make_value_function"]
 
 
 class Policy(torch.nn.Module):
     """
-    Policy network for the flipper task. The policy network takes in the observation and goal vector and outputs
+    Policy network for the flipper task. Combines both actor and value function.
     """
 
-    def __init__(self, encoders: dict[str, torch.nn.Module], hidden_dim: int, num_hidden: int, act_spec: TensorSpec, ln: bool = False):
+    def __init__(self, policy_config: PolicyConfig, act_spec: TensorSpec, observations: dict[str, Observation]):
         super(Policy, self).__init__()
-        self.encoders = torch.nn.ModuleDict(encoders)
-        self.input_dim = sum([encoder.output_dim for encoder in encoders.values()])
-        self.policy = torch.nn.Sequential(
-            make_mlp_layer_module(self.input_dim, hidden_dim, ln),  # input dimension
-            *[make_mlp_layer_module(hidden_dim, ln=ln) for _ in range(num_hidden)],  # hidden layers
-            make_mlp_layer_module(hidden_dim, 2 * act_spec.shape[1], ln=ln),  # output dimension
+        self.encoders = self._prepare_encoders(policy_config, observations)
+        self.input_dim = sum([encoder_opt["output_dim"] for encoder_opt in policy_config["observation_encoders_opts"].values()])
+        self._policy_head = MLP(
+            in_features=self.input_dim,
+            out_features=act_spec.shape[1] * 2,
+            **policy_config["actor_opts"],
         )
-        self.extractor = NormalParamExtractor()
+        self._value_head = MLP(
+            in_features=self.input_dim,
+            out_features=1,
+            **policy_config["value_opts"],
+        )
+        self._extractor = NormalParamExtractor()
 
-    def forward(self, **kwargs):
+    def _prepare_encoders(self, policy_config: PolicyConfig, observations: dict[str, Observation]):
+        """
+        Prepare the encoders for the policy network.
+        """
+        self.encoders_mode = policy_config["encoders_mode"]
+        encoders = {} if policy_config["encoders_mode"] == "shared" else defaultdict(torch.nn.ModuleDict)
+        for key, observation in observations.items():
+            encoder_opts = policy_config["observation_encoders_opts"][key]
+            match self.encoders_mode:
+                case "shared":
+                    encoders[key] = observation.get_encoder(**encoder_opts)
+                case "separate":
+                    encoders["actor"][key] = observation.get_encoder(**encoder_opts)
+                    encoders["value"][key] = observation.get_encoder(**encoder_opts)
+                case _:
+                    raise ValueError(f"Unknown encoder mode: {self.encoders_mode}")
+        return torch.nn.ModuleDict(encoders)
+
+    def _forward_encoders(self, encoders: torch.nn.ModuleDict, **kwargs):
         y_encs = []
-        for key, encoder in self.encoders.items():
+        for key, encoder in encoders.items():
             y_enc = encoder(kwargs[key])
             y_encs.append(y_enc)
         y_shared = torch.cat(y_encs, dim=-1)
-        mu_sigma = self.policy(y_shared)
-        return self.extractor(mu_sigma)
+        return y_shared
 
 
 class ValueFunction(torch.nn.Module):
