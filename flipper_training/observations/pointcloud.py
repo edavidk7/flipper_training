@@ -7,14 +7,12 @@ from flipper_training.engine.engine_state import PhysicsState, PhysicsStateDer
 from flipper_training.utils.environment import interpolate_grid
 from flipper_training.utils.geometry import global_to_local_q, local_to_global_q
 
-from . import Observation
+from . import Observation, ObservationEncoder
 
 
-class PointcloudEncoder(torch.nn.Module):
+class PointcloudEncoder(ObservationEncoder):
     def __init__(self, img_shape: tuple[int, int], output_dim: int):
-        super(PointcloudEncoder, self).__init__()
-        self.img_shape = img_shape
-        self.output_dim = output_dim
+        super(PointcloudEncoder, self).__init__(output_dim)
         self.encoder = torch.nn.Sequential(
             torch.nn.Conv2d(3, 8, 3, stride=2, padding=1),
             torch.nn.BatchNorm2d(8, track_running_stats=False),
@@ -52,6 +50,7 @@ class Pointcloud(Observation):
     percep_shape: tuple[int, int]
     percep_extent: tuple[float, float, float, float]
     supports_vecnorm = False
+    name = "pointcloud"
 
     def __post_init__(self):
         self._initialize_perception_grid()
@@ -88,5 +87,5 @@ class Pointcloud(Observation):
             dtype=self.env.out_dtype,
         )
 
-    def get_encoder(self, output_dim) -> PointcloudEncoder:
-        return PointcloudEncoder(self.percep_shape, output_dim)
+    def get_encoder(self) -> PointcloudEncoder:
+        return PointcloudEncoder(self.percep_shape, **self.encoder_opts)

@@ -2,34 +2,24 @@ from dataclasses import dataclass
 
 import torch
 from torchrl.data import Unbounded
-
 from flipper_training.engine.engine_state import PhysicsState, PhysicsStateDer
 from flipper_training.utils.geometry import (
     inverse_quaternion,
     rotate_vector_by_quaternion,
     quaternion_to_euler,
 )
+from flipper_training.policies import MLP
+from . import Observation, ObservationEncoder
 
-from . import Observation
-from flipper_training.policies import make_mlp_layer_module
 
-
-class LocalStateVectorEncoder(torch.nn.Module):
-    def __init__(self, input_dim: int, output_dim: int, num_hidden: int, hidden_dim: int, ln: bool):
-        super(LocalStateVectorEncoder, self).__init__()
+class LocalStateVectorEncoder(ObservationEncoder):
+    def __init__(self, input_dim: int, output_dim: int, **mlp_kwargs):
+        super(LocalStateVectorEncoder, self).__init__(output_dim)
         self.input_dim = input_dim
-        self.output_dim = output_dim
-        self.num_hidden = num_hidden
-        self.hidden_dim = hidden_dim
-        self.ln = ln
-        self.encoder = torch.nn.Sequential(
-            make_mlp_layer_module(input_dim, hidden_dim, ln=ln),  # input dimension
-            *[make_mlp_layer_module(hidden_dim, ln=ln) for _ in range(num_hidden)],  # hidden layers
-            make_mlp_layer_module(hidden_dim, output_dim, ln=ln),  # output dimension
-        )
+        self.mlp = MLP(**mlp_kwargs | {"in_dim": input_dim, "out_dim": output_dim, "activate_last_layer": True, "layernorm": True})
 
     def forward(self, x):
-        return self.encoder(x)
+        return self.mlp(x)
 
 
 @dataclass
@@ -39,6 +29,7 @@ class LocalStateVector(Observation):
     """
 
     supports_vecnorm = True
+    name = "local_state_vector"
 
     def __post_init__(self):
         self.max_dist = self.env.terrain_cfg.max_coord * 2**1.5
@@ -86,12 +77,9 @@ class LocalStateVector(Observation):
             dtype=self.env.out_dtype,
         )
 
-    def get_encoder(self, output_dim, num_hidden: int, hidden_dim: int, ln: bool) -> LocalStateVectorEncoder:
+    def get_encoder(self) -> LocalStateVectorEncoder:
         in_dim = self.get_spec().shape[-1]
         return LocalStateVectorEncoder(
             input_dim=in_dim,
-            output_dim=output_dim,
-            num_hidden=num_hidden,
-            hidden_dim=hidden_dim,
-            ln=ln,
+            **self.encoder_opts,
         )

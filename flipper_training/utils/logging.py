@@ -10,6 +10,7 @@ from itertools import groupby
 from queue import Queue
 from typing import Any
 from pathlib import Path
+from torch.utils.tensorboard import SummaryWriter
 
 import torch
 from omegaconf import DictConfig, OmegaConf
@@ -48,20 +49,48 @@ def bold_red(s):
     return f"\033[31;1m{s}\033[00m"
 
 
+class ColoredFormatter(logging.Formatter):
+    base_fmt = "%(asctime)s [%(name)s][%(levelname)s]: %(message)s (%(filename)s:%(lineno)d)"
+
+    def __init__(self):
+        super().__init__()
+        self.formatters = {}
+        for fun, level in zip([blue, green, yellow, red, bold_red], [logging.DEBUG, logging.INFO, logging.WARNING, logging.ERROR, logging.CRITICAL]):
+            level_fmt = self.base_fmt.replace("%(levelname)s", fun("%(levelname)s"))
+            self.formatters[level] = logging.Formatter(level_fmt)
+
+    def format(self, record):
+        formatter = self.formatters.get(record.levelno)
+        return formatter.format(record)
+
+
+def get_terminal_logger(name: str) -> logging.Logger:
+    logger = logging.getLogger(name)
+    logger.setLevel(logging.DEBUG)
+    handler = logging.StreamHandler()
+    handler.setFormatter(ColoredFormatter())
+    logger.addHandler(handler)
+    return logger
+
+
 @dataclass
 class RunLogger:
     train_config: DictConfig
     use_wandb: bool
+    use_tensorboard: bool
     category: str
     logfiles: dict = field(default_factory=dict)
     writers: dict = field(default_factory=dict)
     log_queue: Queue = field(default_factory=Queue)
     step_metric_name: str = "log_step"
     known_wandb_metrics: set = field(default_factory=set)
+    tensorboard_writer: SummaryWriter | None = field(init=False, default=None)  # Added placeholder
 
     def __post_init__(self):
+        self.terminal_logger = get_terminal_logger("RunLogger")
         ts = time.strftime("%Y-%m-%d_%H-%M-%S")
         self.logpath = ROOT / f"runs/{self.category}/{self.train_config['name']}_{ts}"
+        self.terminal_logger.info(f"RunLogger initialized for run {self.logpath.name}")
         self.logpath.mkdir(parents=True, exist_ok=True)
         self.weights_path = self.logpath / "weights"
         self.weights_path.mkdir(exist_ok=True)
@@ -77,6 +106,11 @@ class RunLogger:
                 save_code=True,
             )
             wandb.define_metric(self.step_metric_name)
+        if self.use_tensorboard:
+            tb_log_dir = self.logpath / "tensorboard"
+            tb_log_dir.mkdir(exist_ok=True)
+            self.tensorboard_writer = SummaryWriter(log_dir=tb_log_dir)
+            self.terminal_logger.info(f"TensorBoard logs will be saved to {tb_log_dir}")
         self._save_config()
         self.write_thread = threading.Thread(target=self._write, daemon=True)
         self.write_thread.start()
@@ -112,15 +146,34 @@ class RunLogger:
                 break
             if self.use_wandb:
                 wandb.log(data=row | {self.step_metric_name: step})
+            if self.use_tensorboard and self.tensorboard_writer is not None:
+                for tag, scalar_value in row.items():
+                    # Basic check if value is likely a scalar
+                    if isinstance(scalar_value, (int, float, torch.Tensor)) and not isinstance(
+                        scalar_value, bool
+                    ):  # check avoids bools which SummaryWriter dislikes
+                        # Ensure tensor values are converted to scalar CPU values
+                        if isinstance(scalar_value, torch.Tensor):
+                            if scalar_value.numel() == 1:  # Log only if it's a single value tensor
+                                scalar_value = scalar_value.item()
+                            else:
+                                continue  # Skip multi-element tensors for add_scalar
+                        try:
+                            self.tensorboard_writer.add_scalar(tag, scalar_value, step)
+                        except Exception as e:
+                            self.terminal_logger.warning(f"TensorBoard logging failed for tag '{tag}' with value {scalar_value}: {e}")
             self._write_row(row, step)
 
     def close(self):
+        self.log_queue.put((-1, {}))
+        self.write_thread.join()
         for f in self.logfiles.values():
             f.close()
         if self.use_wandb:
             wandb.finish()
-        self.log_queue.put((-1, {}))
-        self.write_thread.join()
+        if self.use_tensorboard and self.tensorboard_writer is not None:
+            self.tensorboard_writer.close()
+        self.terminal_logger.info("RunLogger closed.")
 
     def save_weights(self, state_dict: dict, name: str):
         model_path = self.weights_path / f"{name}.pth"
@@ -131,6 +184,9 @@ class RunLogger:
                 name=name,
                 aliases=[self.wandb_run_id],
             )
+
+    def __del__(self):
+        self.close()
 
 
 @dataclass
@@ -175,27 +231,3 @@ class WandbRunReader:
 
     def get_metric(self, name: str) -> list:
         return [x[name] for x in self.history]
-
-
-class ColoredFormatter(logging.Formatter):
-    base_fmt = "%(asctime)s [%(name)s][%(levelname)s]: %(message)s (%(filename)s:%(lineno)d)"
-
-    def __init__(self):
-        super().__init__()
-        self.formatters = {}
-        for fun, level in zip([blue, green, yellow, red, bold_red], [logging.DEBUG, logging.INFO, logging.WARNING, logging.ERROR, logging.CRITICAL]):
-            level_fmt = self.base_fmt.replace("%(levelname)s", fun("%(levelname)s"))
-            self.formatters[level] = logging.Formatter(level_fmt)
-
-    def format(self, record):
-        formatter = self.formatters.get(record.levelno)
-        return formatter.format(record)
-
-
-def get_terminal_logger(name: str) -> logging.Logger:
-    logger = logging.getLogger(name)
-    logger.setLevel(logging.DEBUG)
-    handler = logging.StreamHandler()
-    handler.setFormatter(ColoredFormatter())
-    logger.addHandler(handler)
-    return logger

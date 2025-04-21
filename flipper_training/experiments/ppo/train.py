@@ -4,9 +4,7 @@ import torch
 from common import (
     prepare_data_collection,
     prepare_env,
-    make_formatted_str_lines,
     log_from_eval_rollout,
-    EVAL_LOG_OPT,
     parse_and_load_config,
     make_normed_env,
 )
@@ -16,46 +14,14 @@ from torchrl.objectives import ClipPPOLoss
 from torchrl.objectives.value import GAE
 from tqdm import tqdm
 from flipper_training.environment.env import Env
-from flipper_training.utils.logging import RunLogger, print_sticky_tqdm
-from flipper_training.policies.basic_policy import make_policy, make_value_function
+from flipper_training.utils.logging import RunLogger
 
 if TYPE_CHECKING:
     from omegaconf import DictConfig
     from tensordict import TensorDict
 
-TRAIN_LOG_OPT = {
-    "precision": {
-        "action_sample_log_prob": 4,
-        "critic_loss": 4,
-        "objective_loss": 4,
-        "entropy_loss": 4,
-        "entropy": 4,
-        "kl_approx": 4,
-        "clip_fraction": 4,
-        "lr": 4,
-        "advantage": 4,
-        "grad_norm": 4,
-    },
-    "groups": [
-        ["action_sample_log_prob", "entropy", "kl_approx"],
-        ["critic_loss", "objective_loss", "entropy_loss"],
-        ["advantage"],
-        ["clip_fraction"],
-        ["grad_norm"],
-        ["lr"],
-    ],
-    "group_labels": {
-        0: "Train policy statistics",
-        1: "Train PPO loss statistics",
-        2: "Train advantage statistics",
-        3: "Train PPO clipped fraction",
-        4: "Train gradient norm",
-        5: "Train learning rate",
-    },
-}
 
-
-def train_tensordicts_to_log(rollout_td: "TensorDict", loss_td: "TensorDict", grad_norm: torch.Tensor) -> dict[str, float]:
+def train_step_to_log(rollout_td: "TensorDict", loss_td: "TensorDict", grad_norm: torch.Tensor, optim: torch.optim.Optimizer) -> dict[str, float]:
     """
     Extract important data from the training tensordicts to log.
     """
@@ -70,32 +36,29 @@ def train_tensordicts_to_log(rollout_td: "TensorDict", loss_td: "TensorDict", gr
         "train/mean_advantage": rollout_td["advantage"].mean().item(),
         "train/std_advantage": rollout_td["advantage"].std().item(),
         "train/total_grad_norm": grad_norm.item(),
+        **{f"train/{g['name']}_lr": g["lr"] for g in optim.param_groups},
     }
 
 
 def train_ppo(
     config: "DictConfig",
     policy_weights_path: str | Path | None = None,
-    value_weights_path: str | Path | None = None,
     vecnorm_weights_path: str | Path | None = None,
 ):
     train_config = PPOExperimentConfig(**config)
     env, device, rng = prepare_env(train_config, mode="train")
     env = make_normed_env(env, train_config, vecnorm_weights_path)
-    actor_operator = make_policy(
-        env,
-        policy_opts=train_config.policy_opts,
-        encoders_opts=train_config.observation_encoders_opts,
-        device=device,
+    policy_config = train_config.policy_config(**train_config.policy_opts)
+    actor_value_wrapper, optim_groups, extra_transforms = policy_config.create(
+        env=env,
         weights_path=policy_weights_path,
-    )
-    value_operator = make_value_function(
-        env,
-        value_opts=train_config.value_function_opts,
-        encoders_opts=train_config.observation_encoders_opts,
         device=device,
-        weights_path=value_weights_path,
     )
+    actor_operator = actor_value_wrapper.get_policy_operator()
+    value_operator = actor_value_wrapper.get_value_operator()
+    if extra_transforms:
+        for transform in extra_transforms:
+            env.transform.insert(-2, transform)  # insert before the VecNorm
     # Collector
     collector, replay_buffer = prepare_data_collection(env, actor_operator, train_config)
     # PPO setup
@@ -112,10 +75,8 @@ def train_ppo(
         loss_module.compile(**train_config.ppo_compile_opts)
     # Optim
     optim = train_config.optimizer(
-        [
-            {"params": actor_operator.parameters(), **train_config.optimizer_opts["actor"]},
-            {"params": value_operator.parameters(), **train_config.optimizer_opts["critic"]},
-        ],
+        optim_groups,
+        **(train_config.optimizer_opts or {}),
     )
     scheduler = train_config.scheduler(
         optim,
@@ -128,12 +89,10 @@ def train_ppo(
         train_config=config,
         category="ppo",
         use_wandb=train_config.use_wandb,
+        use_tensorboard=train_config.use_tensorboard,
         step_metric_name="collected_frames",
     )
     pbar = tqdm(total=train_config.total_frames, desc="Training", unit="frames")
-    init_train_log = {}
-    init_eval_log = {}
-    eval_lines = []
     for i, tensordict_data in enumerate(collector):
         # collected (B, T, *specs) where B is the batch size and T the number of steps
         tensordict_data.pop(Env.STATE_KEY)  # we don't need this
@@ -153,13 +112,9 @@ def train_ppo(
                 optim.step()
                 optim.zero_grad()
 
+        log = train_step_to_log(tensordict_data, loss_vals, grad_norm, optim)
         total_collected_frames = (i + 1) * train_config.frames_per_batch * train_config.num_robots
 
-        log = train_tensordicts_to_log(tensordict_data, loss_vals, grad_norm)
-        log |= {"train/lr": optim.param_groups[0]["lr"]}
-        if not init_train_log:
-            init_train_log |= log
-        train_lines = make_formatted_str_lines(log, TRAIN_LOG_OPT, init_train_log)
         if i % train_config.eval_and_save_every == 0:
             actor_operator.eval()
             value_operator.eval()
@@ -170,17 +125,11 @@ def train_ppo(
             ):
                 eval_rollout = env.rollout(train_config.max_eval_steps, actor_operator, break_when_all_done=True, auto_reset=True)
                 eval_log = log_from_eval_rollout(eval_rollout)
-                if not init_eval_log:
-                    init_eval_log |= eval_log
-                eval_lines = make_formatted_str_lines(eval_log, EVAL_LOG_OPT, init_eval_log)
                 log.update(eval_log)
-                logger.save_weights(actor_operator.state_dict(), f"policy_step_{total_collected_frames}")
-                logger.save_weights(value_operator.state_dict(), f"value_step_{total_collected_frames}")
+                logger.save_weights(actor_value_wrapper.state_dict(), f"policy_step_{total_collected_frames}")
                 logger.save_weights(env.transform[-1].state_dict(), f"vecnorm_step_{total_collected_frames}")
                 del eval_rollout
 
-        all_lines = train_lines + eval_lines
-        print_sticky_tqdm(all_lines)
         logger.log_data(log, total_collected_frames)
         pbar.update(train_config.frames_per_batch * train_config.num_robots)
         scheduler.step()

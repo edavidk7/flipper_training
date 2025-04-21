@@ -26,10 +26,7 @@ class Env(EnvBase):
         self,
         objective: BaseObjective,
         reward: Reward,
-        observations: dict[
-            str,
-            Callable[["Env"], "Observation"],
-        ],
+        observations: list[Callable[["Env"], "Observation"],],
         terrain_config: TerrainConfig,
         physics_config: PhysicsEngineConfig,
         robot_model_config: RobotModelConfig,
@@ -54,7 +51,7 @@ class Env(EnvBase):
         # Engine
         self.engine = DPhysicsEngine(physics_config, robot_model_config, device)
         # RL components
-        self.observations = {k: o(self) for k, o in observations.items()}
+        self.observations = [o(self) for o in observations]
         self.objective = objective
         self.reward = reward
         # RL State variables
@@ -129,7 +126,7 @@ class Env(EnvBase):
         )
 
     def _make_observation_spec(self) -> Composite:
-        obs_specs = {k: obs.get_spec() for k, obs in self.observations.items()}
+        obs_specs = {o.name: o.get_spec() for o in self.observations}
         state_spec = {Env.STATE_KEY: make_composite_from_td(self.start)}
         if self.return_derivative:
             der_spec = {
@@ -175,10 +172,7 @@ class Env(EnvBase):
         curr_state: PhysicsState,
     ) -> TensorDict:
         obs_td = TensorDict(
-            {
-                k: obs(prev_state=prev_state, action=action, prev_state_der=prev_state_der, curr_state=curr_state)
-                for k, obs in self.observations.items()
-            },
+            {o.name: o(prev_state=prev_state, action=action, prev_state_der=prev_state_der, curr_state=curr_state) for o in self.observations},
             device=self.device,
             batch_size=[self.n_robots],
         )

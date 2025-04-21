@@ -7,7 +7,6 @@ from config import PPOExperimentConfig
 from pathlib import Path
 from simview import SimView
 from torchrl.envs.utils import ExplorationType, set_exploration_type
-from flipper_training.policies.basic_policy import make_policy
 from flipper_training.configs.experiment_config import hash_omegaconf
 from flipper_training.engine.engine_state import PhysicsState, PhysicsStateDer
 from flipper_training.environment.env import Env
@@ -24,15 +23,17 @@ def get_eval_rollout(
 ) -> tuple["TransformedEnv", "TensorDictBase"]:
     env, device, rng = prepare_env(train_config, mode="eval")
     env = make_normed_env(env, train_config, vecnorm_weights_path, freeze_vecnorm=True)
-    actor_operator = make_policy(
-        env,
-        policy_opts=train_config.policy_opts,
-        encoders_opts=train_config.observation_encoders_opts,
-        device=device,
+    policy_config = train_config.policy_config(**train_config.policy_opts)
+    actor_value_wrapper, optim_groups, extra_transforms = policy_config.create(
+        env=env,
         weights_path=policy_weights_path,
+        device=device,
     )
+    actor_operator = actor_value_wrapper.get_policy_operator()
+    if extra_transforms:
+        for transform in extra_transforms:
+            env.transform.insert(-2, transform)  # insert before the VecNorm
     actor_operator.eval()
-    env.reset()
     env.eval()
     with (
         set_exploration_type(ExplorationType.DETERMINISTIC),
@@ -42,7 +43,7 @@ def get_eval_rollout(
     return env, eval_rollout
 
 
-def eval_ppo(config: "DictConfig", policy_weights_path: str, value_weigths_path: str | Path, vecnorm_weights_path: str | Path):
+def eval_ppo(config: "DictConfig", policy_weights_path: str, vecnorm_weights_path: str | Path):
     train_config = PPOExperimentConfig(**config)
     config_hash = hash_omegaconf(config)
     simview = SimView(

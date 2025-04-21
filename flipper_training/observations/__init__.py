@@ -12,6 +12,19 @@ if TYPE_CHECKING:
     from flipper_training.environment.env import Env
 
 
+class ObservationEncoder(torch.nn.Module):
+    """
+    Abstract class for observation encoders.
+
+    Args:
+        output_dim (int): The output dimension of the encoder.
+    """
+
+    def __init__(self, output_dim: int):
+        super().__init__()
+        self.output_dim = output_dim
+
+
 @dataclass
 class Observation(ABC):
     """
@@ -22,7 +35,9 @@ class Observation(ABC):
     """
 
     env: "Env"
+    encoder_opts: dict
     supports_vecnorm: ClassVar[bool] = NotImplemented
+    name: ClassVar[str] = NotImplemented
 
     @abstractmethod
     def __call__(
@@ -53,7 +68,7 @@ class Observation(ABC):
         pass
 
     @abstractmethod
-    def get_encoder(self, output_dim: int, *args, **kwargs) -> torch.nn.Module:
+    def get_encoder(self) -> ObservationEncoder:
         """
         Get the encoder for the observation.
 

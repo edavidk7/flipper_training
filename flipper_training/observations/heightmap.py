@@ -8,14 +8,13 @@ from flipper_training.engine.engine_state import PhysicsState, PhysicsStateDer
 from flipper_training.utils.environment import interpolate_grid
 from flipper_training.utils.geometry import planar_rot_from_q
 
-from . import Observation
+from . import Observation, ObservationEncoder
 
 
-class HeightmapEncoder(torch.nn.Module):
+class HeightmapEncoder(ObservationEncoder):
     def __init__(self, img_shape: tuple[int, int], output_dim: int):
-        super(HeightmapEncoder, self).__init__()
+        super(HeightmapEncoder, self).__init__(output_dim)
         self.img_shape = img_shape
-        self.output_dim = output_dim
         self.encoder = torch.nn.Sequential(
             nn.Conv2d(1, 16, 3, stride=2, padding=1),
             nn.GroupNorm(4, 16),  # instead of BatchNorm2d(16)
@@ -31,6 +30,8 @@ class HeightmapEncoder(torch.nn.Module):
             nn.ReLU(),
             nn.Flatten(),
             nn.Linear(128 * (img_shape[0] // 16) * (img_shape[1] // 16), output_dim),
+            nn.LayerNorm(output_dim),
+            nn.Tanh(),
         )
 
     def forward(self, hm):
@@ -53,6 +54,7 @@ class Heightmap(Observation):
     percep_shape: tuple[int, int]
     percep_extent: tuple[float, float, float, float]
     supports_vecnorm = False
+    name = "heightmap"
 
     def __post_init__(self):
         self._initialize_perception_grid()
@@ -100,5 +102,5 @@ class Heightmap(Observation):
             dtype=self.env.out_dtype,
         )
 
-    def get_encoder(self, output_dim) -> HeightmapEncoder:
-        return HeightmapEncoder(self.percep_shape, output_dim)
+    def get_encoder(self) -> HeightmapEncoder:
+        return HeightmapEncoder(self.percep_shape, **self.encoder_opts)

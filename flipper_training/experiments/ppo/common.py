@@ -12,6 +12,7 @@ from flipper_training.environment.env import Env
 from flipper_training.utils.torch_utils import seed_all, set_device
 from argparse import ArgumentParser
 from pathlib import Path
+from config import PPOExperimentConfig
 from omegaconf import DictConfig, OmegaConf
 from flipper_training.utils.logging import LocalRunReader, WandbRunReader
 
@@ -170,7 +171,7 @@ def log_from_eval_rollout(eval_rollout: "TensorDict") -> dict[str, int | float]:
 def make_normed_env(
     env: "Env", train_config: "PPOExperimentConfig", vecnorm_weights_path: str | Path | None = None, freeze_vecnorm: bool = False
 ) -> TransformedEnv:
-    vecnorm_keys = [k for k, v in train_config.observations.items() if v["observation"].supports_vecnorm]
+    vecnorm_keys = [o.name for o in env.observations if o.supports_vecnorm]
     if train_config.vecnorm_on_reward:
         vecnorm_keys.append("reward")
     transforms = Compose(
@@ -184,21 +185,18 @@ def make_normed_env(
     return TransformedEnv(env, transforms)
 
 
-def download_config_and_paths(
-    reader: WandbRunReader | LocalRunReader, weight_step: int | None
-) -> tuple[DictConfig, Path | None, Path | None, Path | None]:
+def download_config_and_paths(reader: WandbRunReader | LocalRunReader, weight_step: int | None) -> tuple[DictConfig, Path | None, Path | None]:
     run_omegaconf = reader.load_config()
     if not isinstance(run_omegaconf, DictConfig):
         raise ValueError("Config must be a DictConfig")
     if run_omegaconf["type"].__name__ != PPOExperimentConfig.__name__:
         raise ValueError("Config must be of type PPOExperimentConfig")
-    if weight_step is None:
+    if weight_step is not None:
         policy_weights_path = reader.get_weights_path(f"policy_step_{weight_step}")
-        value_weights_path = reader.get_weights_path(f"value_step_{weight_step}")
         vecnorm_weights_path = reader.get_weights_path(f"vecnorm_step_{weight_step}")
     else:
-        policy_weights_path = value_weights_path = vecnorm_weights_path = None
-    return run_omegaconf, policy_weights_path, value_weights_path, vecnorm_weights_path
+        policy_weights_path = vecnorm_weights_path = None
+    return run_omegaconf, policy_weights_path, vecnorm_weights_path
 
 
 def parse_and_load_config() -> dict:
@@ -213,15 +211,14 @@ def parse_and_load_config() -> dict:
         raise ValueError("Only one of --local or --wandb must be provided")
     if args.local is not None and "yaml" in args.local.name:
         parsed_omegaconf = OmegaConf.load(args.local)
-        policy_weights_path = value_weights_path = vecnorm_weights_path = None
+        policy_weights_path = vecnorm_weights_path = None
     else:
         run_reader = WandbRunReader(args.wandb, category="ppo") if args.wandb else LocalRunReader(Path("runs/ppo") / args.local)
-        parsed_omegaconf, policy_weights_path, value_weights_path, vecnorm_weights_path = download_config_and_paths(run_reader, args.weight_step)
+        parsed_omegaconf, policy_weights_path, vecnorm_weights_path = download_config_and_paths(run_reader, args.weight_step)
     cli_omegaconf = OmegaConf.from_dotlist(unknown)
     merged_omegaconf = OmegaConf.merge(parsed_omegaconf, cli_omegaconf)
     return {
         "config": merged_omegaconf,
         "policy_weights_path": policy_weights_path,
-        "value_weights_path": value_weights_path,
         "vecnorm_weights_path": vecnorm_weights_path,
     }

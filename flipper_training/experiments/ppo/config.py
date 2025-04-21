@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 from typing import Any
 from flipper_training.configs.experiment_config import BaseExperimentConfig
+from flipper_training.policies import PolicyConfig
 
 
 @dataclass
@@ -10,9 +11,8 @@ class PPOExperimentConfig(BaseExperimentConfig):
     gae_opts: dict[str, Any]
     ppo_opts: dict[str, Any]
     data_collector_opts: dict[str, Any]
+    policy_config: type[PolicyConfig]
     policy_opts: dict[str, Any]
-    value_function_opts: dict[str, Any]
-    observation_encoders_opts: dict[str, dict[str, Any]]
     vecnorm_opts: dict[str, Any]
     vecnorm_on_reward: bool
     gae_compile_opts: dict[str, Any] | None = None

@@ -4,6 +4,7 @@ name: deterministic_trunk_debug_for_hparam_calibration
 comment: "Debugging PPO with deterministic trunk heightmap generation"
 seed: 42
 use_wandb: true
+use_tensorboard: true
 device: cuda:0
 
 # Training Loop Parameters
@@ -17,13 +18,6 @@ max_eval_steps: 800
 
 # Optimizer and Scheduler Configuration
 optimizer: ${cls:torch.optim.AdamW}
-optimizer_opts:
-  actor:
-    lr: 1e-4
-    weight_decay: 1e-3
-  critic:
-    lr: 3e-4
-    weight_decay: 1e-3
 scheduler: ${cls:torch.optim.lr_scheduler.StepLR}
 scheduler_opts:
   step_size: ${intdiv:${intdiv:${total_frames},${mul:${frames_per_batch},${num_robots}}},2}
@@ -39,7 +33,7 @@ heightmap_gen_opts:
   trunk_height: 0.2
   trunk_width: 0.5
 world_opts:
-  k_stiffness: 30000
+  k_stiffness: 35000
   k_friction_lon: 0.8
   k_friction_lat: 0.5
 engine_opts:
@@ -69,23 +63,18 @@ vecnorm_opts:
   eps: 1e-4
 vecnorm_on_reward: true
 observations:
-  state:
-    observation: ${cls:flipper_training.observations.robot_state.LocalStateVector}
-    opts: {}
-  heightmap:
-    observation: ${cls:flipper_training.observations.heightmap.Heightmap}
+  - cls: ${cls:flipper_training.observations.robot_state.LocalStateVector}
+    opts:
+      encoder_opts:
+        num_hidden: 2
+        hidden_dim: 32
+        output_dim: 32
+  - cls: ${cls:flipper_training.observations.heightmap.Heightmap}
     opts:
       percep_shape: [64, 64]
       percep_extent: [1.0, 1.0, -1.0, -1.0]
-observation_encoders_opts:
-  state:
-    output_dim: 32
-    hidden_dim: 32
-    num_hidden: 1
-    ln: true
-  heightmap:
-    output_dim: 32
-
+      encoder_opts:
+        output_dim: 64
 # PPO Algorithm Parameters
 gae_opts:
   gamma: 0.99
@@ -115,7 +104,7 @@ objective_opts:
   max_feasible_pitch: 1.5
   max_feasible_roll: 1.5
   goal_reached_threshold: 0.1
-  init_joint_angles: ${tensor:[0.0, 0.0, 0.0, 0.0]}
+  init_joint_angles: ${tensor:[1.5, 1.5, -1.5, -1.5]}
 
 # Reward Function Configuration
 reward: ${cls:flipper_training.rl_rewards.rewards.PotentialGoalWithConditionalVelocityBonus}
@@ -128,11 +117,20 @@ reward_opts:
   velocity_bonus_coef: 0.1
 
 # Policy and Value Network Architecture
+policy_config: ${cls:flipper_training.policies.mlp_policy.MLPPolicyConfig}
 policy_opts:
-  hidden_dim: 32
-  num_hidden: 1
-  ln: false
-value_function_opts:
-  hidden_dim: 32
-  num_hidden: 1
-  ln: false
+  share_encoder: false
+  actor_mlp_opts:
+    num_hidden: 2
+    hidden_dim: 32
+    layernorm: false
+  value_mlp_opts:
+    num_hidden: 2
+    hidden_dim: 32
+    layernorm: false
+  actor_optimizer_opts:
+    lr: 3e-4
+    weight_decay: 1e-3
+  value_optimizer_opts:
+    lr: 3e-4
+    weight_decay: 1e-3

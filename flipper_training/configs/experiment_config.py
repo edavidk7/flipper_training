@@ -5,7 +5,7 @@ from abc import ABC
 from dataclasses import dataclass
 from functools import partial
 from importlib import import_module
-from typing import TYPE_CHECKING, Any, Dict, Type, TypedDict
+from typing import TYPE_CHECKING, Any, Dict, Type, TypedDict, List
 
 import torch
 from omegaconf import OmegaConf
@@ -36,12 +36,12 @@ OmegaConf.register_new_resolver("tensor", lambda s: torch.tensor(s))
 
 
 class ObservationConfig(TypedDict):
-    observation: "Type[Observation]"
-    opts: dict[str, Any]
+    cls: "Type[Observation]"
+    opts: dict[str, Any] | None
 
 
-def make_partial_observations(observations: Dict[str, ObservationConfig]):
-    return {k: partial(v["observation"], **v.get("opts", {})) for k, v in observations.items()}
+def make_partial_observations(observations: List[ObservationConfig]) -> List[partial]:
+    return [partial(o["cls"], **(o["opts"] or {})) for o in observations]
 
 
 def hash_omegaconf(omegaconf: "DictConfig") -> str:
@@ -57,6 +57,7 @@ class BaseExperimentConfig(ABC):
     comment: str
     training_dtype: torch.dtype
     use_wandb: bool
+    use_tensorboard: bool
     seed: int
     device: str
     num_robots: int
@@ -64,7 +65,7 @@ class BaseExperimentConfig(ABC):
     max_coord: float
     robot_model_opts: dict[str, Any]
     optimizer: "Type[Optimizer]"
-    optimizer_opts: dict[str, Any]
+    optimizer_opts: dict[str, Any] | None = None
     scheduler: "Type[LRScheduler]"
     scheduler_opts: dict[str, Any]
     max_grad_norm: float
@@ -75,7 +76,7 @@ class BaseExperimentConfig(ABC):
     world_opts: dict[str, float]
     engine_compile_opts: dict[str, Any] | None = None
     engine_opts: dict[str, Any]
-    observations: Dict[str, ObservationConfig]
+    observations: List[ObservationConfig]
     objective: "Type[BaseObjective]"
     objective_opts: dict[str, Any]
     reward: "Type[Reward]"
