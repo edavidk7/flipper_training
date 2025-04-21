@@ -20,8 +20,8 @@ if TYPE_CHECKING:
     from flipper_training.heightmaps import BaseHeightmapGenerator
 
 
-def resolve_class(type: str) -> Type:
-    module, class_name = type.rsplit(".", 1)
+def resolve_class(typename: str) -> Type:
+    module, class_name = typename.rsplit(".", 1)
     return getattr(import_module(module), class_name)
 
 

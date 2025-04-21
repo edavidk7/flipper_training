@@ -2,51 +2,35 @@ import gc
 from typing import TYPE_CHECKING
 
 import torch
-from common import make_policy, prepare_env, make_formatted_str_lines, log_from_eval_rollout, EVAL_LOG_OPT
+from common import prepare_env, make_formatted_str_lines, log_from_eval_rollout, EVAL_LOG_OPT, make_normed_env, parse_and_load_config
 from config import PPOExperimentConfig
+from pathlib import Path
 from simview import SimView
-from torchrl.envs import (
-    Compose,
-    StepCounter,
-    TransformedEnv,
-    VecNorm,
-)
 from torchrl.envs.utils import ExplorationType, set_exploration_type
-
+from flipper_training.policies.basic_policy import make_policy
 from flipper_training.configs.experiment_config import hash_omegaconf
 from flipper_training.engine.engine_state import PhysicsState, PhysicsStateDer
 from flipper_training.environment.env import Env
-from flipper_training.utils.logging import LocalRunReader, WandbRunReader
 from flipper_training.vis.simview import physics_state_to_simview_body_states, simview_bodies_from_robot_config, simview_terrain_from_config
 
 if TYPE_CHECKING:
     from omegaconf import DictConfig
+    from torchrl.envs import TransformedEnv
     from tensordict import TensorDictBase
 
 
-def frozen_normed_env(env: "Env", train_config: "PPOExperimentConfig", vecnorm_weights_path: str) -> TransformedEnv:
-    vecnorm_keys = list(train_config.observations.keys())
-    if train_config.vecnorm_on_reward:
-        vecnorm_keys.append("reward")
-    norm = VecNorm(
-        in_keys=vecnorm_keys,
-        **train_config.vecnorm_opts,
-    )
-    norm.eval()
-    norm.load_state_dict(torch.load(vecnorm_weights_path, map_location=env.device))
-    norm = norm.to_observation_norm()
-    transform = Compose(
-        StepCounter(),
-        norm,
-    )
-    return TransformedEnv(env, transform)
-
-
-def get_eval_rollout(train_config: PPOExperimentConfig, weights_path: str, vecnorm_weights_path: str) -> tuple["TransformedEnv", "TensorDictBase"]:
+def get_eval_rollout(
+    train_config: PPOExperimentConfig, policy_weights_path: str | Path, vecnorm_weights_path: str | Path
+) -> tuple["TransformedEnv", "TensorDictBase"]:
     env, device, rng = prepare_env(train_config, mode="eval")
-    env = frozen_normed_env(env, train_config, vecnorm_weights_path)
-    actor_value_policy = make_policy(env, train_config, device, weights_path=weights_path)
-    actor_operator = actor_value_policy.get_policy_operator()
+    env = make_normed_env(env, train_config, vecnorm_weights_path, freeze_vecnorm=True)
+    actor_operator = make_policy(
+        env,
+        policy_opts=train_config.policy_opts,
+        encoders_opts=train_config.observation_encoders_opts,
+        device=device,
+        weights_path=policy_weights_path,
+    )
     actor_operator.eval()
     env.reset()
     env.eval()
@@ -58,9 +42,9 @@ def get_eval_rollout(train_config: PPOExperimentConfig, weights_path: str, vecno
     return env, eval_rollout
 
 
-def main(train_omegaconf: "DictConfig", weights_path: str, vecnorm_weights_path: str):
-    train_config = PPOExperimentConfig(**train_omegaconf)
-    config_hash = hash_omegaconf(train_omegaconf)
+def eval_ppo(config: "DictConfig", policy_weights_path: str, value_weigths_path: str | Path, vecnorm_weights_path: str | Path):
+    train_config = PPOExperimentConfig(**config)
+    config_hash = hash_omegaconf(config)
     simview = SimView(
         run_name=config_hash,
         batch_size=train_config.num_robots,
@@ -73,7 +57,7 @@ def main(train_omegaconf: "DictConfig", weights_path: str, vecnorm_weights_path:
         simview.visualize()
     else:
         # Compose the simview model
-        env, rollout = get_eval_rollout(train_config, weights_path, vecnorm_weights_path)
+        env, rollout = get_eval_rollout(train_config, policy_weights_path, vecnorm_weights_path)
         str_lines = make_formatted_str_lines(
             log_from_eval_rollout(rollout),
             EVAL_LOG_OPT,
@@ -125,26 +109,4 @@ def main(train_omegaconf: "DictConfig", weights_path: str, vecnorm_weights_path:
 
 
 if __name__ == "__main__":
-    from argparse import ArgumentParser
-    from pathlib import Path
-
-    from omegaconf import DictConfig, OmegaConf
-
-    parser = ArgumentParser()
-    parser.add_argument("--local", type=Path, required=False, default=None, help="Path to the local run directory")
-    parser.add_argument("--wandb", type=Path, required=False, default=None, help="Name of the run to evaluate")
-    parser.add_argument("--weights", type=str, required=True, help="Name of the weights to evaluate")
-    args, unknown = parser.parse_known_args()
-    if args.local is None and args.wandb is None:
-        raise ValueError("Either --local or --wandb must be provided")
-    run_reader = WandbRunReader(args.wandb, category="ppo") if args.wandb else LocalRunReader(Path("runs/ppo") / args.local)
-    run_omegaconf = run_reader.load_config()
-    cli_omegaconf = OmegaConf.from_dotlist(unknown)
-    train_omegaconf = OmegaConf.merge(run_omegaconf, cli_omegaconf)
-    weights_path = run_reader.get_weights_path(args.weights)
-    vecnorm_weights_path = run_reader.get_weights_path(f"vecnorm_{args.weights}")
-    if not isinstance(train_omegaconf, DictConfig):
-        raise ValueError("Config must be a DictConfig")
-    if train_omegaconf["type"].__name__ != PPOExperimentConfig.__name__:
-        raise ValueError("Config must be of type PPOExperimentConfig")
-    main(train_omegaconf, weights_path, vecnorm_weights_path)
+    eval_ppo(**parse_and_load_config())

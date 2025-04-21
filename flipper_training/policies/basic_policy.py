@@ -1,4 +1,5 @@
 import torch
+from pathlib import Path
 from flipper_training.environment.env import Env
 from tensordict.nn import TensorDictModule
 from torchrl.modules import NormalParamExtractor, ProbabilisticActor, TanhNormal, ValueOperator
@@ -59,7 +60,7 @@ def make_policy(
     env: Env,
     policy_opts: dict,
     encoders_opts: dict[str, dict],
-    weights_path: str | None = None,
+    weights_path: str | Path | None = None,
     device: torch.device | None = None,
 ) -> ProbabilisticActor:
     action_spec = env.action_spec

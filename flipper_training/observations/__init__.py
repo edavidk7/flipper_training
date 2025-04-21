@@ -1,6 +1,6 @@
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, ClassVar
 
 import torch
 from tensordict import TensorDict
@@ -22,6 +22,7 @@ class Observation(ABC):
     """
 
     env: "Env"
+    supports_vecnorm: ClassVar[bool] = NotImplemented
 
     @abstractmethod
     def __call__(

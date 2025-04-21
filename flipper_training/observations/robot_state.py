@@ -7,6 +7,7 @@ from flipper_training.engine.engine_state import PhysicsState, PhysicsStateDer
 from flipper_training.utils.geometry import (
     inverse_quaternion,
     rotate_vector_by_quaternion,
+    quaternion_to_euler,
 )
 
 from . import Observation
@@ -37,6 +38,8 @@ class LocalStateVector(Observation):
     Generates the observation vector for the robot state from kinematics and dynamics.
     """
 
+    supports_vecnorm = True
+
     def __post_init__(self):
         self.max_dist = self.env.terrain_cfg.max_coord * 2**1.5
         self.theta_range = self.env.robot_cfg.joint_limits[1] - self.env.robot_cfg.joint_limits[0]
@@ -56,8 +59,13 @@ class LocalStateVector(Observation):
         xd_local /= self.max_dist
         omega_local = rotate_vector_by_quaternion(curr_state.omega.unsqueeze(1), inv_q).squeeze(1) / torch.pi
         thetas = (curr_state.thetas - self.env.robot_cfg.joint_limits[None, 0]) / self.theta_range.unsqueeze(0)  # (n_robots, num_driving_parts)
+        rolls, pitches, _ = quaternion_to_euler(curr_state.q)
+        rolls.div_(torch.pi)
+        pitches.div_(torch.pi)
         return torch.cat(
             [
+                rolls.unsqueeze(1),
+                pitches.unsqueeze(1),
                 xd_local,
                 omega_local,
                 thetas,
@@ -68,6 +76,7 @@ class LocalStateVector(Observation):
 
     def get_spec(self) -> Unbounded:
         dim = 3  # velocity vector
+        dim += 2  # roll and pitch angles
         dim += 3  # angular velocity vector
         dim += self.env.robot_cfg.num_driving_parts  # joint angles
         dim += 3  # goal vector

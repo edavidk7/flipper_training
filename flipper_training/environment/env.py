@@ -191,7 +191,7 @@ class Env(EnvBase):
         if self.differentiable:
             curr_state, prev_state_der = self.engine(prev_state, action, self.terrain_cfg)
         else:
-            with torch.no_grad():
+            with torch.inference_mode():
                 curr_state, prev_state_der = self.engine(prev_state, action, self.terrain_cfg)
         return prev_state_der.clone(), curr_state.clone()
 

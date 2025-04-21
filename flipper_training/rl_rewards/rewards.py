@@ -99,12 +99,13 @@ class PotentialGoal(Reward):
 
 
 @dataclass
-class CombinedGoal(Reward):
+class PotentialGoalWithVelocityBonus(Reward):
     goal_reached_reward: float
     failed_reward: float
     gamma: float
     step_penalty: float
-    weight: float
+    potential_coef: float
+    velocity_bonus_coef: float
 
     def __call__(
         self,
@@ -121,7 +122,47 @@ class CombinedGoal(Reward):
         # Normalized potential to bound rewards
         neg_goal_dist_curr = -curr_dist  # phi(s')
         neg_goal_dist_prev = -prev_dist  # phi(s)
-        reward = self.weight * ((1 + self.gamma) * neg_goal_dist_curr - neg_goal_dist_prev) + self.step_penalty
+        reward = (
+            self.potential_coef * (self.gamma * neg_goal_dist_curr - neg_goal_dist_prev)
+            + self.step_penalty
+            + self.velocity_bonus_coef * curr_state.xd.norm(dim=-1, keepdim=True)
+        )
+        reward[success] += self.goal_reached_reward
+        reward[fail] += self.failed_reward
+        return reward.to(env.out_dtype)
+
+
+@dataclass
+class PotentialGoalWithConditionalVelocityBonus(Reward):
+    goal_reached_reward: float
+    failed_reward: float
+    gamma: float
+    step_penalty: float
+    potential_coef: float
+    velocity_bonus_coef: float
+
+    def __call__(
+        self,
+        prev_state: PhysicsState,
+        action: torch.Tensor,
+        prev_state_der: PhysicsStateDer,
+        curr_state: PhysicsState,
+        success: torch.BoolTensor,
+        fail: torch.BoolTensor,
+        env: "Env",
+    ) -> torch.Tensor:
+        curr_dist = (env.goal.x - curr_state.x).norm(dim=-1, keepdim=True) / (env.terrain_cfg.max_coord * 2**1.5)
+        prev_dist = (env.goal.x - prev_state.x).norm(dim=-1, keepdim=True) / (env.terrain_cfg.max_coord * 2**1.5)
+        # Normalized potential to bound rewards
+        neg_goal_dist_curr = -curr_dist  # phi(s')
+        neg_goal_dist_prev = -prev_dist  # phi(s)
+        reward = (
+            self.potential_coef * (self.gamma * neg_goal_dist_curr - neg_goal_dist_prev)
+            + self.step_penalty
+            + self.velocity_bonus_coef
+            * curr_state.xd.norm(dim=-1, keepdim=True)
+            * (curr_dist < prev_dist).float()  # award only if the robot is getting closer to the goal
+        )
         reward[success] += self.goal_reached_reward
         reward[fail] += self.failed_reward
         return reward.to(env.out_dtype)

@@ -1,11 +1,12 @@
 from dataclasses import dataclass
 
 import torch
+import torch.nn as nn
 from torchrl.data import Unbounded
 
 from flipper_training.engine.engine_state import PhysicsState, PhysicsStateDer
 from flipper_training.utils.environment import interpolate_grid
-from flipper_training.utils.geometry import local_to_global_q
+from flipper_training.utils.geometry import planar_rot_from_q
 
 from . import Observation
 
@@ -16,20 +17,20 @@ class HeightmapEncoder(torch.nn.Module):
         self.img_shape = img_shape
         self.output_dim = output_dim
         self.encoder = torch.nn.Sequential(
-            torch.nn.Conv2d(1, 8, 3, stride=2, padding=1),
-            torch.nn.BatchNorm2d(8, track_running_stats=False),
-            torch.nn.ReLU(),
-            torch.nn.Conv2d(8, 16, 3, stride=2, padding=1),
-            torch.nn.BatchNorm2d(16, track_running_stats=False),
-            torch.nn.ReLU(),
-            torch.nn.Conv2d(16, 32, 3, stride=2, padding=1),
-            torch.nn.BatchNorm2d(32, track_running_stats=False),
-            torch.nn.ReLU(),
-            torch.nn.Conv2d(32, 64, 3, stride=2, padding=1),
-            torch.nn.BatchNorm2d(64, track_running_stats=False),
-            torch.nn.ReLU(),
-            torch.nn.Flatten(),
-            torch.nn.Linear(64 * (img_shape[0] // 16) * (img_shape[1] // 16), output_dim),
+            nn.Conv2d(1, 16, 3, stride=2, padding=1),
+            nn.GroupNorm(4, 16),  # instead of BatchNorm2d(16)
+            nn.ReLU(),
+            nn.Conv2d(16, 32, 3, stride=2, padding=1),
+            nn.GroupNorm(8, 32),
+            nn.ReLU(),
+            nn.Conv2d(32, 64, 3, stride=2, padding=1),
+            nn.GroupNorm(8, 64),
+            nn.ReLU(),
+            nn.Conv2d(64, 128, 3, stride=2, padding=1),
+            nn.GroupNorm(8, 128),
+            nn.ReLU(),
+            nn.Flatten(),
+            nn.Linear(128 * (img_shape[0] // 16) * (img_shape[1] // 16), output_dim),
         )
 
     def forward(self, hm):
@@ -46,26 +47,27 @@ class HeightmapEncoder(torch.nn.Module):
 @dataclass
 class Heightmap(Observation):
     """
-    Generates heightmap observation from the environment.
+    Generates heightmap observation from the environment using 2D transformations.
     """
 
     percep_shape: tuple[int, int]
     percep_extent: tuple[float, float, float, float]
+    supports_vecnorm = False
 
     def __post_init__(self):
         self._initialize_perception_grid()
 
     def _initialize_perception_grid(self) -> None:
         """
-        Initialize the perception grid points.
+        Initialize the 2D perception grid points.
         """
         x_space = torch.linspace(self.percep_extent[0], self.percep_extent[2], self.percep_shape[0])
         y_space = torch.linspace(self.percep_extent[1], self.percep_extent[3], self.percep_shape[1])
-        px, py = torch.meshgrid(
-            x_space, y_space, indexing="ij"
-        )  # TODO check this, but we want the first coordinate to be the vertical one on the grid.
-        percep_grid_points = torch.dstack([px, py, torch.zeros_like(px)]).reshape(-1, 3)  # add the z coordinate (0)
-        self.percep_grid_points = percep_grid_points.unsqueeze(0).repeat(self.env.n_robots, 1, 1).to(self.env.device)
+        px, py = torch.meshgrid(x_space, y_space, indexing="ij")
+        # Store as 2D points (N, 2)
+        percep_grid_points_2d = torch.dstack([px, py]).reshape(-1, 2)
+        # Repeat for batch size (B, N, 2)
+        self.percep_grid_points_2d = percep_grid_points_2d.unsqueeze(0).repeat(self.env.n_robots, 1, 1).to(self.env.device)
 
     def __call__(
         self,
@@ -74,9 +76,21 @@ class Heightmap(Observation):
         prev_state_der: PhysicsStateDer,
         curr_state: PhysicsState,
     ) -> torch.Tensor:
-        global_percep_points = local_to_global_q(curr_state.x, curr_state.q, self.percep_grid_points)
-        z_coords = interpolate_grid(self.env.world_cfg.z_grid, global_percep_points[..., :2], self.env.world_cfg.max_coord)
-        hm = z_coords.reshape(-1, 1, self.percep_shape[0], self.percep_shape[1]) - curr_state.x[..., 2].reshape(-1, 1, 1, 1)
+        B = curr_state.x.shape[0]
+        # Get 2D rotation matrix from quaternion (B, 2, 2)
+        R_yaw_2d = planar_rot_from_q(curr_state.q)
+
+        # Rotate local 2D points (B, N, 2)
+        rotated_points_2d = torch.bmm(self.percep_grid_points_2d, R_yaw_2d.transpose(1, 2))
+
+        # Translate points by robot's XY position (B, N, 2)
+        global_percep_points_2d = rotated_points_2d + curr_state.x[..., :2].unsqueeze(1)
+
+        # Interpolate height at global 2D points (B, N)
+        z_coords = interpolate_grid(self.env.terrain_cfg.z_grid, global_percep_points_2d, self.env.terrain_cfg.max_coord)
+
+        # Reshape and make height relative to robot's Z coordinate
+        hm = z_coords.reshape(B, 1, self.percep_shape[0], self.percep_shape[1]) - curr_state.x[..., 2].reshape(-1, 1, 1, 1)
         return hm.to(self.env.out_dtype)
 
     def get_spec(self) -> Unbounded:

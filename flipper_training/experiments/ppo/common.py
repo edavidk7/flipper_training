@@ -10,6 +10,17 @@ from flipper_training.configs import PhysicsEngineConfig, RobotModelConfig, Terr
 from flipper_training.configs.experiment_config import make_partial_observations
 from flipper_training.environment.env import Env
 from flipper_training.utils.torch_utils import seed_all, set_device
+from argparse import ArgumentParser
+from pathlib import Path
+from omegaconf import DictConfig, OmegaConf
+from flipper_training.utils.logging import LocalRunReader, WandbRunReader
+
+from torchrl.envs import (
+    Compose,
+    VecNorm,
+    StepCounter,
+    TransformedEnv,
+)
 
 if TYPE_CHECKING:
     from config import PPOExperimentConfig
@@ -153,4 +164,64 @@ def log_from_eval_rollout(eval_rollout: "TensorDict") -> dict[str, int | float]:
         "eval/pct_succeeded": last_succeeded_mean,
         "eval/pct_failed": last_failed_mean,
         "eval/pct_truncated": 1 - last_succeeded_mean - last_failed_mean,  # eithered none of the states at the end of the rollout
+    }
+
+
+def make_normed_env(
+    env: "Env", train_config: "PPOExperimentConfig", vecnorm_weights_path: str | Path | None = None, freeze_vecnorm: bool = False
+) -> TransformedEnv:
+    vecnorm_keys = [k for k, v in train_config.observations.items() if v["observation"].supports_vecnorm]
+    if train_config.vecnorm_on_reward:
+        vecnorm_keys.append("reward")
+    transforms = Compose(
+        StepCounter(),
+        VecNorm(in_keys=vecnorm_keys, **train_config.vecnorm_opts),
+    )
+    if vecnorm_weights_path is not None:
+        transforms[-1].load_state_dict(torch.load(vecnorm_weights_path, map_location=env.device))
+    if freeze_vecnorm:
+        transforms[-1].eval()
+    return TransformedEnv(env, transforms)
+
+
+def download_config_and_paths(
+    reader: WandbRunReader | LocalRunReader, weight_step: int | None
+) -> tuple[DictConfig, Path | None, Path | None, Path | None]:
+    run_omegaconf = reader.load_config()
+    if not isinstance(run_omegaconf, DictConfig):
+        raise ValueError("Config must be a DictConfig")
+    if run_omegaconf["type"].__name__ != PPOExperimentConfig.__name__:
+        raise ValueError("Config must be of type PPOExperimentConfig")
+    if weight_step is None:
+        policy_weights_path = reader.get_weights_path(f"policy_step_{weight_step}")
+        value_weights_path = reader.get_weights_path(f"value_step_{weight_step}")
+        vecnorm_weights_path = reader.get_weights_path(f"vecnorm_step_{weight_step}")
+    else:
+        policy_weights_path = value_weights_path = vecnorm_weights_path = None
+    return run_omegaconf, policy_weights_path, value_weights_path, vecnorm_weights_path
+
+
+def parse_and_load_config() -> dict:
+    parser = ArgumentParser()
+    parser.add_argument("--local", type=Path, required=False, default=None, help="Path to the local run directory")
+    parser.add_argument("--wandb", type=Path, required=False, default=None, help="Name of the run to evaluate")
+    parser.add_argument("--weight_step", type=int, required=False, help="Step from which to load the weights", default=None)
+    args, unknown = parser.parse_known_args()
+    if args.local is None and args.wandb is None:
+        raise ValueError("Either --local or --wandb must be provided")
+    if args.local is not None and args.wandb is not None:
+        raise ValueError("Only one of --local or --wandb must be provided")
+    if args.local is not None and "yaml" in args.local.name:
+        parsed_omegaconf = OmegaConf.load(args.local)
+        policy_weights_path = value_weights_path = vecnorm_weights_path = None
+    else:
+        run_reader = WandbRunReader(args.wandb, category="ppo") if args.wandb else LocalRunReader(Path("runs/ppo") / args.local)
+        parsed_omegaconf, policy_weights_path, value_weights_path, vecnorm_weights_path = download_config_and_paths(run_reader, args.weight_step)
+    cli_omegaconf = OmegaConf.from_dotlist(unknown)
+    merged_omegaconf = OmegaConf.merge(parsed_omegaconf, cli_omegaconf)
+    return {
+        "config": merged_omegaconf,
+        "policy_weights_path": policy_weights_path,
+        "value_weights_path": value_weights_path,
+        "vecnorm_weights_path": vecnorm_weights_path,
     }

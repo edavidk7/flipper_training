@@ -51,6 +51,7 @@ class Pointcloud(Observation):
 
     percep_shape: tuple[int, int]
     percep_extent: tuple[float, float, float, float]
+    supports_vecnorm = False
 
     def __post_init__(self):
         self._initialize_perception_grid()

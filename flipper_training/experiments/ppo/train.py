@@ -1,18 +1,20 @@
 from typing import TYPE_CHECKING
-
+from pathlib import Path
 import torch
-from common import prepare_data_collection, prepare_env, make_formatted_str_lines, log_from_eval_rollout, EVAL_LOG_OPT
+from common import (
+    prepare_data_collection,
+    prepare_env,
+    make_formatted_str_lines,
+    log_from_eval_rollout,
+    EVAL_LOG_OPT,
+    parse_and_load_config,
+    make_normed_env,
+)
 from config import PPOExperimentConfig
 from torchrl.envs.utils import ExplorationType, set_exploration_type
 from torchrl.objectives import ClipPPOLoss
 from torchrl.objectives.value import GAE
 from tqdm import tqdm
-from torchrl.envs import (
-    Compose,
-    VecNorm,
-    StepCounter,
-    TransformedEnv,
-)
 from flipper_training.environment.env import Env
 from flipper_training.utils.logging import RunLogger, print_sticky_tqdm
 from flipper_training.policies.basic_policy import make_policy, make_value_function
@@ -32,12 +34,14 @@ TRAIN_LOG_OPT = {
         "clip_fraction": 4,
         "lr": 4,
         "advantage": 4,
+        "grad_norm": 4,
     },
     "groups": [
         ["action_sample_log_prob", "entropy", "kl_approx"],
         ["critic_loss", "objective_loss", "entropy_loss"],
         ["advantage"],
         ["clip_fraction"],
+        ["grad_norm"],
         ["lr"],
     ],
     "group_labels": {
@@ -45,23 +49,13 @@ TRAIN_LOG_OPT = {
         1: "Train PPO loss statistics",
         2: "Train advantage statistics",
         3: "Train PPO clipped fraction",
-        4: "Train learning rate",
+        4: "Train gradient norm",
+        5: "Train learning rate",
     },
 }
 
 
-def make_normed_env(env: "Env", train_config: "PPOExperimentConfig") -> TransformedEnv:
-    vecnorm_keys = list(train_config.observations.keys())
-    if train_config.vecnorm_on_reward:
-        vecnorm_keys.append("reward")
-    transforms = Compose(
-        StepCounter(),
-        VecNorm(in_keys=vecnorm_keys, **train_config.vecnorm_opts),
-    )
-    return TransformedEnv(env, transforms)
-
-
-def train_tensordicts_to_log(rollout_td: "TensorDict", loss_td: "TensorDict") -> dict[str, float]:
+def train_tensordicts_to_log(rollout_td: "TensorDict", loss_td: "TensorDict", grad_norm: torch.Tensor) -> dict[str, float]:
     """
     Extract important data from the training tensordicts to log.
     """
@@ -75,22 +69,33 @@ def train_tensordicts_to_log(rollout_td: "TensorDict", loss_td: "TensorDict") ->
         "train/mean_clip_fraction": loss_td["clip_fraction"].mean().item(),
         "train/mean_advantage": rollout_td["advantage"].mean().item(),
         "train/std_advantage": rollout_td["advantage"].std().item(),
+        "train/total_grad_norm": grad_norm.item(),
     }
 
 
-def main(train_omegaconf: "DictConfig"):
-    train_config = PPOExperimentConfig(**train_omegaconf)
+def train_ppo(
+    config: "DictConfig",
+    policy_weights_path: str | Path | None = None,
+    value_weights_path: str | Path | None = None,
+    vecnorm_weights_path: str | Path | None = None,
+):
+    train_config = PPOExperimentConfig(**config)
     env, device, rng = prepare_env(train_config, mode="train")
-    env = make_normed_env(env, train_config)
-    actor_operator = make_policy(env, policy_opts=train_config.policy_opts, encoders_opts=train_config.observation_encoders_opts, device=device)
+    env = make_normed_env(env, train_config, vecnorm_weights_path)
+    actor_operator = make_policy(
+        env,
+        policy_opts=train_config.policy_opts,
+        encoders_opts=train_config.observation_encoders_opts,
+        device=device,
+        weights_path=policy_weights_path,
+    )
     value_operator = make_value_function(
         env,
         value_opts=train_config.value_function_opts,
         encoders_opts=train_config.observation_encoders_opts,
         device=device,
+        weights_path=value_weights_path,
     )
-    actor_operator.train()
-    value_operator.train()
     # Collector
     collector, replay_buffer = prepare_data_collection(env, actor_operator, train_config)
     # PPO setup
@@ -108,10 +113,9 @@ def main(train_omegaconf: "DictConfig"):
     # Optim
     optim = train_config.optimizer(
         [
-            {"params": actor_operator.parameters(), **train_config.optimizer_opts.pop("actor")},
-            {"params": value_operator.parameters(), **train_config.optimizer_opts.pop("critic")},
+            {"params": actor_operator.parameters(), **train_config.optimizer_opts["actor"]},
+            {"params": value_operator.parameters(), **train_config.optimizer_opts["critic"]},
         ],
-        **train_config.optimizer_opts,
     )
     scheduler = train_config.scheduler(
         optim,
@@ -121,7 +125,7 @@ def main(train_omegaconf: "DictConfig"):
         raise ValueError("frames_per_batch must be divisible by frames_per_sub_batch")
     # Training loop
     logger = RunLogger(
-        train_config=train_omegaconf,
+        train_config=config,
         category="ppo",
         use_wandb=train_config.use_wandb,
         step_metric_name="collected_frames",
@@ -145,13 +149,13 @@ def main(train_omegaconf: "DictConfig"):
                 loss_vals = loss_module(sub_batch)
                 loss_value = loss_vals["loss_objective"] + loss_vals["loss_critic"] + loss_vals["loss_entropy"]
                 loss_value.backward()
-                torch.nn.utils.clip_grad_norm_(loss_module.parameters(), train_config.max_grad_norm)
+                grad_norm = torch.nn.utils.clip_grad_norm_(loss_module.parameters(), train_config.max_grad_norm)
                 optim.step()
                 optim.zero_grad()
 
         total_collected_frames = (i + 1) * train_config.frames_per_batch * train_config.num_robots
 
-        log = train_tensordicts_to_log(tensordict_data, loss_vals)
+        log = train_tensordicts_to_log(tensordict_data, loss_vals, grad_norm)
         log |= {"train/lr": optim.param_groups[0]["lr"]}
         if not init_train_log:
             init_train_log |= log
@@ -186,24 +190,4 @@ def main(train_omegaconf: "DictConfig"):
 
 
 if __name__ == "__main__":
-    from argparse import ArgumentParser
-
-    from omegaconf import DictConfig, OmegaConf
-
-    parser = ArgumentParser()
-    parser.add_argument("--config", type=str, required=True)
-    args, unknown = parser.parse_known_args()
-    file_omegaconf = OmegaConf.load(args.config)
-    cli_omegaconf = OmegaConf.from_dotlist(unknown)
-    train_omegaconf = OmegaConf.merge(file_omegaconf, cli_omegaconf)
-    if not isinstance(train_omegaconf, DictConfig):
-        raise ValueError("Config must be a DictConfig")
-    if train_omegaconf["type"].__name__ != PPOExperimentConfig.__name__:
-        raise ValueError("Config must be of type PPOExperimentConfig")
-    try:
-        main(train_omegaconf)
-    except Exception as e:
-        import wandb
-
-        wandb.finish()
-        raise e
+    train_ppo(**parse_and_load_config())
