@@ -166,3 +166,32 @@ class PotentialGoalWithConditionalVelocityBonus(Reward):
         reward[success] += self.goal_reached_reward
         reward[fail] += self.failed_reward
         return reward.to(env.out_dtype)
+
+
+@dataclass
+class PotentialGoalRelativized(Reward):
+    goal_reached_reward: float
+    failed_reward: float
+    gamma: float
+    step_penalty: float
+    potential_coef: float
+    eps: float = 1e-6
+
+    def __call__(
+        self,
+        prev_state: PhysicsState,
+        action: torch.Tensor,
+        prev_state_der: PhysicsStateDer,
+        curr_state: PhysicsState,
+        success: torch.BoolTensor,
+        fail: torch.BoolTensor,
+        env: "Env",
+    ) -> torch.Tensor:
+        curr_dist = (env.goal.x - curr_state.x).norm(dim=-1, keepdim=True)
+        prev_dist = (env.goal.x - prev_state.x).norm(dim=-1, keepdim=True)
+        phi_prev = -1
+        phi_curr = -curr_dist / (prev_dist + self.eps)
+        reward = self.potential_coef * (self.gamma * phi_curr - phi_prev) + self.step_penalty
+        reward[success] += self.goal_reached_reward
+        reward[fail] += self.failed_reward
+        return reward.to(env.out_dtype)

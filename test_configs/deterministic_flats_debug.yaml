@@ -1,14 +1,15 @@
 # General Experiment Configuration
 type: ${cls:flipper_training.experiments.ppo.config.PPOExperimentConfig}
-name: fixed_start_goal_flat_debugging_config
-comment: "Debugging PPO on flat terrain with randomized start and goal over very short distances, gamma 0.999"
+name: deterministic_flats_debug_for_hparam_calibration
+comment: "Debugging PPO on flat terrain with fixed goal navigation"
 seed: 42
 use_wandb: true
+use_tensorboard: false
 device: cuda:0
 
 # Training Loop Parameters
 training_dtype: ${dtype:float32}
-total_frames: ${mul:5242880,1}
+total_frames: ${mul:5242880,4}
 frames_per_batch: 128
 epochs_per_batch: 1
 frames_per_sub_batch: 64 # Must divide frames_per_batch * num_robots
@@ -17,21 +18,14 @@ max_eval_steps: 500
 
 # Optimizer and Scheduler Configuration
 optimizer: ${cls:torch.optim.AdamW}
-optimizer_opts:
-  actor:
-    lr: 3e-4
-    weight_decay: 1e-3
-  critic:
-    lr: 1e-3
-    weight_decay: 1e-3
 scheduler: ${cls:torch.optim.lr_scheduler.StepLR}
 scheduler_opts:
-  step_size: ${intdiv:${intdiv:${total_frames},${mul:${frames_per_batch},${num_robots}}},2}
-  gamma: 0.5
-max_grad_norm: 1.0
+  step_size: ${intdiv:${intdiv:${total_frames},${mul:${frames_per_batch},${num_robots}}},4}
+  gamma: 0.7
+max_grad_norm: 0.5
 
 # Environment and Simulation Settings
-num_robots: 128
+num_robots: 16
 grid_res: 0.05
 max_coord: 3.2
 heightmap_gen: ${ cls:flipper_training.heightmaps.flat.FlatHeightmapGenerator}
@@ -63,19 +57,16 @@ robot_model_opts:
 
 # Observation and Normalization Settings
 vecnorm_opts:
-  decay: 0.95
+  decay: 0.99
   eps: 1e-4
 vecnorm_on_reward: true
 observations:
-  state:
-    observation: ${cls:flipper_training.observations.robot_state.LocalStateVector}
-    opts: {}
-observation_encoders_opts:
-  state:
-    output_dim: 32
-    hidden_dim: 32
-    num_hidden: 1
-    ln: true
+  - cls: ${cls:flipper_training.observations.robot_state.LocalStateVector}
+    opts:
+      encoder_opts:
+        num_hidden: 2
+        hidden_dim: 32
+        output_dim: 32
 
 # PPO Algorithm Parameters
 gae_opts:
@@ -106,24 +97,34 @@ objective_opts:
   max_feasible_pitch: 1.5
   max_feasible_roll: 1.5
   goal_reached_threshold: 0.1
-  init_joint_angles: max
+  init_joint_angles: random
+  resample_random_joint_angles_on_reset: true
 
 # Reward Function Configuration
-reward: ${cls:flipper_training.rl_rewards.rewards.PotentialGoalWithConditionalVelocityBonus}
+reward: ${cls:flipper_training.rl_rewards.rewards.PotentialGoalRelativized}
 reward_opts:
-  goal_reached_reward: 2000.0
-  failed_reward: -2000.0
-  step_penalty: -1e-1
+  goal_reached_reward: 100.0
+  failed_reward: -100.0
+  step_penalty: -5e-2
   gamma: ${gae_opts.gamma} # Should match GAE gamma
-  potential_coef: 20.0
-  velocity_bonus_coef: 0.1
+  potential_coef: 1.0
+  eps: 0.2
 
-# Policy and Value Network Architecture
+## Policy and Value Network Architecture
+policy_config: ${cls:flipper_training.policies.mlp_policy.MLPPolicyConfig}
 policy_opts:
-  hidden_dim: 32
-  num_hidden: 1
-  ln: false
-value_function_opts:
-  hidden_dim: 32
-  num_hidden: 1
-  ln: false
+  share_encoder: false
+  actor_mlp_opts:
+    num_hidden: 1
+    hidden_dim: 32
+    layernorm: false
+  value_mlp_opts:
+    num_hidden: 1
+    hidden_dim: 32
+    layernorm: false
+  actor_optimizer_opts:
+    lr: 3e-4
+    weight_decay: 1e-3
+  value_optimizer_opts:
+    lr: 5e-4
+    weight_decay: 1e-3
