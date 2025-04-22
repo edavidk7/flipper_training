@@ -134,9 +134,15 @@ def train_ppo(
         pbar.update(train_config.frames_per_batch * train_config.num_robots)
         scheduler.step()
 
-    pbar.close()
-    logger.close()
-
 
 if __name__ == "__main__":
-    train_ppo(**parse_and_load_config())
+    try:
+        train_ppo(**parse_and_load_config())
+    except KeyboardInterrupt:
+        print("Training interrupted. Exiting...")
+    except Exception as e:
+        print(f"An error occurred: {e}")
+    finally:
+        print("Cleaning up...")
+        # Perform any necessary cleanup here
+        exit(0)

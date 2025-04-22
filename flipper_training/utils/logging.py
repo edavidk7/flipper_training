@@ -223,7 +223,7 @@ class WandbRunReader:
     def get_weights_path(self, name: str) -> Path:
         full_model_name = f"{PROJECT}/{name}:{self.run_id}"
         weight_artifact = self.api.artifact(full_model_name, type="model")
-        weight_artifact.download(self.weights_root, skip_cache=True)
+        weight_artifact.download(self.weights_root, skip_cache=False)
         return self.weights_root / f"{name}.pth"
 
     def load_config(self) -> DictConfig:
