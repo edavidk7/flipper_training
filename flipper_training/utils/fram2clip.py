@@ -3,7 +3,8 @@ import os
 import natsort
 from moviepy import ImageSequenceClip
 
-def create_video_from_frames(input_folder, output_file, fps=30, codec='libx265'):
+
+def create_video_from_frames(input_folder, output_file, fps=30, codec="libx265"):
     """
     Creates an MP4 video from image frames in a folder.
 
@@ -17,7 +18,7 @@ def create_video_from_frames(input_folder, output_file, fps=30, codec='libx265')
         print(f"Error: Input folder not found: {input_folder}")
         return
 
-    image_extensions = ('.png', '.jpg', '.jpeg', '.bmp', '.tiff')
+    image_extensions = (".png", ".jpg", ".jpeg", ".bmp", ".tiff")
     try:
         frame_files = [
             os.path.join(input_folder, f)
@@ -40,8 +41,9 @@ def create_video_from_frames(input_folder, output_file, fps=30, codec='libx265')
 
     try:
         clip = ImageSequenceClip(sorted_frame_files, fps=fps)
-        clip.write_videofile(output_file, codec=codec, logger='bar') # Use 'bar' for progress
-        clip.close() # Close the clip to release resources
+        ffmpeg_params = ["-pix_fmt", "yuv420p"]
+        clip.write_videofile(output_file, codec=codec, logger="bar", ffmpeg_params=ffmpeg_params)  # Use 'bar' for progress
+        clip.close()  # Close the clip to release resources
         print(f"Video successfully created: {output_file}")
     except Exception as e:
         print(f"Error creating video: {e}")
@@ -70,6 +72,7 @@ def main():
             return
 
     create_video_from_frames(args.input_folder, args.output_file, args.fps, args.codec)
+
 
 if __name__ == "__main__":
     # Ensure natsort is installed: pip install natsort moviepy
