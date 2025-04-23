@@ -1,9 +1,7 @@
 import csv
 import logging
 import threading
-import sys
 import time
-from tqdm import tqdm
 import hashlib
 from dataclasses import dataclass, field
 from itertools import groupby
@@ -19,14 +17,6 @@ import wandb
 from flipper_training import ROOT
 
 PROJECT = "flipper_training"
-
-
-def print_sticky_tqdm(lines):
-    """Prints sticky text above the progress bar."""
-    for _ in range(len(lines)):
-        sys.stdout.write("\033[F\033[K")
-    for line in lines:
-        tqdm.write(line)
 
 
 def red(s):
