@@ -100,8 +100,9 @@ class RunLogger:
             wandb.init(
                 project=PROJECT,
                 id=self.wandb_run_id,
-                name=f"{self.category}_{self.train_config['name']}_{ts}",
-                notes=f"For loading the run use id: {self.wandb_run_id}",
+                name=self.logpath.name,
+                tags=[self.category],
+                notes=self.wandb_run_id,
                 config=confdict,
                 save_code=True,
             )

@@ -9,23 +9,23 @@ device: cuda:0
 
 # Training Loop Parameters
 training_dtype: ${dtype:float32}
-total_frames: ${mul:5242880,4}
+total_frames: ${mul:5242880,1}
 frames_per_batch: 128
 epochs_per_batch: 1
 frames_per_sub_batch: 64 # Must divide frames_per_batch * num_robots
 eval_and_save_every: 10 # steps
-max_eval_steps: 500
+max_eval_steps: 700
 
 # Optimizer and Scheduler Configuration
 optimizer: ${cls:torch.optim.AdamW}
 scheduler: ${cls:torch.optim.lr_scheduler.StepLR}
 scheduler_opts:
-  step_size: ${intdiv:${intdiv:${total_frames},${mul:${frames_per_batch},${num_robots}}},4}
+  step_size: ${intdiv:${intdiv:${total_frames},${mul:${frames_per_batch},${num_robots}}},2}
   gamma: 0.7
 max_grad_norm: 0.5
 
 # Environment and Simulation Settings
-num_robots: 16
+num_robots: 128
 grid_res: 0.05
 max_coord: 3.2
 heightmap_gen: ${ cls:flipper_training.heightmaps.flat.FlatHeightmapGenerator}
@@ -64,13 +64,13 @@ observations:
   - cls: ${cls:flipper_training.observations.robot_state.LocalStateVector}
     opts:
       encoder_opts:
-        num_hidden: 2
-        hidden_dim: 32
-        output_dim: 32
+        num_hidden: 4
+        hidden_dim: 64
+        output_dim: 64
 
 # PPO Algorithm Parameters
 gae_opts:
-  gamma: 0.99
+  gamma: 0.999
   lmbda: 0.95
   average_gae: false
   skip_existing: false
@@ -93,7 +93,7 @@ objective: ${cls:flipper_training.rl_objectives.fixed_goal.FixedStartGoalNavigat
 objective_opts:
   start_x_y_z: ${tensor:[-1.5, 0.0, 0.2]}
   goal_x_y_z: ${tensor:[1.5, 0.0, 0.05]}
-  iteration_limit: 500
+  iteration_limit: 700
   max_feasible_pitch: 1.5
   max_feasible_roll: 1.5
   goal_reached_threshold: 0.1
@@ -101,30 +101,29 @@ objective_opts:
   resample_random_joint_angles_on_reset: true
 
 # Reward Function Configuration
-reward: ${cls:flipper_training.rl_rewards.rewards.PotentialGoalRelativized}
+reward: ${cls:flipper_training.rl_rewards.rewards.PotentialGoal}
 reward_opts:
-  goal_reached_reward: 100.0
-  failed_reward: -100.0
-  step_penalty: -5e-2
-  gamma: ${gae_opts.gamma} # Should match GAE gamma
-  potential_coef: 1.0
-  eps: 0.2
+  goal_reached_reward: 20.0
+  failed_reward: -20.0
+  potential_coef: 20
+  gamma: ${gae_opts.gamma}
+  step_penalty: -0.005
 
 ## Policy and Value Network Architecture
 policy_config: ${cls:flipper_training.policies.mlp_policy.MLPPolicyConfig}
 policy_opts:
-  share_encoder: false
+  share_encoder: true
   actor_mlp_opts:
-    num_hidden: 1
-    hidden_dim: 32
+    num_hidden: 3
+    hidden_dim: 64
     layernorm: false
   value_mlp_opts:
-    num_hidden: 1
-    hidden_dim: 32
+    num_hidden: 3
+    hidden_dim: 64
     layernorm: false
   actor_optimizer_opts:
-    lr: 3e-4
-    weight_decay: 1e-3
+    lr: 5e-5
+    weight_decay: 1e-5
   value_optimizer_opts:
-    lr: 5e-4
-    weight_decay: 1e-3
+    lr: 5e-5
+    weight_decay: 1e-5

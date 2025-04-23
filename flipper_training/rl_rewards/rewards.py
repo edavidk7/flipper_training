@@ -46,7 +46,7 @@ class RollPitchGoal(Reward):
 
 
 @dataclass
-class Goal(Reward):
+class GoalDistance(Reward):
     goal_reached_reward: float
     failed_reward: float
     weight: float
@@ -189,8 +189,8 @@ class PotentialGoalRelativized(Reward):
     ) -> torch.Tensor:
         curr_dist = (env.goal.x - curr_state.x).norm(dim=-1, keepdim=True)
         prev_dist = (env.goal.x - prev_state.x).norm(dim=-1, keepdim=True)
-        phi_prev = -1
-        phi_curr = -curr_dist / (prev_dist + self.eps)
+        phi_prev = -prev_dist / (prev_dist + self.eps)  # phi(s)
+        phi_curr = -curr_dist / (curr_dist + self.eps)  # phi(s')
         reward = self.potential_coef * (self.gamma * phi_curr - phi_prev) + self.step_penalty
         reward[success] += self.goal_reached_reward
         reward[fail] += self.failed_reward
