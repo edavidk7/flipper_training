@@ -14,7 +14,7 @@ from argparse import ArgumentParser
 from pathlib import Path
 from config import PPOExperimentConfig
 from omegaconf import DictConfig, OmegaConf
-from flipper_training.utils.logging import LocalRunReader, WandbRunReader
+from flipper_training.utils.logutils import LocalRunReader, WandbRunReader
 
 from torchrl.envs import (
     Compose,

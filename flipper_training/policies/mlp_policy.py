@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from flipper_training.environment.env import Env
 from tensordict.nn import TensorDictModule, TensorDictSequential
 from torchrl.modules import NormalParamExtractor, ProbabilisticActor, TanhNormal, ValueOperator, ActorCriticWrapper, ActorValueOperator
-from flipper_training.utils.logging import get_terminal_logger
+from flipper_training.utils.logutils import get_terminal_logger
 from . import PolicyConfig, EncoderCombiner, MLP
 
 __all__ = ["MLPPolicyConfig"]

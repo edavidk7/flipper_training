@@ -8,7 +8,7 @@ import torch
 import yaml
 
 from flipper_training import ROOT
-from flipper_training.utils.logging import get_terminal_logger
+from flipper_training.utils.logutils import get_terminal_logger
 from flipper_training.configs.base_config import BaseConfig
 from flipper_training.utils.flipper_modeling import (
     TrackWheels,

@@ -11,7 +11,7 @@ from flipper_training.engine.engine import DPhysicsEngine
 from flipper_training.engine.engine_state import PhysicsState, PhysicsStateDer
 from flipper_training.rl_objectives import BaseObjective
 from flipper_training.rl_rewards.rewards import Reward
-from flipper_training.utils.logging import get_terminal_logger
+from flipper_training.utils.logutils import get_terminal_logger
 
 if TYPE_CHECKING:
     from flipper_training.observations import Observation

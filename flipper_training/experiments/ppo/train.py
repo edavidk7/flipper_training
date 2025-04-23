@@ -14,7 +14,7 @@ from torchrl.objectives import ClipPPOLoss
 from torchrl.objectives.value import GAE
 from tqdm import tqdm
 from flipper_training.environment.env import Env
-from flipper_training.utils.logging import RunLogger
+from flipper_training.utils.logutils import RunLogger
 
 if TYPE_CHECKING:
     from omegaconf import DictConfig

@@ -18,7 +18,7 @@ from torchrl.modules import (
 
 # Import your existing classes
 from flipper_training.environment.env import Env
-from flipper_training.utils.logging import get_terminal_logger
+from flipper_training.utils.logutils import get_terminal_logger
 from . import PolicyConfig, EncoderCombiner, MLP  # Keep MLP for heads after RNN
 
 # Add RNN types
