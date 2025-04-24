@@ -10,7 +10,7 @@ frames_per_batch: 128
 epochs_per_batch: 2
 frames_per_sub_batch: 64
 eval_and_save_every: 10
-max_eval_steps: 900
+max_eval_steps: 1000
 optimizer: ${cls:torch.optim.AdamW}
 scheduler: ${cls:torch.optim.lr_scheduler.LinearLR}
 scheduler_opts:
@@ -85,16 +85,20 @@ data_collector_opts:
   split_trajs: false
   compile_policy: false
   exploration_type: RANDOM
-objective: ${cls:flipper_training.rl_objectives.fixed_goal.FixedStartGoalNavigation}
+objective: ${cls:flipper_training.rl_objectives.trunk_crossing.TrunkCrossing}
 objective_opts:
-  start_x_y_z: ${tensor:[-1.5, 0.0, 0.2]}
-  goal_x_y_z: ${tensor:[1.5, 0.0, 0.05]}
-  iteration_limit: 900
+  min_dist_to_goal: 1.0
+  max_dist_to_goal: 5.0
+  iteration_limit_factor: 8
   max_feasible_pitch: 1.5
   max_feasible_roll: 1.5
+  start_z_offset: 0.2
+  goal_z_offset: 0.05
   goal_reached_threshold: 0.2
+  start_position_orientation: towards_goal
   init_joint_angles: random
   resample_random_joint_angles_on_reset: true
+  cache_size: 30000
 reward: ${cls:flipper_training.rl_rewards.rewards.PotentialGoal}
 reward_opts:
   goal_reached_reward: 100.0
@@ -118,5 +122,5 @@ policy_opts:
     lr: 0.0001
     weight_decay: 1.0e-05
   value_optimizer_opts:
-    lr: 0.001
+    lr: 0.0003
     weight_decay: 1.0e-05

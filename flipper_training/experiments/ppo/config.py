@@ -24,6 +24,11 @@ class ObservationConfig(TypedDict):
     opts: dict[str, Any] | None
 
 
+class EnvTransformConfig(TypedDict):
+    cls: "Type[BaseHeightmapGenerator]"
+    opts: dict[str, Any] | None
+
+
 def make_partial_observations(observations: List[ObservationConfig]) -> List[partial]:
     return [partial(o["cls"], **(o["opts"] or {})) for o in observations]
 
@@ -72,6 +77,7 @@ class PPOExperimentConfig:
     policy_opts: dict[str, Any]
     vecnorm_opts: dict[str, Any]
     vecnorm_on_reward: bool
+    extra_env_transforms: list[EnvTransformConfig] = field(default_factory=list)
     optimizer_opts: dict[str, Any] = field(default_factory=dict)
     heightmap_gen_opts: dict[str, Any] = field(default_factory=dict)
     engine_compile_opts: dict[str, Any] = field(default_factory=dict)

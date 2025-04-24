@@ -15,11 +15,14 @@ class TrunkCrossing(BaseObjective):
     max_dist_to_goal: float
     goal_reached_threshold: float
     start_z_offset: float
+    goal_z_offset: float
     iteration_limit_factor: float
     max_feasible_pitch: float
     max_feasible_roll: float
     start_position_orientation: Literal["random", "towards_goal"]
+    init_joint_angles: torch.Tensor | Literal["max", "min", "random"]
     cache_size: int
+    resample_random_joint_angles_on_reset: bool = False
     _cache_cursor: int = 0
 
     def __post_init__(self) -> None:
@@ -79,14 +82,47 @@ class TrunkCrossing(BaseObjective):
             "goal": goal_pos_cache,
             "ori": self._get_initial_orientation_quat(start_pos_cache, goal_pos_cache),
             "iteration_limits": self._compute_iteration_limits(start_pos_cache, goal_pos_cache),
+            "joint_angles": torch.stack([self._get_initial_joint_angles() for _ in range(self.cache_size)], dim=0),
         }
         self._cache_cursor = 0
+
+    def _get_initial_joint_angles(self) -> torch.Tensor:
+        match self.init_joint_angles:
+            case "max":
+                return self.robot_model.joint_limits[None, 1].to(self.device).repeat(self.physics_config.num_robots, 1)
+            case "min":
+                return self.robot_model.joint_limits[None, 0].to(self.device).repeat(self.physics_config.num_robots, 1)
+            case "random":
+                ang = (
+                    torch.rand((self.physics_config.num_robots, self.robot_model.num_driving_parts), device=self.device)
+                    * (self.robot_model.joint_limits[None, 1] - self.robot_model.joint_limits[None, 0])
+                    + self.robot_model.joint_limits[None, 0]
+                )
+                ang = ang.clamp(
+                    min=self.robot_model.joint_limits[None, 0].to(self.device),
+                    max=self.robot_model.joint_limits[None, 1].to(self.device),
+                )
+                return ang
+            case torch.Tensor():
+                if len(self.init_joint_angles) != self.robot_model.num_driving_parts:
+                    raise ValueError(
+                        f"Invalid shape for init_joint_angles: {self.init_joint_angles.shape}. Expected {self.robot_model.num_driving_parts}."
+                    )
+                ang = self.init_joint_angles.to(self.device).repeat(self.physics_config.num_robots, 1)
+                ang = ang.clamp(
+                    min=self.robot_model.joint_limits[None, 0].to(self.device),
+                    max=self.robot_model.joint_limits[None, 1].to(self.device),
+                )
+                return ang
+            case _:
+                raise ValueError("Invalid value for init_joint_angles.")
 
     def _construct_full_start_goal_states(
         self,
         start_pos: torch.Tensor,
         goal_pos: torch.Tensor,
         oris: torch.Tensor,
+        thetas: torch.Tensor,
     ) -> tuple[PhysicsState, PhysicsState]:
         """
         Constructs the full start and goal states for the robots in the
@@ -98,11 +134,12 @@ class TrunkCrossing(BaseObjective):
             device=self.device,
             x=start_pos.to(self.device),
             q=oris,
-            thetas=self.robot_model.joint_limits[None, 1].to(self.device).repeat(start_pos.shape[0], 1),
+            thetas=thetas.to(self.device),
         )
         goal_state = PhysicsState.dummy(
             robot_model=self.robot_model, batch_size=goal_pos.shape[0], device=self.device, x=goal_pos.to(self.device), q=oris
         )
+        goal_state.x[..., 2] += self.goal_z_offset
         start_state.x[..., 2] += self.start_z_offset
         return start_state, goal_state
 
@@ -140,7 +177,10 @@ class TrunkCrossing(BaseObjective):
         """
         if self._cache_cursor < self.cache_size:
             start_state, goal_state = self._construct_full_start_goal_states(
-                self.cache["start"][self._cache_cursor], self.cache["goal"][self._cache_cursor], self.cache["ori"][self._cache_cursor]
+                self.cache["start"][self._cache_cursor],
+                self.cache["goal"][self._cache_cursor],
+                self.cache["ori"][self._cache_cursor],
+                self.cache["joint_angles"][self._cache_cursor],
             )
             iteration_limits = self.cache["iteration_limits"][self._cache_cursor].to(self.device)
             self._cache_cursor += 1

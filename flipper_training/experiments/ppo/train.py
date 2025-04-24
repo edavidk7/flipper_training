@@ -56,9 +56,9 @@ def train_ppo(
     )
     actor_operator = actor_value_wrapper.get_policy_operator()
     value_operator = actor_value_wrapper.get_value_operator()
-    if extra_transforms:
-        for transform in extra_transforms:
-            env.transform.insert(-2, transform)  # insert before the VecNorm
+    extra_transforms += train_config.extra_env_transforms
+    for transform in extra_transforms:
+        env.transform.insert(-2, transform)  # insert before the VecNorm
     # Collector
     collector, replay_buffer = prepare_data_collection(env, actor_operator, train_config)
     # PPO setup
@@ -140,9 +140,3 @@ if __name__ == "__main__":
         train_ppo(**parse_and_load_config())
     except KeyboardInterrupt:
         print("Training interrupted. Exiting...")
-    except Exception as e:
-        print(f"An error occurred: {e}")
-    finally:
-        print("Cleaning up...")
-        # Perform any necessary cleanup here
-        exit(0)

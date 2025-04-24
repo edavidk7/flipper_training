@@ -17,7 +17,7 @@ class PolicyConfig(ABC):
     """
 
     @abstractmethod
-    def create(self, env: "Env", **kwargs) -> "tuple[ActorCriticWrapper | ActorValueOperator, list[dict], list[Transform] | None]":
+    def create(self, env: "Env", **kwargs) -> "tuple[ActorCriticWrapper | ActorValueOperator, list[dict], list[Transform]]":
         """
         Create a policy, value or action-value function wrapped into a TorchRL native object, optimizer groups from the configuration and optionally additional transforms for the environment.
         """

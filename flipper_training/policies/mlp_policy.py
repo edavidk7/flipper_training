@@ -91,7 +91,7 @@ class MLPPolicyConfig(PolicyConfig):
         # Log parameter counts before returning
         MLPPolicyConfig._log_parameter_counts(actor_value_wrapper, self.share_encoder)
 
-        return actor_value_wrapper, optim_groups, None
+        return actor_value_wrapper, optim_groups, []
 
     def _create_separate(self, action_spec, combined_encoder: EncoderCombiner):
         if "in_features" in self.actor_mlp_opts or "out_features" in self.actor_mlp_opts:
@@ -207,7 +207,7 @@ class MLPPolicyConfig(PolicyConfig):
             policy_operator = actor_value_wrapper.get_policy_operator()
             value_operator = actor_value_wrapper.get_value_operator()
             actor_encoder_params = count_parameters(policy_operator.module[0].module[0])
-            actor_head_params = count_parameters(policy_operator.module[1])
+            actor_head_params = count_parameters(policy_operator.module[0].module[1])
             value_encoder_params = count_parameters(value_operator[0])
             value_head_params = count_parameters(value_operator[1])
             table.add_row("Actor Encoder", f"{actor_encoder_params:,}")
