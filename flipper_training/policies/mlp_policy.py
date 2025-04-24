@@ -6,9 +6,16 @@ from flipper_training.environment.env import Env
 from tensordict.nn import TensorDictModule, TensorDictSequential
 from torchrl.modules import NormalParamExtractor, ProbabilisticActor, TanhNormal, ValueOperator, ActorCriticWrapper, ActorValueOperator
 from flipper_training.utils.logutils import get_terminal_logger
+from rich.console import Console
+from rich.table import Table
 from . import PolicyConfig, EncoderCombiner, MLP
 
 __all__ = ["MLPPolicyConfig"]
+
+
+def count_parameters(module: nn.Module) -> int:
+    """Counts the total number of trainable parameters in a module."""
+    return sum(p.numel() for p in module.parameters() if p.requires_grad)
 
 
 @dataclass
@@ -18,6 +25,7 @@ class MLPPolicyConfig(PolicyConfig):
     value_mlp_opts: dict
     actor_optimizer_opts: dict
     value_optimizer_opts: dict
+    apply_baselines_init: bool = False
 
     def __post_init__(self):
         self.logger = get_terminal_logger("MLPPolicyConfig")
@@ -59,9 +67,30 @@ class MLPPolicyConfig(PolicyConfig):
             ]
         if kwargs.get("device", None) is not None:
             actor_value_wrapper.to(kwargs["device"])
-        if kwargs.get("weights_path", None) is not None:
-            actor_value_wrapper.load_state_dict(torch.load(kwargs["weights_path"], map_location=actor_value_wrapper.device))
+
+        # Apply initialization if needed
+        if (
+            self.apply_baselines_init
+        ):  # Apply orthogonal initialization to the actor and value operators before loading weights (we might have some new weights)
+            self._apply_baselines_init(
+                actor_value_wrapper.get_policy_operator(),
+                actor_value_wrapper.get_value_operator(),
+                action_spec.shape[1],
+            )
+            self.logger.info("Applied orthogonal initialization to the actor and value operators.")
+
+        # Load weights if path provided
+        if weights_path := kwargs.get("weights_path", None):
+            missing_unexpected = actor_value_wrapper.load_state_dict(torch.load(weights_path, map_location=actor_value_wrapper.device), strict=False)
             self.logger.info(f"Loaded weights from {kwargs['weights_path']}")
+            if missing_unexpected.missing_keys:
+                self.logger.warning(f"Missing keys: {missing_unexpected.missing_keys}")
+            if missing_unexpected.unexpected_keys:
+                self.logger.warning(f"Unexpected keys: {missing_unexpected.unexpected_keys}")
+
+        # Log parameter counts before returning
+        MLPPolicyConfig._log_parameter_counts(actor_value_wrapper, self.share_encoder)
+
         return actor_value_wrapper, optim_groups, None
 
     def _create_separate(self, action_spec, combined_encoder: EncoderCombiner):
@@ -151,3 +180,78 @@ class MLPPolicyConfig(PolicyConfig):
             value_operator=value_operator,
             common_operator=encoder_module,
         )
+
+    @staticmethod
+    def _log_parameter_counts(actor_value_wrapper, share_encoder: bool):
+        """Logs the parameter counts of the policy components using a rich table."""
+        console = Console()
+        table = Table(title="Policy Parameter Counts")
+        table.add_column("Component", justify="right", style="cyan", no_wrap=True)
+        table.add_column("Parameters", justify="right", style="magenta")
+
+        total_params = count_parameters(actor_value_wrapper)
+        actor_params = count_parameters(actor_value_wrapper.get_policy_operator())
+        value_params = count_parameters(actor_value_wrapper.get_value_operator())
+
+        if share_encoder:
+            # ActorValueOperator structure
+            encoder_params = count_parameters(actor_value_wrapper.common_operator)
+            # policy_operator and value_operator are just the heads in this case
+            actor_head_params = actor_params
+            value_head_params = value_params
+            table.add_row("Shared Encoder", f"{encoder_params:,}")
+            table.add_row("Actor Head", f"{actor_head_params:,}")
+            table.add_row("Value Head", f"{value_head_params:,}")
+        else:
+            # ActorCriticWrapper structure
+            policy_operator = actor_value_wrapper.get_policy_operator()
+            value_operator = actor_value_wrapper.get_value_operator()
+            actor_encoder_params = count_parameters(policy_operator.module[0].module[0])
+            actor_head_params = count_parameters(policy_operator.module[1])
+            value_encoder_params = count_parameters(value_operator[0])
+            value_head_params = count_parameters(value_operator[1])
+            table.add_row("Actor Encoder", f"{actor_encoder_params:,}")
+            table.add_row("Actor Head", f"{actor_head_params:,}")
+            table.add_row("Value Encoder", f"{value_encoder_params:,}")
+            table.add_row("Value Head", f"{value_head_params:,}")
+
+        table.add_row("---", "---")
+        table.add_row("Total Actor", f"{actor_params:,}")
+        table.add_row("Total Value", f"{value_params:,}")
+        table.add_row("---", "---")
+        table.add_row("Total Parameters", f"{total_params:,}")
+        console.print(table)
+
+    @staticmethod
+    def _apply_baselines_init(
+        actor_operator: TensorDictModule,
+        value_operator: TensorDictModule,
+        action_size: int,
+    ):
+        """
+        Apply the orthogonal initialization to the actor and value operators like in StableBaselines3.
+        """
+
+        def init_baselines(m):
+            if isinstance(m, nn.Conv2d):
+                nn.init.orthogonal_(m.weight, gain=2**0.5)
+                if m.bias is not None:
+                    nn.init.constant_(m.bias, 0)
+            elif isinstance(m, nn.Linear):
+                output_dim = m.weight.shape[0]
+                if output_dim == action_size * 2:
+                    # Initialize the output layer of the policy network
+                    nn.init.normal_(m.weight, 0, 0.01)
+                elif output_dim == 1:
+                    # Initialize the output layer of the value network
+                    nn.init.normal_(m.weight, 0, 1)
+                else:
+                    # Initialize hidden layers
+                    nn.init.orthogonal_(m.weight, gain=2**0.5)
+                # Initialize biases to zero
+                if m.bias is not None:
+                    nn.init.constant_(m.bias, 0)
+
+        # initialize hidden layers orthogonally
+        actor_operator.apply(init_baselines)
+        value_operator.apply(init_baselines)

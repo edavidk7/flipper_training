@@ -7,12 +7,11 @@ from torchrl.data import LazyTensorStorage, SamplerWithoutReplacement, TensorDic
 from torchrl.envs.utils import check_env_specs
 
 from flipper_training.configs import PhysicsEngineConfig, RobotModelConfig, TerrainConfig
-from flipper_training.configs.experiment_config import make_partial_observations
 from flipper_training.environment.env import Env
 from flipper_training.utils.torch_utils import seed_all, set_device
 from argparse import ArgumentParser
 from pathlib import Path
-from config import PPOExperimentConfig
+from config import PPOExperimentConfig, make_partial_observations
 from omegaconf import DictConfig, OmegaConf
 from flipper_training.utils.logutils import LocalRunReader, WandbRunReader
 
@@ -189,8 +188,6 @@ def download_config_and_paths(reader: WandbRunReader | LocalRunReader, weight_st
     run_omegaconf = reader.load_config()
     if not isinstance(run_omegaconf, DictConfig):
         raise ValueError("Config must be a DictConfig")
-    if run_omegaconf["type"].__name__ != PPOExperimentConfig.__name__:
-        raise ValueError("Config must be of type PPOExperimentConfig")
     if weight_step is not None:
         policy_weights_path = reader.get_weights_path(f"policy_step_{weight_step}")
         vecnorm_weights_path = reader.get_weights_path(f"vecnorm_step_{weight_step}")

@@ -9,7 +9,14 @@ from flipper_training.rl_rewards import Reward
 if TYPE_CHECKING:
     from flipper_training.environment.env import Env
 
-__all__ = ["RollPitchGoal", "Goal", "PotentialGoal"]
+__all__ = [
+    "RollPitchGoal",
+    "PotentialGoal",
+    "PotentialGoalWithVelocityBonus",
+    "PotentialGoalWithConditionalVelocityBonus",
+    "PotentialGoalWithConditionalVelocityBonusAndJointCommandBonus",
+    "GoalDistance",
+]
 
 
 @dataclass
@@ -87,9 +94,8 @@ class PotentialGoal(Reward):
         fail: torch.BoolTensor,
         env: "Env",
     ) -> torch.Tensor:
-        curr_dist = (env.goal.x - curr_state.x).norm(dim=-1, keepdim=True) / (env.terrain_cfg.max_coord * 2**1.5)
-        prev_dist = (env.goal.x - prev_state.x).norm(dim=-1, keepdim=True) / (env.terrain_cfg.max_coord * 2**1.5)
-        # Normalized potential to bound rewards
+        curr_dist = (env.goal.x - curr_state.x).norm(dim=-1, keepdim=True)
+        prev_dist = (env.goal.x - prev_state.x).norm(dim=-1, keepdim=True)
         neg_goal_dist_curr = -curr_dist  # phi(s')
         neg_goal_dist_prev = -prev_dist  # phi(s)
         reward = self.potential_coef * (self.gamma * neg_goal_dist_curr - neg_goal_dist_prev) + self.step_penalty
@@ -117,8 +123,8 @@ class PotentialGoalWithVelocityBonus(Reward):
         fail: torch.BoolTensor,
         env: "Env",
     ) -> torch.Tensor:
-        curr_dist = (env.goal.x - curr_state.x).norm(dim=-1, keepdim=True) / (env.terrain_cfg.max_coord * 2**1.5)
-        prev_dist = (env.goal.x - prev_state.x).norm(dim=-1, keepdim=True) / (env.terrain_cfg.max_coord * 2**1.5)
+        curr_dist = (env.goal.x - curr_state.x).norm(dim=-1, keepdim=True)
+        prev_dist = (env.goal.x - prev_state.x).norm(dim=-1, keepdim=True)
         # Normalized potential to bound rewards
         neg_goal_dist_curr = -curr_dist  # phi(s')
         neg_goal_dist_prev = -prev_dist  # phi(s)
@@ -151,8 +157,8 @@ class PotentialGoalWithConditionalVelocityBonus(Reward):
         fail: torch.BoolTensor,
         env: "Env",
     ) -> torch.Tensor:
-        curr_dist = (env.goal.x - curr_state.x).norm(dim=-1, keepdim=True) / (env.terrain_cfg.max_coord * 2**1.5)
-        prev_dist = (env.goal.x - prev_state.x).norm(dim=-1, keepdim=True) / (env.terrain_cfg.max_coord * 2**1.5)
+        curr_dist = (env.goal.x - curr_state.x).norm(dim=-1, keepdim=True)
+        prev_dist = (env.goal.x - prev_state.x).norm(dim=-1, keepdim=True)
         # Normalized potential to bound rewards
         neg_goal_dist_curr = -curr_dist  # phi(s')
         neg_goal_dist_prev = -prev_dist  # phi(s)
@@ -161,7 +167,7 @@ class PotentialGoalWithConditionalVelocityBonus(Reward):
             + self.step_penalty
             + self.velocity_bonus_coef
             * curr_state.xd.norm(dim=-1, keepdim=True)
-            * (curr_dist < prev_dist).float()  # award only if the robot is getting closer to the goal
+            * (curr_dist <= prev_dist).float()  # award only if the robot is getting closer to the goal
         )
         reward[success] += self.goal_reached_reward
         reward[fail] += self.failed_reward
@@ -169,13 +175,14 @@ class PotentialGoalWithConditionalVelocityBonus(Reward):
 
 
 @dataclass
-class PotentialGoalRelativized(Reward):
+class PotentialGoalWithConditionalVelocityBonusAndJointCommandBonus(Reward):
     goal_reached_reward: float
     failed_reward: float
     gamma: float
     step_penalty: float
     potential_coef: float
-    eps: float = 1e-6
+    velocity_bonus_coef: float
+    joint_command_bonus_coef: float
 
     def __call__(
         self,
@@ -189,9 +196,17 @@ class PotentialGoalRelativized(Reward):
     ) -> torch.Tensor:
         curr_dist = (env.goal.x - curr_state.x).norm(dim=-1, keepdim=True)
         prev_dist = (env.goal.x - prev_state.x).norm(dim=-1, keepdim=True)
-        phi_prev = -prev_dist / (prev_dist + self.eps)  # phi(s)
-        phi_curr = -curr_dist / (curr_dist + self.eps)  # phi(s')
-        reward = self.potential_coef * (self.gamma * phi_curr - phi_prev) + self.step_penalty
+        # Normalized potential to bound rewards
+        neg_goal_dist_curr = -curr_dist  # phi(s')
+        neg_goal_dist_prev = -prev_dist  # phi(s)
+        reward = (
+            self.potential_coef * (self.gamma * neg_goal_dist_curr - neg_goal_dist_prev)
+            + self.step_penalty
+            + self.velocity_bonus_coef
+            * curr_state.xd.norm(dim=-1, keepdim=True)
+            * (curr_dist <= prev_dist).float()  # award only if the robot is getting closer to the goal
+            + action[..., action.shape[1] // 2 :].pow(2).sum(dim=-1, keepdim=True) * self.joint_command_bonus_coef
+        )
         reward[success] += self.goal_reached_reward
         reward[fail] += self.failed_reward
         return reward.to(env.out_dtype)

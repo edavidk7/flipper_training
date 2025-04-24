@@ -61,8 +61,6 @@ class MLP(torch.nn.Module):
             raise ValueError(f"hidden_dim should be a list of length {num_hidden}, but got {len(hidden_dim)}")
         if len(dropout) != num_hidden:
             raise ValueError(f"dropout should be a list of length {num_hidden}, but got {len(dropout)}")
-        if num_hidden == 0:
-            raise ValueError("num_hidden should be greater than 0")
         layers = []
         for i in range(num_hidden):
             layers.append(nn.Linear(in_dim, hidden_dim[i]))

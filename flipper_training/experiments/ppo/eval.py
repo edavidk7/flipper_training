@@ -3,11 +3,10 @@ from typing import TYPE_CHECKING
 
 import torch
 from common import prepare_env, make_formatted_str_lines, log_from_eval_rollout, EVAL_LOG_OPT, make_normed_env, parse_and_load_config
-from config import PPOExperimentConfig
+from config import PPOExperimentConfig, hash_omegaconf
 from pathlib import Path
 from simview import SimView
 from torchrl.envs.utils import ExplorationType, set_exploration_type
-from flipper_training.configs.experiment_config import hash_omegaconf
 from flipper_training.engine.engine_state import PhysicsState, PhysicsStateDer
 from flipper_training.environment.env import Env
 from flipper_training.vis.simview import physics_state_to_simview_body_states, simview_bodies_from_robot_config, simview_terrain_from_config

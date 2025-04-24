@@ -1,30 +1,21 @@
-# General Experiment Configuration
-type: ${cls:flipper_training.experiments.ppo.config.PPOExperimentConfig}
 name: deterministic_flats_debug_for_hparam_calibration
-comment: "Debugging PPO on flat terrain with fixed goal navigation"
+comment: Debugging PPO on flat terrain with fixed goal navigation
 seed: 42
 use_wandb: true
 use_tensorboard: false
-device: cuda:0
-
-# Training Loop Parameters
+device: cuda:2
 training_dtype: ${dtype:float32}
-total_frames: ${mul:5242880,1}
+total_frames: ${mul:5242880,6}
 frames_per_batch: 128
 epochs_per_batch: 1
-frames_per_sub_batch: 64 # Must divide frames_per_batch * num_robots
-eval_and_save_every: 10 # steps
+frames_per_sub_batch: 64
+eval_and_save_every: 10
 max_eval_steps: 700
-
-# Optimizer and Scheduler Configuration
 optimizer: ${cls:torch.optim.AdamW}
-scheduler: ${cls:torch.optim.lr_scheduler.StepLR}
+scheduler: ${cls:torch.optim.lr_scheduler.ExponentialLR}
 scheduler_opts:
-  step_size: ${intdiv:${intdiv:${total_frames},${mul:${frames_per_batch},${num_robots}}},2}
-  gamma: 0.7
+  gamma: 0.995
 max_grad_norm: 0.5
-
-# Environment and Simulation Settings
 num_robots: 128
 grid_res: 0.05
 max_coord: 3.2
@@ -45,8 +36,6 @@ engine_compile_opts:
   benchmark_iters: 1000
   atol: 1
   rtol: 0
-
-# Robot Model Configuration
 robot_model_opts:
   kind: marv
   mesh_voxel_size: 0.01
@@ -54,11 +43,9 @@ robot_model_opts:
   points_per_body: 512
   wheel_assignment_margin: 0.02
   linear_track_assignment_margin: 0.05
-
-# Observation and Normalization Settings
 vecnorm_opts:
   decay: 0.99
-  eps: 1e-4
+  eps: 0.0001
 vecnorm_on_reward: true
 observations:
   - cls: ${cls:flipper_training.observations.robot_state.LocalStateVector}
@@ -67,14 +54,12 @@ observations:
         num_hidden: 4
         hidden_dim: 64
         output_dim: 64
-
-# PPO Algorithm Parameters
 gae_opts:
   gamma: 0.999
   lmbda: 0.95
   average_gae: false
   skip_existing: false
-gae_compile_opts: null # Optional compilation settings for GAE calculation
+gae_compile_opts: null
 ppo_opts:
   clip_epsilon: 0.2
   entropy_bonus: true
@@ -82,13 +67,12 @@ ppo_opts:
   critic_coef: 1.0
   loss_critic_type: smooth_l1
   normalize_advantage: false
-ppo_compile_opts: null # Optional compilation settings for PPO
+  separate_losses: false
+ppo_compile_opts: null
 data_collector_opts:
   split_trajs: false
   compile_policy: true
   exploration_type: RANDOM
-
-# Task Objective Configuration
 objective: ${cls:flipper_training.rl_objectives.fixed_goal.FixedStartGoalNavigation}
 objective_opts:
   start_x_y_z: ${tensor:[-1.5, 0.0, 0.2]}
@@ -96,34 +80,31 @@ objective_opts:
   iteration_limit: 700
   max_feasible_pitch: 1.5
   max_feasible_roll: 1.5
-  goal_reached_threshold: 0.1
+  goal_reached_threshold: 0.2
   init_joint_angles: random
   resample_random_joint_angles_on_reset: true
-
-# Reward Function Configuration
 reward: ${cls:flipper_training.rl_rewards.rewards.PotentialGoal}
 reward_opts:
-  goal_reached_reward: 20.0
-  failed_reward: -20.0
+  goal_reached_reward: 100.0
+  failed_reward: -100.0
   potential_coef: 20
   gamma: ${gae_opts.gamma}
-  step_penalty: -0.005
-
-## Policy and Value Network Architecture
+  step_penalty: -0.02
 policy_config: ${cls:flipper_training.policies.mlp_policy.MLPPolicyConfig}
 policy_opts:
-  share_encoder: true
+  share_encoder: false
+  apply_baselines_init: true
   actor_mlp_opts:
-    num_hidden: 3
+    num_hidden: 4
     hidden_dim: 64
     layernorm: false
   value_mlp_opts:
-    num_hidden: 3
+    num_hidden: 4
     hidden_dim: 64
-    layernorm: false
+    layernorm: true
   actor_optimizer_opts:
-    lr: 5e-5
-    weight_decay: 1e-5
+    lr: 0.0001
+    weight_decay: 1.0e-05
   value_optimizer_opts:
-    lr: 5e-5
-    weight_decay: 1e-5
+    lr: 0.002
+    weight_decay: 1.0e-05
