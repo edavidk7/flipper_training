@@ -23,6 +23,7 @@ class FixedStartGoalNavigation(BaseObjective):
     resample_random_joint_angles_on_reset: bool = False
 
     def __post_init__(self) -> None:
+        super().__post_init__()
         self.start_pos = self.start_x_y_z.repeat(self.physics_config.num_robots, 1)
         self.goal_pos = self.goal_x_y_z.repeat(self.physics_config.num_robots, 1)
         diff_vecs = self.goal_pos[..., :2] - self.start_pos[..., :2]
@@ -97,9 +98,9 @@ class FixedStartGoalNavigation(BaseObjective):
         - A tuple of PhysicsState objects containing the start and goal positions for the robots.
         - A tensor containing the iteration limits for the robots.
         """
-        iteration_limits = torch.full((self.physics_config.num_robots,), self.iteration_limit, device=self.device).int()
+        step_limits = torch.full((self.physics_config.num_robots,), self.iteration_limit, device=self.device).int()
         start_state, goal_state = self._construct_full_start_goal_states()
-        return start_state, goal_state, iteration_limits
+        return start_state, goal_state, step_limits
 
     def check_reached_goal(self, state: PhysicsState, goal: PhysicsState) -> torch.BoolTensor:
         return torch.linalg.norm(state.x - goal.x, dim=-1) <= self.goal_reached_threshold
@@ -109,7 +110,7 @@ class FixedStartGoalNavigation(BaseObjective):
         return (
             (pitches.abs() > self.max_feasible_pitch)
             | (rolls.abs() > self.max_feasible_roll)
-            | (state.x.abs() > self.world_config.max_coord).any(dim=-1)
+            | (state.x.abs() > self.terrain_config.max_coord).any(dim=-1)
         )
 
     def start_goal_to_simview(self, start: PhysicsState, goal: PhysicsState):

@@ -1,6 +1,7 @@
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, ClassVar
+from typing import TYPE_CHECKING, ClassVar, Callable
+from functools import wraps
 
 import torch
 from tensordict import TensorDict
@@ -37,7 +38,13 @@ class Observation(ABC):
     env: "Env"
     encoder_opts: dict
     supports_vecnorm: ClassVar[bool] = NotImplemented
-    name: ClassVar[str] = NotImplemented
+
+    @property
+    def name(self) -> str:
+        """
+        Name of the observation generator.
+        """
+        return self.__class__.__name__
 
     @abstractmethod
     def __call__(
@@ -76,3 +83,18 @@ class Observation(ABC):
             The observation encoder.
         """
         pass
+
+    @classmethod
+    def make_factory(cls, **opts):
+        """
+        Factory method to create a reward function with the given options.
+        """
+
+        @wraps(cls)
+        def factory(env: "Env"):
+            return cls(env=env, **opts)
+
+        return factory
+
+
+ObservationFactory = Callable[["Env"], Observation]

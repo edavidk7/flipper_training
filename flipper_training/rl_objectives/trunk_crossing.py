@@ -26,7 +26,7 @@ class TrunkCrossing(BaseObjective):
     _cache_cursor: int = 0
 
     def __post_init__(self) -> None:
-        if self.world_config.grid_extras is None or "trunk_sides" not in self.world_config.grid_extras:
+        if self.terrain_config.grid_extras is None or "trunk_sides" not in self.terrain_config.grid_extras:
             raise ValueError("World configuration must contain the trunk sides in the grid extras for start/goal positions.")
         self._init_cache()
 
@@ -41,8 +41,8 @@ class TrunkCrossing(BaseObjective):
         # Process each robot's terrain separately
         for b in trange(B, desc="Initializing start/goal position cache"):
             # Get valid indices for this robot's terrain (batch index b)
-            left_indices = torch.nonzero(self.world_config.grid_extras["trunk_sides"][b] == TrunkSide.LEFT, as_tuple=False).cpu()
-            right_indices = torch.nonzero(self.world_config.grid_extras["trunk_sides"][b] == TrunkSide.RIGHT, as_tuple=False).cpu()
+            left_indices = torch.nonzero(self.terrain_config.grid_extras["trunk_sides"][b] == TrunkSide.LEFT, as_tuple=False).cpu()
+            right_indices = torch.nonzero(self.terrain_config.grid_extras["trunk_sides"][b] == TrunkSide.RIGHT, as_tuple=False).cpu()
             # Oversample start and goal indices from valid set
             oversample_factor = 1
             collected = 0
@@ -59,11 +59,11 @@ class TrunkCrossing(BaseObjective):
                 goal_ij = torch.where(is_start_left_mask, right_ij, left_ij)
                 # Compute xyz coordinates using this robot's terrain data
                 start_xyz = torch.stack(
-                    [g[b, *start_ij.unbind(-1)] for g in [self.world_config.x_grid, self.world_config.y_grid, self.world_config.z_grid]],
+                    [g[b, *start_ij.unbind(-1)] for g in [self.terrain_config.x_grid, self.terrain_config.y_grid, self.terrain_config.z_grid]],
                     dim=-1,
                 ).to("cpu")
                 goal_xyz = torch.stack(
-                    [g[b, *goal_ij.unbind(-1)] for g in [self.world_config.x_grid, self.world_config.y_grid, self.world_config.z_grid]],
+                    [g[b, *goal_ij.unbind(-1)] for g in [self.terrain_config.x_grid, self.terrain_config.y_grid, self.terrain_config.z_grid]],
                     dim=-1,
                 ).to("cpu")
                 # Validate pairs (ensure batch dimension is respected in _is_start_goal_xyz_valid)
@@ -81,7 +81,7 @@ class TrunkCrossing(BaseObjective):
             "start": start_pos_cache,
             "goal": goal_pos_cache,
             "ori": self._get_initial_orientation_quat(start_pos_cache, goal_pos_cache),
-            "iteration_limits": self._compute_iteration_limits(start_pos_cache, goal_pos_cache),
+            "step_limits": self._compute_step_limits(start_pos_cache, goal_pos_cache),
             "joint_angles": torch.stack([self._get_initial_joint_angles() for _ in range(self.cache_size)], dim=0),
         }
         self._cache_cursor = 0
@@ -155,8 +155,8 @@ class TrunkCrossing(BaseObjective):
         - A boolean tensor indicating whether each start/goal pair is valid.
         """
         dist = torch.linalg.norm(start_xyz - goal_xyz, dim=-1)  # distance
-        start_xy_to_edge = self.world_config.max_coord - start_xyz[..., :2].abs()  # vector from start to edge
-        goal_xy_to_edge = self.world_config.max_coord - goal_xyz[..., :2].abs()  # vector from goal to edge
+        start_xy_to_edge = self.terrain_config.max_coord - start_xyz[..., :2].abs()  # vector from start to edge
+        goal_xy_to_edge = self.terrain_config.max_coord - goal_xyz[..., :2].abs()  # vector from goal to edge
         return (
             (dist >= self.min_dist_to_goal)
             & (dist <= self.max_dist_to_goal)
@@ -182,9 +182,9 @@ class TrunkCrossing(BaseObjective):
                 self.cache["ori"][self._cache_cursor],
                 self.cache["joint_angles"][self._cache_cursor],
             )
-            iteration_limits = self.cache["iteration_limits"][self._cache_cursor].to(self.device)
+            step_limits = self.cache["step_limits"][self._cache_cursor].to(self.device)
             self._cache_cursor += 1
-            return start_state, goal_state, iteration_limits
+            return start_state, goal_state, step_limits
         else:
             logging.warning("Start/goal cache exhausted, doubling size and generating new start/goal positions")
             self.cache_size *= 2
@@ -210,16 +210,16 @@ class TrunkCrossing(BaseObjective):
         return (
             (pitches.abs() > self.max_feasible_pitch)
             | (rolls.abs() > self.max_feasible_roll)
-            | (state.x.abs() > self.world_config.max_coord).any(dim=-1)
+            | (state.x.abs() > self.terrain_config.max_coord).any(dim=-1)
         )
 
-    def _compute_iteration_limits(
+    def _compute_step_limits(
         self,
         start_pos: torch.Tensor,
         goal_pos: torch.Tensor,
     ) -> torch.IntTensor:
         dists = torch.linalg.norm(goal_pos - start_pos, dim=-1)  # distances from starts to goals
-        fastest_traversal = dists / (self.robot_model.v_max * self.physics_config.dt)  # time to reach the furthest goal
+        fastest_traversal = dists / (self.robot_model.v_max * self.env.effective_dt)  # time to reach the furthest goal
         steps = (fastest_traversal * self.iteration_limit_factor).ceil()
         return steps.int()
 

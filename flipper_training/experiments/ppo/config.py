@@ -6,13 +6,13 @@ if TYPE_CHECKING:
     from torch.optim import Optimizer
     from torch.optim.lr_scheduler import LRScheduler
     from omegaconf import DictConfig
+    from torchrl.envs import Transform
     from flipper_training.observations import Observation
     from flipper_training.rl_objectives import BaseObjective
     from flipper_training.rl_rewards.rewards import Reward
     from flipper_training.heightmaps import BaseHeightmapGenerator
 
 import hashlib
-from functools import partial
 from typing import Type, TypedDict, List
 from omegaconf import OmegaConf
 
@@ -25,12 +25,8 @@ class ObservationConfig(TypedDict):
 
 
 class EnvTransformConfig(TypedDict):
-    cls: "Type[BaseHeightmapGenerator]"
+    cls: "Type[Transform]"
     opts: dict[str, Any] | None
-
-
-def make_partial_observations(observations: List[ObservationConfig]) -> List[partial]:
-    return [partial(o["cls"], **(o["opts"] or {})) for o in observations]
 
 
 def hash_omegaconf(omegaconf: "DictConfig") -> str:
@@ -46,6 +42,7 @@ class PPOExperimentConfig:
     training_dtype: torch.dtype
     use_wandb: bool
     use_tensorboard: bool
+    engine_iters_per_env_step: int
     seed: int
     device: str
     num_robots: int
@@ -83,5 +80,3 @@ class PPOExperimentConfig:
     engine_compile_opts: dict[str, Any] = field(default_factory=dict)
     gae_compile_opts: dict[str, Any] = field(default_factory=dict)
     ppo_compile_opts: dict[str, Any] = field(default_factory=dict)
-    # Compatibility with old configs
-    type: Any = None

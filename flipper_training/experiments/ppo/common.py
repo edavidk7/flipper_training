@@ -11,16 +11,11 @@ from flipper_training.environment.env import Env
 from flipper_training.utils.torch_utils import seed_all, set_device
 from argparse import ArgumentParser
 from pathlib import Path
-from config import PPOExperimentConfig, make_partial_observations
+from config import PPOExperimentConfig
 from omegaconf import DictConfig, OmegaConf
 from flipper_training.utils.logutils import LocalRunReader, WandbRunReader
 
-from torchrl.envs import (
-    Compose,
-    VecNorm,
-    StepCounter,
-    TransformedEnv,
-)
+from torchrl.envs import Compose, VecNorm, StepCounter, TransformedEnv, Transform
 
 if TYPE_CHECKING:
     from config import PPOExperimentConfig
@@ -98,19 +93,14 @@ def prepare_env(train_config: "PPOExperimentConfig", mode: Literal["train", "eva
     # Init configs and RL-related objects
     rng = seed_all(train_config.seed)
     world_config, physics_config, robot_model, device = prepare_configs(rng, train_config)
-    training_objective = train_config.objective(
-        device=device,
-        physics_config=physics_config,
-        robot_model=robot_model,
-        world_config=world_config,
-        rng=rng,
-        **train_config.objective_opts,
-    )
     # Create environment
     base_env = Env(
-        objective=training_objective,
-        reward=train_config.reward(**train_config.reward_opts),
-        observations=make_partial_observations(train_config.observations),
+        objective_factory=train_config.objective.make_factory(
+            **train_config.objective_opts,
+            rng=rng,
+        ),
+        reward_factory=train_config.reward.make_factory(**train_config.reward_opts),
+        observation_factories=[o["cls"].make_factory(**o["opts"]) for o in train_config.observations],
         terrain_config=world_config,
         physics_config=physics_config,
         robot_model_config=robot_model,
@@ -120,6 +110,7 @@ def prepare_env(train_config: "PPOExperimentConfig", mode: Literal["train", "eva
         engine_compile_opts=train_config.engine_compile_opts,
         out_dtype=train_config.training_dtype,
         return_derivative=mode == "eval",  # needed for evaluation
+        engine_iters_per_step=train_config.engine_iters_per_env_step,
     )
     check_env_specs(base_env)
     return base_env, device, rng
@@ -167,21 +158,18 @@ def log_from_eval_rollout(eval_rollout: "TensorDict") -> dict[str, int | float]:
     }
 
 
-def make_normed_env(
-    env: "Env", train_config: "PPOExperimentConfig", vecnorm_weights_path: str | Path | None = None, freeze_vecnorm: bool = False
-) -> TransformedEnv:
+def make_transformed_env(env: "Env", train_config: "PPOExperimentConfig", policy_transforms: list[Transform]) -> tuple[TransformedEnv, VecNorm]:
     vecnorm_keys = [o.name for o in env.observations if o.supports_vecnorm]
     if train_config.vecnorm_on_reward:
         vecnorm_keys.append("reward")
-    transforms = Compose(
-        StepCounter(),
-        VecNorm(in_keys=vecnorm_keys, **train_config.vecnorm_opts),
+    vecnorm = VecNorm(
+        in_keys=vecnorm_keys,
+        **train_config.vecnorm_opts,
     )
-    if vecnorm_weights_path is not None:
-        transforms[-1].load_state_dict(torch.load(vecnorm_weights_path, map_location=env.device))
-    if freeze_vecnorm:
-        transforms[-1].eval()
-    return TransformedEnv(env, transforms)
+    transforms = [t["cls"](**(t["opts"] or {})) for t in train_config.extra_env_transforms] + policy_transforms
+    transforms.append(StepCounter())
+    transforms.append(vecnorm)
+    return TransformedEnv(env, Compose(*transforms)), vecnorm
 
 
 def download_config_and_paths(reader: WandbRunReader | LocalRunReader, weight_step: int | None) -> tuple[DictConfig, Path | None, Path | None]:

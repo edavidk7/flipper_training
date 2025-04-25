@@ -11,42 +11,6 @@ from flipper_training.utils.geometry import planar_rot_from_q
 from . import Observation, ObservationEncoder
 
 
-class ResBlock(nn.Module):
-    """
-    Residual Block with GroupNorm. Handles downsampling and channel changes.
-    """
-
-    def __init__(self, in_channels, out_channels, stride=1, groups_in_norm=8):
-        super().__init__()
-        # Ensure groups_in_norm divides channels, adjust if necessary
-        num_groups = max(1, out_channels // groups_in_norm)
-
-        self.conv1 = nn.Conv2d(in_channels, out_channels, kernel_size=3, stride=stride, padding=1, bias=False)
-        self.norm1 = nn.GroupNorm(num_groups, out_channels)
-        self.relu = nn.ReLU(inplace=True)
-        self.conv2 = nn.Conv2d(out_channels, out_channels, kernel_size=3, stride=1, padding=1, bias=False)
-        self.norm2 = nn.GroupNorm(num_groups, out_channels)
-
-        # Shortcut connection (for identity or projection)
-        self.shortcut = nn.Sequential()
-        if stride != 1 or in_channels != out_channels:
-            # Need projection to match dimensions
-            self.shortcut = nn.Sequential(
-                nn.Conv2d(in_channels, out_channels, kernel_size=1, stride=stride, bias=False), nn.GroupNorm(num_groups, out_channels)
-            )
-
-    def forward(self, x):
-        identity = self.shortcut(x)
-        out = self.conv1(x)
-        out = self.norm1(out)
-        out = self.relu(out)
-        out = self.conv2(out)
-        out = self.norm2(out)
-        out += identity  # Add the shortcut connection
-        out = self.relu(out)
-        return out
-
-
 class HeightmapEncoder(ObservationEncoder):
     def __init__(self, img_shape: tuple[int, int], output_dim: int):
         super(HeightmapEncoder, self).__init__(output_dim)
@@ -67,16 +31,12 @@ class HeightmapEncoder(ObservationEncoder):
             nn.GroupNorm(max(1, 64 // groups_in_norm), 64),
             nn.ReLU(inplace=True),
             # Output: (B, 64, H/4, W/4)
-            # Layer 3: Same channels, same spatial size
-            nn.Conv2d(64, 64, kernel_size=3, stride=1, padding=1, bias=False),
-            nn.GroupNorm(max(1, 64 // groups_in_norm), 64),
-            nn.ReLU(inplace=True),
-            # Layer 4: Downsample, increase channels
+            # Layer 3: Downsample, increase channels
             nn.Conv2d(64, 128, kernel_size=3, stride=2, padding=1, bias=False),
             nn.GroupNorm(max(1, 128 // groups_in_norm), 128),
             nn.ReLU(inplace=True),
             # Output: (B, 128, H/8, W/8)
-            # Layer 5: Downsample, increase channels (Optional, could stop earlier)
+            # Layer 4: Downsample, increase channels (Optional, could stop earlier)
             # If the input image is small, H/16 might become too small.
             # Let's keep it for now to match the original depth approximately.
             nn.Conv2d(128, 128, kernel_size=3, stride=2, padding=1, bias=False),
@@ -117,7 +77,6 @@ class Heightmap(Observation):
     interval: tuple[float, float]
     normalize_to_interval: bool = False
     supports_vecnorm = False
-    name = "heightmap"
 
     def __post_init__(self):
         self._initialize_perception_grid()

@@ -6,9 +6,10 @@ use_tensorboard: false
 device: cuda:2
 training_dtype: ${dtype:float32}
 total_frames: ${mul:5242880,6}
+engine_iters_per_env_step: 3
 frames_per_batch: 128
 epochs_per_batch: 2
-frames_per_sub_batch: 64
+frames_per_sub_batch: 32
 eval_and_save_every: 10
 max_eval_steps: 900
 optimizer: ${cls:torch.optim.AdamW}
@@ -55,9 +56,11 @@ observations:
   - cls: ${cls:flipper_training.observations.robot_state.LocalStateVector}
     opts:
       encoder_opts:
-        num_hidden: 4
+        num_hidden: 2
         hidden_dim: 64
         output_dim: 64
+        activation: ${cls:torch.nn.ReLU}
+        layernorm: true
   - cls: ${cls:flipper_training.observations.heightmap.Heightmap}
     opts:
       percep_shape: [64, 64]
@@ -107,16 +110,16 @@ policy_opts:
   share_encoder: false
   apply_baselines_init: true
   actor_mlp_opts:
-    num_hidden: 4
-    hidden_dim: 128
+    num_hidden: 2
+    hidden_dim: 64
     layernorm: false
   value_mlp_opts:
-    num_hidden: 4
-    hidden_dim: 128
+    num_hidden: 2
+    hidden_dim: 64
     layernorm: true
   actor_optimizer_opts:
     lr: 0.0001
     weight_decay: 1.0e-05
   value_optimizer_opts:
-    lr: 0.001
+    lr: 0.003
     weight_decay: 1.0e-05

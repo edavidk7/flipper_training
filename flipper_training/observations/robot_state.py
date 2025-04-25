@@ -16,7 +16,7 @@ class LocalStateVectorEncoder(ObservationEncoder):
     def __init__(self, input_dim: int, output_dim: int, **mlp_kwargs):
         super(LocalStateVectorEncoder, self).__init__(output_dim)
         self.input_dim = input_dim
-        self.mlp = MLP(**mlp_kwargs | {"in_dim": input_dim, "out_dim": output_dim, "activate_last_layer": True, "layernorm": True})
+        self.mlp = MLP(**mlp_kwargs | {"in_dim": input_dim, "out_dim": output_dim, "activate_last_layer": True})
 
     def forward(self, x):
         return self.mlp(x)
@@ -29,7 +29,6 @@ class LocalStateVector(Observation):
     """
 
     supports_vecnorm = True
-    name = "local_state_vector"
 
     def __post_init__(self):
         self.max_dist = self.env.terrain_cfg.max_coord * 2**1.5

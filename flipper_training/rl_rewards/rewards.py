@@ -6,9 +6,6 @@ import torch
 from flipper_training.engine.engine_state import PhysicsState, PhysicsStateDer
 from flipper_training.rl_rewards import Reward
 
-if TYPE_CHECKING:
-    from flipper_training.environment.env import Env
-
 __all__ = [
     "RollPitchGoal",
     "PotentialGoal",
@@ -40,16 +37,17 @@ class RollPitchGoal(Reward):
         curr_state: PhysicsState,
         success: torch.BoolTensor,
         fail: torch.BoolTensor,
-        env: "Env",
+        start_state: PhysicsState,
+        goal_state: PhysicsState,
     ) -> torch.Tensor:
         roll_pitch_rates_sq = curr_state.omega[..., :2].pow(2)  # shape (batch_size, 2)
-        goal_diff_curr = (env.goal.x - curr_state.x).norm(dim=-1, keepdim=True)
-        goal_diff_prev = (env.goal.x - prev_state.x).norm(dim=-1, keepdim=True)
+        goal_diff_curr = (goal_state.x - curr_state.x).norm(dim=-1, keepdim=True)
+        goal_diff_prev = (goal_state.x - prev_state.x).norm(dim=-1, keepdim=True)
         diff_delta = goal_diff_curr - goal_diff_prev
         reward = self.omega_weight * roll_pitch_rates_sq.sum(dim=-1, keepdim=True) - self.goal_weight * diff_delta
         reward[success] = self.goal_reached_reward
         reward[fail] = self.failed_reward
-        return reward.to(env.out_dtype)
+        return reward.to(self.env.out_dtype)
 
 
 @dataclass
@@ -67,13 +65,14 @@ class GoalDistance(Reward):
         curr_state: PhysicsState,
         success: torch.BoolTensor,
         fail: torch.BoolTensor,
-        env: "Env",
+        start_state: PhysicsState,
+        goal_state: PhysicsState,
     ) -> torch.Tensor:
-        goal_diff = (env.goal.x - curr_state.x).norm(dim=-1, keepdim=True) / (env.terrain_cfg.max_coord * 2**1.5)
+        goal_diff = (goal_state.x - curr_state.x).norm(dim=-1, keepdim=True) / (self.env.terrain_cfg.max_coord * 2**1.5)
         reward = -self.weight * goal_diff.pow(self.exp)
         reward[success] += self.goal_reached_reward
         reward[fail] += self.failed_reward
-        return reward.to(env.out_dtype)
+        return reward.to(self.env.out_dtype)
 
 
 @dataclass
@@ -92,16 +91,17 @@ class PotentialGoal(Reward):
         curr_state: PhysicsState,
         success: torch.BoolTensor,
         fail: torch.BoolTensor,
-        env: "Env",
+        start_state: PhysicsState,
+        goal_state: PhysicsState,
     ) -> torch.Tensor:
-        curr_dist = (env.goal.x - curr_state.x).norm(dim=-1, keepdim=True)
-        prev_dist = (env.goal.x - prev_state.x).norm(dim=-1, keepdim=True)
+        curr_dist = (goal_state.x - curr_state.x).norm(dim=-1, keepdim=True)
+        prev_dist = (goal_state.x - prev_state.x).norm(dim=-1, keepdim=True)
         neg_goal_dist_curr = -curr_dist  # phi(s')
         neg_goal_dist_prev = -prev_dist  # phi(s)
         reward = self.potential_coef * (self.gamma * neg_goal_dist_curr - neg_goal_dist_prev) + self.step_penalty
         reward[success] += self.goal_reached_reward
         reward[fail] += self.failed_reward
-        return reward.to(env.out_dtype)
+        return reward.to(self.env.out_dtype)
 
 
 @dataclass
@@ -121,10 +121,11 @@ class PotentialGoalWithVelocityBonus(Reward):
         curr_state: PhysicsState,
         success: torch.BoolTensor,
         fail: torch.BoolTensor,
-        env: "Env",
+        start_state: PhysicsState,
+        goal_state: PhysicsState,
     ) -> torch.Tensor:
-        curr_dist = (env.goal.x - curr_state.x).norm(dim=-1, keepdim=True)
-        prev_dist = (env.goal.x - prev_state.x).norm(dim=-1, keepdim=True)
+        curr_dist = (goal_state.x - curr_state.x).norm(dim=-1, keepdim=True)
+        prev_dist = (goal_state.x - prev_state.x).norm(dim=-1, keepdim=True)
         # Normalized potential to bound rewards
         neg_goal_dist_curr = -curr_dist  # phi(s')
         neg_goal_dist_prev = -prev_dist  # phi(s)
@@ -135,7 +136,7 @@ class PotentialGoalWithVelocityBonus(Reward):
         )
         reward[success] += self.goal_reached_reward
         reward[fail] += self.failed_reward
-        return reward.to(env.out_dtype)
+        return reward.to(self.env.out_dtype)
 
 
 @dataclass
@@ -155,10 +156,11 @@ class PotentialGoalWithConditionalVelocityBonus(Reward):
         curr_state: PhysicsState,
         success: torch.BoolTensor,
         fail: torch.BoolTensor,
-        env: "Env",
+        start_state: PhysicsState,
+        goal_state: PhysicsState,
     ) -> torch.Tensor:
-        curr_dist = (env.goal.x - curr_state.x).norm(dim=-1, keepdim=True)
-        prev_dist = (env.goal.x - prev_state.x).norm(dim=-1, keepdim=True)
+        curr_dist = (goal_state.x - curr_state.x).norm(dim=-1, keepdim=True)
+        prev_dist = (goal_state.x - prev_state.x).norm(dim=-1, keepdim=True)
         # Normalized potential to bound rewards
         neg_goal_dist_curr = -curr_dist  # phi(s')
         neg_goal_dist_prev = -prev_dist  # phi(s)
@@ -171,7 +173,7 @@ class PotentialGoalWithConditionalVelocityBonus(Reward):
         )
         reward[success] += self.goal_reached_reward
         reward[fail] += self.failed_reward
-        return reward.to(env.out_dtype)
+        return reward.to(self.env.out_dtype)
 
 
 @dataclass
@@ -192,10 +194,11 @@ class PotentialGoalWithConditionalVelocityBonusAndJointCommandBonus(Reward):
         curr_state: PhysicsState,
         success: torch.BoolTensor,
         fail: torch.BoolTensor,
-        env: "Env",
+        start_state: PhysicsState,
+        goal_state: PhysicsState,
     ) -> torch.Tensor:
-        curr_dist = (env.goal.x - curr_state.x).norm(dim=-1, keepdim=True)
-        prev_dist = (env.goal.x - prev_state.x).norm(dim=-1, keepdim=True)
+        curr_dist = (goal_state.x - curr_state.x).norm(dim=-1, keepdim=True)
+        prev_dist = (goal_state.x - prev_state.x).norm(dim=-1, keepdim=True)
         # Normalized potential to bound rewards
         neg_goal_dist_curr = -curr_dist  # phi(s')
         neg_goal_dist_prev = -prev_dist  # phi(s)
@@ -209,4 +212,4 @@ class PotentialGoalWithConditionalVelocityBonusAndJointCommandBonus(Reward):
         )
         reward[success] += self.goal_reached_reward
         reward[fail] += self.failed_reward
-        return reward.to(env.out_dtype)
+        return reward.to(self.env.out_dtype)

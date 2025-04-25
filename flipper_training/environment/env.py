@@ -1,5 +1,5 @@
 import time
-from typing import TYPE_CHECKING, Callable
+from typing import TYPE_CHECKING
 
 import torch
 from tensordict import TensorDict, assert_allclose_td
@@ -9,12 +9,14 @@ from torchrl.envs import EnvBase, make_composite_from_td
 from flipper_training.configs import PhysicsEngineConfig, RobotModelConfig, TerrainConfig
 from flipper_training.engine.engine import DPhysicsEngine
 from flipper_training.engine.engine_state import PhysicsState, PhysicsStateDer
-from flipper_training.rl_objectives import BaseObjective
-from flipper_training.rl_rewards.rewards import Reward
 from flipper_training.utils.logutils import get_terminal_logger
+from rich.console import Console
+from rich.table import Table
 
 if TYPE_CHECKING:
-    from flipper_training.observations import Observation
+    from flipper_training.observations import ObservationFactory
+    from flipper_training.rl_objectives import ObjectiveFactory
+    from flipper_training.rl_rewards import RewardFactory
 
 
 class Env(EnvBase):
@@ -24,9 +26,9 @@ class Env(EnvBase):
 
     def __init__(
         self,
-        objective: BaseObjective,
-        reward: Reward,
-        observations: list[Callable[["Env"], "Observation"],],
+        objective_factory: "ObjectiveFactory",
+        reward_factory: "RewardFactory",
+        observation_factories: list["ObservationFactory"],
         terrain_config: TerrainConfig,
         physics_config: PhysicsEngineConfig,
         robot_model_config: RobotModelConfig,
@@ -35,6 +37,7 @@ class Env(EnvBase):
         differentiable: bool = False,
         engine_compile_opts: dict | None = None,
         return_derivative: bool = False,
+        engine_iters_per_step: int = 1,
         **kwargs,
     ):
         super().__init__(device=device, **kwargs)
@@ -44,6 +47,7 @@ class Env(EnvBase):
         self.out_dtype = out_dtype
         self.logger = get_terminal_logger("environment")
         self.return_derivative = return_derivative
+        self.engine_iters_per_step = engine_iters_per_step
         # Physics configs
         self.phys_cfg = physics_config.to(device)
         self.robot_cfg = robot_model_config.to(device)
@@ -51,12 +55,12 @@ class Env(EnvBase):
         # Engine
         self.engine = DPhysicsEngine(physics_config, robot_model_config, device)
         # RL components
-        self.observations = [o(self) for o in observations]
-        self.objective = objective
-        self.reward = reward
+        self.observations = [o(self) for o in observation_factories]
+        self.objective = objective_factory(self)
+        self.reward = reward_factory(self)
         # RL State variables
         self.step_count = torch.zeros((self.n_robots,), device=self.device, dtype=torch.int32)
-        self.iteration_limits = torch.zeros((self.n_robots,), device=self.device, dtype=torch.int32)
+        self.step_limits = torch.zeros((self.n_robots,), device=self.device, dtype=torch.int32)
         self.start = PhysicsState.dummy(batch_size=self.n_robots, robot_model=robot_model_config, device=self.device)
         self.goal = PhysicsState.dummy(batch_size=self.n_robots, robot_model=robot_model_config, device=self.device)
         # Specs
@@ -68,6 +72,25 @@ class Env(EnvBase):
         if engine_compile_opts is not None:
             self._compile_engine(**engine_compile_opts)
         self.reset()
+        self._print_summary()
+
+    def _print_summary(self) -> None:
+        t = Table(title="Environment Summary")
+        t.add_column("Key", justify="right", style="cyan", no_wrap=True)
+        t.add_column("Value", justify="right", style="magenta")
+        t.add_row("Number of robots", str(self.n_robots))
+        t.add_row("Observations", ", ".join([o.name for o in self.observations]))
+        t.add_row("Reward", str(self.reward.name))
+        t.add_row("Objective", str(self.objective.name))
+        t.add_row("Physics frequency", f"{1 / self.phys_cfg.dt: .2f} Hz")
+        t.add_row("Engine iters/step", str(self.engine_iters_per_step))
+        t.add_row("Effective frequency", f"{1 / self.effective_dt: .2f} Hz")
+        c = Console()
+        c.print(t)
+
+    @property
+    def effective_dt(self) -> float:
+        return self.engine_iters_per_step * self.phys_cfg.dt
 
     def _compile_engine(
         self,
@@ -182,16 +205,19 @@ class Env(EnvBase):
         return obs_td
 
     def _step_engine(self, prev_state: PhysicsState, action: torch.Tensor) -> tuple[PhysicsStateDer, PhysicsState]:
-        if self.differentiable:
-            curr_state, prev_state_der = self.engine(prev_state, action, self.terrain_cfg)
-        else:
-            with torch.inference_mode():
-                curr_state, prev_state_der = self.engine(prev_state, action, self.terrain_cfg)
-        return prev_state_der.clone(), curr_state.clone()
+        curr_state = prev_state
+        first_prev_state_der = None
+        with torch.inference_mode(not self.differentiable):
+            for _ in range(self.engine_iters_per_step):
+                curr_state, prev_state_der = self.engine(curr_state, action, self.terrain_cfg)
+                if first_prev_state_der is None:
+                    first_prev_state_der = prev_state_der.clone()
+                curr_state = curr_state.clone()
+        return first_prev_state_der, curr_state
 
     def _reset(self, tensordict=None, **kwargs) -> TensorDict:
         # Generate start and goal states, iteration limits for done/terminated robots
-        new_start, new_goal, new_iteration_limits = self.objective.generate_start_goal_states()
+        new_start, new_goal, new_step_limits = self.objective.generate_start_goal_states()
         # Update the state variables for the done robots
         if tensordict is not None and "_reset" in tensordict:
             reset_mask = tensordict["_reset"].squeeze(-1)
@@ -199,7 +225,7 @@ class Env(EnvBase):
             reset_mask = torch.full((self.n_robots,), True, device=self.device, dtype=torch.bool)
         self.start[reset_mask] = new_start[reset_mask]
         self.goal[reset_mask] = new_goal[reset_mask]
-        self.iteration_limits[reset_mask] = new_iteration_limits[reset_mask]
+        self.step_limits[reset_mask] = new_step_limits[reset_mask]
         self.step_count[reset_mask] = 0
         # Take a dummy step to get the first observation
         if tensordict is not None and Env.STATE_KEY in tensordict:
@@ -221,7 +247,7 @@ class Env(EnvBase):
         # Check if the robots have reached the goal or terminated
         reached_goal = self.objective.check_reached_goal(state=curr_state, goal=self.goal)
         failed = self.objective.check_terminated_wrong(state=curr_state, goal=self.goal)
-        truncated = self.step_count >= self.iteration_limits
+        truncated = self.step_count >= self.step_limits
         # Output tensordict
         obs_td = self._get_observations(prev_state=prev_state, action=action, prev_state_der=prev_state_der, curr_state=curr_state)
         obs_td["succeeded"] = reached_goal
@@ -229,6 +255,13 @@ class Env(EnvBase):
         obs_td["terminated"] = failed | reached_goal
         obs_td["truncated"] = truncated
         obs_td["reward"] = self.reward(
-            prev_state=prev_state, action=action, prev_state_der=prev_state_der, curr_state=curr_state, success=reached_goal, fail=failed, env=self
+            prev_state=prev_state,
+            action=action,
+            prev_state_der=prev_state_der,
+            curr_state=curr_state,
+            success=reached_goal,
+            fail=failed,
+            start_state=self.start,
+            goal_state=self.goal,
         )
         return obs_td

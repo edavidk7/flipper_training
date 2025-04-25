@@ -75,9 +75,9 @@ def prepare_env(train_config: "MPPIExperimentConfig") -> tuple["Env", torch.devi
     )
     # Create environment
     base_env = Env(
-        objective=training_objective,
-        reward=train_config.reward(**train_config.reward_opts),
-        observations=[],
+        objective_factory=training_objective,
+        reward_factory=train_config.reward(**train_config.reward_opts),
+        observation_factories=[],
         terrain_config=world_config,
         physics_config=physics_config,
         robot_model_config=robot_model,

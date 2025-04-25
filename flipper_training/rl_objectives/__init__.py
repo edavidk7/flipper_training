@@ -1,13 +1,13 @@
+import torch
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
-
-import torch
-
-from flipper_training.configs import PhysicsEngineConfig, RobotModelConfig, TerrainConfig
-from flipper_training.engine.engine_state import PhysicsState
+from typing import TYPE_CHECKING, Callable
+from functools import wraps
 
 if TYPE_CHECKING:
+    from flipper_training.environment.env import Env
+    from flipper_training.engine.engine_state import PhysicsState
+
     try:
         from simview import SimViewStaticObject
     except ImportError:
@@ -21,10 +21,7 @@ class BaseObjective(ABC):
     as well as the reward function and termination condition.
 
     Attributes:
-    - device: The device on which the objective is running.
-    - physics_config: Configuration for the physics engine.
-    - robot_model: Configuration for the robot model.
-    - world_config: Configuration for the world.
+    - env: The environment in which the robots operate.
     - rng: Random number generator.
     Methods:
     - generate_start_goal_states: Generates start/goal positions for the robots in the environment.
@@ -33,14 +30,39 @@ class BaseObjective(ABC):
 
     """
 
-    device: torch.device | str
-    physics_config: PhysicsEngineConfig
-    robot_model: RobotModelConfig
-    world_config: TerrainConfig
+    env: "Env"
     rng: torch.Generator
 
+    def __post_init__(self):
+        """
+        Post-initialization method to unpack the environment configuration.
+        """
+        self.device = self.env.device
+        self.physics_config = self.env.phys_cfg
+        self.robot_model = self.env.robot_cfg
+        self.terrain_config = self.env.terrain_cfg
+
+    @property
+    def name(self) -> str:
+        """
+        Returns the name of the objective.
+        """
+        return self.__class__.__name__
+
+    @classmethod
+    def make_factory(cls, **opts):
+        """
+        Factory method to create a reward function with the given options.
+        """
+
+        @wraps(cls)
+        def factory(env: "Env"):
+            return cls(env=env, **opts)
+
+        return factory
+
     @abstractmethod
-    def generate_start_goal_states(self) -> tuple[PhysicsState, PhysicsState, torch.IntTensor | torch.LongTensor]:
+    def generate_start_goal_states(self) -> tuple["PhysicsState", "PhysicsState", torch.IntTensor | torch.LongTensor]:
         """
         Generates start/goal positions for the robots in the environment.
 
@@ -48,11 +70,11 @@ class BaseObjective(ABC):
 
         Returns:
         - A tuple of PhysicsState objects containing the start and goal positions for the robots.
-        - A tensor containing the iteration limits for the robots.
+        - A tensor containing the step limits for the robots.
         """
 
     @abstractmethod
-    def check_reached_goal(self, state: PhysicsState, goal: PhysicsState) -> torch.BoolTensor:
+    def check_reached_goal(self, state: "PhysicsState", goal: "PhysicsState") -> torch.BoolTensor:
         """
         Check if the robots have reached the goal.
 
@@ -67,7 +89,7 @@ class BaseObjective(ABC):
         """
 
     @abstractmethod
-    def check_terminated_wrong(self, state: PhysicsState, goal: PhysicsState) -> torch.BoolTensor:
+    def check_terminated_wrong(self, state: "PhysicsState", goal: "PhysicsState") -> torch.BoolTensor:
         """
         Check if the robots have terminated due to reaching an infeasible/illegal state.
 
@@ -81,7 +103,7 @@ class BaseObjective(ABC):
         - Tensor containing a boolean indicating whether each robot has terminated.
         """
 
-    def start_goal_to_simview(self, start: PhysicsState, goal: PhysicsState) -> list["SimViewStaticObject"]:
+    def start_goal_to_simview(self, start: "PhysicsState", goal: "PhysicsState") -> list["SimViewStaticObject"]:
         """
         Converts the start and goal states to a dictionary of body states for visualization.
 
@@ -93,3 +115,6 @@ class BaseObjective(ABC):
         - A dictionary containing the objects to be visualized in SimView.
         """
         raise NotImplementedError("Not implemented for this objective")
+
+
+ObjectiveFactory = Callable[["Env"], BaseObjective]

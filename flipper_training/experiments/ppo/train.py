@@ -6,7 +6,7 @@ from common import (
     prepare_env,
     log_from_eval_rollout,
     parse_and_load_config,
-    make_normed_env,
+    make_transformed_env,
 )
 from config import PPOExperimentConfig
 from torchrl.envs.utils import ExplorationType, set_exploration_type
@@ -47,18 +47,17 @@ def train_ppo(
 ):
     train_config = PPOExperimentConfig(**config)
     env, device, rng = prepare_env(train_config, mode="train")
-    env = make_normed_env(env, train_config, vecnorm_weights_path)
     policy_config = train_config.policy_config(**train_config.policy_opts)
-    actor_value_wrapper, optim_groups, extra_transforms = policy_config.create(
+    actor_value_wrapper, optim_groups, policy_transforms = policy_config.create(
         env=env,
         weights_path=policy_weights_path,
         device=device,
     )
     actor_operator = actor_value_wrapper.get_policy_operator()
     value_operator = actor_value_wrapper.get_value_operator()
-    extra_transforms += train_config.extra_env_transforms
-    for transform in extra_transforms:
-        env.transform.insert(-2, transform)  # insert before the VecNorm
+    env, vecnorm = make_transformed_env(env, train_config, policy_transforms)
+    if vecnorm_weights_path is not None:
+        vecnorm.load_state_dict(torch.load(vecnorm_weights_path, map_location=device))
     # Collector
     collector, replay_buffer = prepare_data_collection(env, actor_operator, train_config)
     # PPO setup
@@ -127,7 +126,7 @@ def train_ppo(
                 eval_log = log_from_eval_rollout(eval_rollout)
                 log.update(eval_log)
                 logger.save_weights(actor_value_wrapper.state_dict(), f"policy_step_{total_collected_frames}")
-                logger.save_weights(env.transform[-1].state_dict(), f"vecnorm_step_{total_collected_frames}")
+                logger.save_weights(vecnorm.state_dict(), f"vecnorm_step_{total_collected_frames}")
                 del eval_rollout
 
         logger.log_data(log, total_collected_frames)

@@ -32,7 +32,8 @@ class RandomNavigationObjective(BaseObjective):
     _cache_cursor: int = 0
 
     def __post_init__(self) -> None:
-        if self.world_config.grid_extras is None or "suitable_mask" not in self.world_config.grid_extras:
+        super().__post_init__()
+        if self.terrain_config.grid_extras is None or "suitable_mask" not in self.terrain_config.grid_extras:
             raise ValueError("World configuration must contain a suitable mask in the grid extras for start/goal positions.")
         self._init_cache()
 
@@ -47,7 +48,7 @@ class RandomNavigationObjective(BaseObjective):
         # Process each robot's terrain separately
         for b in trange(B, desc="Initializing start/goal position cache"):
             # Get valid indices for this robot's terrain (batch index b)
-            valid_indices = torch.nonzero(self.world_config.grid_extras["suitable_mask"][b], as_tuple=False).cpu()  # Shape: (N_valid_b, 2)
+            valid_indices = torch.nonzero(self.terrain_config.grid_extras["suitable_mask"][b], as_tuple=False).cpu()  # Shape: (N_valid_b, 2)
             n_valid = valid_indices.shape[0]
             # Oversample start and goal indices from valid set
             oversample_factor = 1
@@ -62,11 +63,11 @@ class RandomNavigationObjective(BaseObjective):
                 goal_ij = valid_indices[goal_idx]  # Shape: (n_samples, 2)
                 # Compute xyz coordinates using this robot's terrain data
                 start_xyz = torch.stack(
-                    [g[b, *start_ij.unbind(-1)] for g in [self.world_config.x_grid, self.world_config.y_grid, self.world_config.z_grid]],
+                    [g[b, *start_ij.unbind(-1)] for g in [self.terrain_config.x_grid, self.terrain_config.y_grid, self.terrain_config.z_grid]],
                     dim=-1,
                 ).to("cpu")
                 goal_xyz = torch.stack(
-                    [g[b, *goal_ij.unbind(-1)] for g in [self.world_config.x_grid, self.world_config.y_grid, self.world_config.z_grid]],
+                    [g[b, *goal_ij.unbind(-1)] for g in [self.terrain_config.x_grid, self.terrain_config.y_grid, self.terrain_config.z_grid]],
                     dim=-1,
                 ).to("cpu")
                 # Validate pairs (ensure batch dimension is respected in _is_start_goal_xyz_valid)
@@ -84,7 +85,7 @@ class RandomNavigationObjective(BaseObjective):
             "start": start_pos_cache,
             "goal": goal_pos_cache,
             "ori": self._get_initial_orientation_quat(start_pos_cache, goal_pos_cache),
-            "iteration_limits": self._compute_iteration_limits(start_pos_cache, goal_pos_cache),
+            "step_limits": self._compute_step_limits(start_pos_cache, goal_pos_cache),
         }
         self._cache_cursor = 0
 
@@ -118,8 +119,8 @@ class RandomNavigationObjective(BaseObjective):
         """
         dist = torch.linalg.norm(start_xyz - goal_xyz, dim=-1)  # distance
         z_diff = goal_xyz[..., 2] - start_xyz[..., 2]  # height difference
-        start_xy_to_edge = self.world_config.max_coord - start_xyz[..., :2].abs()  # vector from start to edge
-        goal_xy_to_edge = self.world_config.max_coord - goal_xyz[..., :2].abs()  # vector from goal to edge
+        start_xy_to_edge = self.terrain_config.max_coord - start_xyz[..., :2].abs()  # vector from start to edge
+        goal_xy_to_edge = self.terrain_config.max_coord - goal_xyz[..., :2].abs()  # vector from goal to edge
         return (
             (dist >= self.min_dist_to_goal)
             & (dist <= self.max_dist_to_goal)
@@ -145,9 +146,9 @@ class RandomNavigationObjective(BaseObjective):
                 self.cache["goal"][self._cache_cursor],
                 self.cache["ori"][self._cache_cursor],
             )
-            iteration_limits = self.cache["iteration_limits"][self._cache_cursor].to(self.device)
+            step_limits = self.cache["step_limits"][self._cache_cursor].to(self.device)
             self._cache_cursor += 1
-            return start_state, goal_state, iteration_limits
+            return start_state, goal_state, step_limits
         else:
             logging.warning("Start/goal cache exhausted, doubling size and generating new start/goal positions")
             self.cache_size *= 2
@@ -173,16 +174,16 @@ class RandomNavigationObjective(BaseObjective):
         return (
             (pitches.abs() > self.max_feasible_pitch)
             | (rolls.abs() > self.max_feasible_roll)
-            | (state.x.abs() > self.world_config.max_coord).any(dim=-1)
+            | (state.x.abs() > self.terrain_config.max_coord).any(dim=-1)
         )
 
-    def _compute_iteration_limits(
+    def _compute_step_limits(
         self,
         start_pos: torch.Tensor,
         goal_pos: torch.Tensor,
     ) -> torch.IntTensor:
         dists = torch.linalg.norm(goal_pos - start_pos, dim=-1)  # distances from starts to goals
-        fastest_traversal = dists / (self.robot_model.v_max * self.physics_config.dt)  # time to reach the furthest goal
+        fastest_traversal = dists / (self.robot_model.v_max * self.env.effective_dt)  # time to reach the furthest goal
         steps = (fastest_traversal * self.iteration_limit_factor).ceil()
         return steps.int()
 
