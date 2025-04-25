@@ -9,9 +9,6 @@ def set_device(device: str) -> torch.device:
     if "cuda" in device and torch.cuda.is_available():
         torch.backends.cudnn.deterministic = True
         torch.backends.cudnn.benchmark = True
-        torch.backends.cudnn.allow_tf32 = True
-        torch.backends.cuda.matmul.allow_tf32 = True
-        torch.set_float32_matmul_precision("high")
         return torch.device(device)
     elif device == "mps" and torch.mps.is_available():
         return torch.device("mps")
