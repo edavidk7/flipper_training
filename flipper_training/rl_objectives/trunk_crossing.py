@@ -222,3 +222,38 @@ class TrunkCrossing(BaseObjective):
         fastest_traversal = dists / (self.robot_model.v_max * self.physics_config.dt)  # time to reach the furthest goal
         steps = (fastest_traversal * self.iteration_limit_factor).ceil()
         return steps.int()
+
+    def start_goal_to_simview(self, start: PhysicsState, goal: PhysicsState):
+        try:
+            from simview import SimViewStaticObject, BodyShapeType
+        except ImportError:
+            logging.warning("SimView is not installed. Cannot visualize start/goal positions.")
+            return []
+
+        # start
+        pos = start.x
+        start_object = SimViewStaticObject.create_batched(
+            name="Start",
+            shape_type=BodyShapeType.POINTCLOUD,
+            shapes_kwargs=[
+                {
+                    "points": pos[i, None],
+                    "color": "#ff0000",
+                }
+                for i in range(pos.shape[0])
+            ],
+        )
+        # goal
+        pos = goal.x
+        goal_object = SimViewStaticObject.create_batched(
+            name="Goal",
+            shape_type=BodyShapeType.POINTCLOUD,
+            shapes_kwargs=[
+                {
+                    "points": pos[i, None],
+                    "color": "#0000ff",
+                }
+                for i in range(pos.shape[0])
+            ],
+        )
+        return [start_object, goal_object]
