@@ -85,7 +85,7 @@ def eval_ppo(config: "DictConfig", policy_weights_path: str, vecnorm_weights_pat
             control,
         )
         simview.add_state(
-            env.phys_cfg.dt * i,
+            env.effective_dt * i,
             body_states=body_states,
             scalar_values={
                 "cumulative reward": cum_reward[:, i].squeeze().tolist(),
