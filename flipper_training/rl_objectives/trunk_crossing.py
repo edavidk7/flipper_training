@@ -26,6 +26,7 @@ class TrunkCrossing(BaseObjective):
     _cache_cursor: int = 0
 
     def __post_init__(self) -> None:
+        super().__post_init__()
         if self.terrain_config.grid_extras is None or "trunk_sides" not in self.terrain_config.grid_extras:
             raise ValueError("World configuration must contain the trunk sides in the grid extras for start/goal positions.")
         self._init_cache()

@@ -46,6 +46,8 @@ def train_ppo(
     vecnorm_weights_path: str | Path | None = None,
 ):
     train_config = PPOExperimentConfig(**config)
+    policy_weights_path = policy_weights_path or train_config.policy_weights_path
+    vecnorm_weights_path = vecnorm_weights_path or train_config.vecnorm_weights_path
     # Setup
     if train_config.frames_per_batch // train_config.frames_per_sub_batch == 0:
         raise ValueError("frames_per_batch must be divisible by frames_per_sub_batch")
@@ -69,7 +71,7 @@ def train_ppo(
     value_operator = actor_value_wrapper.get_value_operator()
     env, vecnorm = make_transformed_env(env, train_config, policy_transforms)
     if vecnorm_weights_path is not None:
-        vecnorm.load_state_dict(torch.load(vecnorm_weights_path, map_location=device))
+        vecnorm.load_state_dict(torch.load(vecnorm_weights_path, map_location=device), strict=False)
     # Collector
     collector, replay_buffer = prepare_data_collection(env, actor_operator, train_config)
     # PPO setup

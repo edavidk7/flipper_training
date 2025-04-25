@@ -74,6 +74,8 @@ class PPOExperimentConfig:
     policy_opts: dict[str, Any]
     vecnorm_opts: dict[str, Any]
     vecnorm_on_reward: bool
+    policy_weights_path: str | None = None
+    vecnorm_weights_path: str | None = None
     extra_env_transforms: list[EnvTransformConfig] = field(default_factory=list)
     optimizer_opts: dict[str, Any] = field(default_factory=dict)
     heightmap_gen_opts: dict[str, Any] = field(default_factory=dict)

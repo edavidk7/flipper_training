@@ -6,12 +6,12 @@ use_tensorboard: false
 device: cuda:2
 training_dtype: ${dtype:float32}
 total_frames: ${mul:5242880,6}
-engine_iters_per_env_step: 3
+engine_iters_per_env_step: 6
 frames_per_batch: 128
 epochs_per_batch: 2
 frames_per_sub_batch: 32
 eval_and_save_every: 10
-max_eval_steps: 900
+max_eval_steps: 300
 optimizer: ${cls:torch.optim.AdamW}
 scheduler: ${cls:torch.optim.lr_scheduler.LinearLR}
 scheduler_opts:
@@ -27,12 +27,12 @@ heightmap_gen_opts:
   trunk_height: 0.2
   trunk_width: 0.8
 world_opts:
-  k_stiffness: 30000
+  k_stiffness: 35000
   k_friction_lon: 0.8
   k_friction_lat: 0.5
 engine_opts:
-  damping_alpha: 4.0
-  dt: 0.01
+  damping_alpha: 5.0
+  dt: 0.005
 engine_compile_opts:
   max-autotune: true
   triton.cudagraphs: true
@@ -59,7 +59,6 @@ observations:
         num_hidden: 2
         hidden_dim: 64
         output_dim: 64
-        activation: ${cls:torch.nn.ReLU}
         layernorm: true
   - cls: ${cls:flipper_training.observations.heightmap.Heightmap}
     opts:
@@ -92,7 +91,7 @@ objective: ${cls:flipper_training.rl_objectives.fixed_goal.FixedStartGoalNavigat
 objective_opts:
   start_x_y_z: ${tensor:[-1.5, 0.0, 0.2]}
   goal_x_y_z: ${tensor:[1.5, 0.0, 0.05]}
-  iteration_limit: 900
+  iteration_limit: 300
   max_feasible_pitch: 1.5
   max_feasible_roll: 1.5
   goal_reached_threshold: 0.2
@@ -118,8 +117,8 @@ policy_opts:
     hidden_dim: 64
     layernorm: true
   actor_optimizer_opts:
-    lr: 0.0001
+    lr: 0.0003
     weight_decay: 1.0e-05
   value_optimizer_opts:
-    lr: 0.003
+    lr: 0.001
     weight_decay: 1.0e-05
