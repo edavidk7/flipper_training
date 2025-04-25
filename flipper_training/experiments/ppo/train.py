@@ -46,6 +46,18 @@ def train_ppo(
     vecnorm_weights_path: str | Path | None = None,
 ):
     train_config = PPOExperimentConfig(**config)
+    # Setup
+    if train_config.frames_per_batch // train_config.frames_per_sub_batch == 0:
+        raise ValueError("frames_per_batch must be divisible by frames_per_sub_batch")
+    # Logging
+    logger = RunLogger(
+        train_config=config,
+        category="ppo",
+        use_wandb=train_config.use_wandb,
+        use_tensorboard=train_config.use_tensorboard,
+        step_metric_name="collected_frames",
+    )
+    # RL
     env, device, rng = prepare_env(train_config, mode="train")
     policy_config = train_config.policy_config(**train_config.policy_opts)
     actor_value_wrapper, optim_groups, policy_transforms = policy_config.create(
@@ -81,16 +93,7 @@ def train_ppo(
         optim,
         **train_config.scheduler_opts,
     )
-    if train_config.frames_per_batch // train_config.frames_per_sub_batch == 0:
-        raise ValueError("frames_per_batch must be divisible by frames_per_sub_batch")
-    # Training loop
-    logger = RunLogger(
-        train_config=config,
-        category="ppo",
-        use_wandb=train_config.use_wandb,
-        use_tensorboard=train_config.use_tensorboard,
-        step_metric_name="collected_frames",
-    )
+    # Loop
     pbar = tqdm(total=train_config.total_frames, desc="Training", unit="frames")
     for i, tensordict_data in enumerate(collector):
         # collected (B, T, *specs) where B is the batch size and T the number of steps
