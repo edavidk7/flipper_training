@@ -69,7 +69,7 @@ observations:
       encoder_opts:
         output_dim: 64
 gae_opts:
-  gamma: 0.999
+  gamma: 0.99
   lmbda: 0.95
   average_gae: false
   skip_existing: false

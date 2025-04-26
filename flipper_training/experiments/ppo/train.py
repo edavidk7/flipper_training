@@ -1,13 +1,14 @@
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Tuple
 from pathlib import Path
 import torch
 from common import (
-    prepare_data_collection,
     prepare_env,
     log_from_eval_rollout,
     parse_and_load_config,
     make_transformed_env,
 )
+from torchrl.collectors import SyncDataCollector
+from torchrl.data import LazyTensorStorage, SamplerWithoutReplacement, TensorDictReplayBuffer
 from config import PPOExperimentConfig
 from torchrl.envs.utils import ExplorationType, set_exploration_type
 from torchrl.objectives import ClipPPOLoss
@@ -19,6 +20,7 @@ from flipper_training.utils.logutils import RunLogger
 if TYPE_CHECKING:
     from omegaconf import DictConfig
     from tensordict import TensorDict
+    from torchrl.modules import SafeSequential
 
 
 def train_step_to_log(rollout_td: "TensorDict", loss_td: "TensorDict", grad_norm: torch.Tensor, optim: torch.optim.Optimizer) -> dict[str, float]:
@@ -40,14 +42,35 @@ def train_step_to_log(rollout_td: "TensorDict", loss_td: "TensorDict", grad_norm
     }
 
 
+def prepare_data_collection(env: "Env", policy: "SafeSequential", cfg: "PPOExperimentConfig") -> Tuple[SyncDataCollector, TensorDictReplayBuffer]:
+    collector = SyncDataCollector(
+        env,
+        policy,
+        frames_per_batch=cfg.frames_per_batch * cfg.num_robots,
+        total_frames=cfg.total_frames,
+        **cfg.data_collector_opts,
+        device=env.device,
+    )
+    # Replay Buffer
+    replay_buffer = TensorDictReplayBuffer(
+        storage=LazyTensorStorage(
+            max_size=cfg.frames_per_batch * cfg.num_robots,
+            ndim=1,  # This storage will mix the batch and time dimensions
+            device=env.device,
+            compilable=True,
+        ),
+        sampler=SamplerWithoutReplacement(drop_last=True, shuffle=True),
+        batch_size=cfg.frames_per_sub_batch * cfg.num_robots,  # sample flattened and mixed data
+        dim_extend=0,
+        compilable=True,
+    )
+    return collector, replay_buffer
+
+
 def train_ppo(
     config: "DictConfig",
-    policy_weights_path: str | Path | None = None,
-    vecnorm_weights_path: str | Path | None = None,
 ):
     train_config = PPOExperimentConfig(**config)
-    policy_weights_path = policy_weights_path or train_config.policy_weights_path
-    vecnorm_weights_path = vecnorm_weights_path or train_config.vecnorm_weights_path
     # Setup
     if train_config.frames_per_batch // train_config.frames_per_sub_batch == 0:
         raise ValueError("frames_per_batch must be divisible by frames_per_sub_batch")
@@ -64,14 +87,14 @@ def train_ppo(
     policy_config = train_config.policy_config(**train_config.policy_opts)
     actor_value_wrapper, optim_groups, policy_transforms = policy_config.create(
         env=env,
-        weights_path=policy_weights_path,
+        weights_path=train_config.policy_weights_path,
         device=device,
     )
     actor_operator = actor_value_wrapper.get_policy_operator()
     value_operator = actor_value_wrapper.get_value_operator()
     env, vecnorm = make_transformed_env(env, train_config, policy_transforms)
-    if vecnorm_weights_path is not None:
-        vecnorm.load_state_dict(torch.load(vecnorm_weights_path, map_location=device), strict=False)
+    if train_config.vecnorm_weights_path is not None:
+        vecnorm.load_state_dict(torch.load(train_config.vecnorm_weights_path, map_location=device), strict=False)
     # Collector
     collector, replay_buffer = prepare_data_collection(env, actor_operator, train_config)
     # PPO setup
@@ -141,6 +164,6 @@ def train_ppo(
 
 if __name__ == "__main__":
     try:
-        train_ppo(**parse_and_load_config())
+        train_ppo(parse_and_load_config())
     except KeyboardInterrupt:
         print("Training interrupted. Exiting...")

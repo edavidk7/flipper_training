@@ -2,8 +2,6 @@ from typing import TYPE_CHECKING, Literal, Tuple
 
 import torch
 from collections import defaultdict
-from torchrl.collectors import SyncDataCollector
-from torchrl.data import LazyTensorStorage, SamplerWithoutReplacement, TensorDictReplayBuffer
 from torchrl.envs.utils import check_env_specs
 
 from flipper_training.configs import PhysicsEngineConfig, RobotModelConfig, TerrainConfig
@@ -19,7 +17,6 @@ from torchrl.envs import Compose, VecNorm, StepCounter, TransformedEnv, Transfor
 
 if TYPE_CHECKING:
     from config import PPOExperimentConfig
-    from torchrl.modules import SafeSequential
     from tensordict import TensorDict
 
 EVAL_LOG_OPT = {
@@ -62,31 +59,6 @@ def prepare_configs(rng: torch.Generator, cfg: "PPOExperimentConfig") -> Tuple[T
     world_config.to(device)
     physics_config.to(device)
     return world_config, physics_config, robot_model, device
-
-
-def prepare_data_collection(env: "Env", policy: "SafeSequential", cfg: "PPOExperimentConfig") -> Tuple[SyncDataCollector, TensorDictReplayBuffer]:
-    collector = SyncDataCollector(
-        env,
-        policy,
-        frames_per_batch=cfg.frames_per_batch * cfg.num_robots,
-        total_frames=cfg.total_frames,
-        **cfg.data_collector_opts,
-        device=env.device,
-    )
-    # Replay Buffer
-    replay_buffer = TensorDictReplayBuffer(
-        storage=LazyTensorStorage(
-            max_size=cfg.frames_per_batch * cfg.num_robots,
-            ndim=1,  # This storage will mix the batch and time dimensions
-            device=env.device,
-            compilable=True,
-        ),
-        sampler=SamplerWithoutReplacement(drop_last=True),
-        batch_size=cfg.frames_per_sub_batch * cfg.num_robots,  # sample flattened and mixed data
-        dim_extend=0,
-        compilable=True,
-    )
-    return collector, replay_buffer
 
 
 def prepare_env(train_config: "PPOExperimentConfig", mode: Literal["train", "eval"]) -> tuple["Env", torch.device, torch.Generator]:
@@ -172,19 +144,17 @@ def make_transformed_env(env: "Env", train_config: "PPOExperimentConfig", policy
     return TransformedEnv(env, Compose(*transforms)), vecnorm
 
 
-def download_config_and_paths(reader: WandbRunReader | LocalRunReader, weight_step: int | None) -> tuple[DictConfig, Path | None, Path | None]:
+def download_config_and_paths(reader: WandbRunReader | LocalRunReader, weight_step: int | None) -> "DictConfig":
     run_omegaconf = reader.load_config()
     if not isinstance(run_omegaconf, DictConfig):
         raise ValueError("Config must be a DictConfig")
     if weight_step is not None:
-        policy_weights_path = reader.get_weights_path(f"policy_step_{weight_step}")
-        vecnorm_weights_path = reader.get_weights_path(f"vecnorm_step_{weight_step}")
-    else:
-        policy_weights_path = vecnorm_weights_path = None
-    return run_omegaconf, policy_weights_path, vecnorm_weights_path
+        run_omegaconf["policy_weights_path"] = reader.get_weights_path(f"policy_step_{weight_step}")
+        run_omegaconf["vecnorm_weights_path"] = reader.get_weights_path(f"vecnorm_step_{weight_step}")
+    return run_omegaconf
 
 
-def parse_and_load_config() -> dict:
+def parse_and_load_config() -> "DictConfig":
     parser = ArgumentParser()
     parser.add_argument("--local", type=Path, required=False, default=None, help="Path to the local run directory")
     parser.add_argument("--wandb", type=Path, required=False, default=None, help="Name of the run to evaluate")
@@ -196,14 +166,9 @@ def parse_and_load_config() -> dict:
         raise ValueError("Only one of --local or --wandb must be provided")
     if args.local is not None and "yaml" in args.local.name:
         parsed_omegaconf = OmegaConf.load(args.local)
-        policy_weights_path = vecnorm_weights_path = None
     else:
         run_reader = WandbRunReader(args.wandb, category="ppo") if args.wandb else LocalRunReader(Path("runs/ppo") / args.local)
-        parsed_omegaconf, policy_weights_path, vecnorm_weights_path = download_config_and_paths(run_reader, args.weight_step)
+        parsed_omegaconf = download_config_and_paths(run_reader, args.weight_step)
     cli_omegaconf = OmegaConf.from_dotlist(unknown)
     merged_omegaconf = OmegaConf.merge(parsed_omegaconf, cli_omegaconf)
-    return {
-        "config": merged_omegaconf,
-        "policy_weights_path": policy_weights_path,
-        "vecnorm_weights_path": vecnorm_weights_path,
-    }
+    return merged_omegaconf

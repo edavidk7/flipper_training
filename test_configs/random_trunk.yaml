@@ -9,14 +9,14 @@ total_frames: ${mul:5242880,6}
 engine_iters_per_env_step: 6
 frames_per_batch: 128
 epochs_per_batch: 2
-frames_per_sub_batch: 32
+frames_per_sub_batch: 64
 eval_and_save_every: 10
-max_eval_steps: 300
+max_eval_steps: 500
 optimizer: ${cls:torch.optim.AdamW}
 scheduler: ${cls:torch.optim.lr_scheduler.LinearLR}
 scheduler_opts:
   start_factor: 1.0
-  end_factor: 0.1
+  end_factor: 0.05
   total_iters: ${intdiv:${total_frames},${mul:${frames_per_batch},${num_robots}}}
 max_grad_norm: 0.5
 num_robots: 128
@@ -107,7 +107,7 @@ reward_opts:
   failed_reward: -100.0
   potential_coef: 20
   gamma: ${gae_opts.gamma}
-  step_penalty: -0.02
+  step_penalty: -0.05
 policy_config: ${cls:flipper_training.policies.mlp_policy.MLPPolicyConfig}
 policy_opts:
   share_encoder: false
@@ -121,10 +121,8 @@ policy_opts:
     hidden_dim: 64
     layernorm: true
   actor_optimizer_opts:
-    lr: 0.00003
-    weight_decay: 1.0e-05
-  value_optimizer_opts:
     lr: 0.0003
-    weight_decay: 1.0e-05
-policy_weights_path: runs/ppo/deterministic_trunk_debug_for_hparam_calibration_2025-04-25_16-53-06/weights/policy_step_13778944.pth
-vecnorm_weights_path: runs/ppo/deterministic_trunk_debug_for_hparam_calibration_2025-04-25_16-53-06/weights/vecnorm_step_13778944.pth
+  value_optimizer_opts:
+    lr: 0.002
+# policy_weights_path: runs/ppo/deterministic_trunk_debug_for_hparam_calibration_2025-04-25_16-53-06/weights/policy_step_13778944.pth
+# vecnorm_weights_path: runs/ppo/deterministic_trunk_debug_for_hparam_calibration_2025-04-25_16-53-06/weights/vecnorm_step_13778944.pth

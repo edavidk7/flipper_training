@@ -41,10 +41,12 @@ def get_eval_rollout(
     return env, eval_rollout
 
 
-def eval_ppo(config: "DictConfig", policy_weights_path: str, vecnorm_weights_path: str | Path):
+def eval_ppo(config: "DictConfig"):
     train_config = PPOExperimentConfig(**config)
+    if train_config.vecnorm_weights_path is None or train_config.policy_weights_path is None:
+        raise ValueError("Policy and VecNorm weights paths must be provided for evaluation.")
     # Compose the simview model
-    env, rollout = get_eval_rollout(train_config, policy_weights_path, vecnorm_weights_path)
+    env, rollout = get_eval_rollout(train_config, train_config.policy_weights_path, train_config.vecnorm_weights_path)
     str_lines = make_formatted_str_lines(
         log_from_eval_rollout(rollout),
         EVAL_LOG_OPT,
@@ -104,4 +106,4 @@ def eval_ppo(config: "DictConfig", policy_weights_path: str, vecnorm_weights_pat
 
 
 if __name__ == "__main__":
-    eval_ppo(**parse_and_load_config())
+    eval_ppo(parse_and_load_config())
