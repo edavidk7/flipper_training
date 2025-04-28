@@ -1,11 +1,20 @@
-study_name: "optuna_test4"
+study_name: "optuna_test5"
 num_trials: 100
 use_gpus:
   - "1"
   - "2"
+  - "0"
 workers_per_gpu: 2
-metric_to_optimize: "eval/pct_succeeded"
-direction: "maximize"
+metrics_to_optimize:
+  - "eval/pct_succeeded" # Maximize
+  - "eval/pct_failed" # Minimize
+  - "eval/mean_step_reward" # Maximize
+  - "eval/mean_step_count" # Minimize
+directions:
+  - "maximize"
+  - "minimize"
+  - "maximize"
+  - "minimize"
 optuna_keys:
   - "policy_opts.actor_optimizer_opts.lr"
   - "policy_opts.value_optimizer_opts.lr"

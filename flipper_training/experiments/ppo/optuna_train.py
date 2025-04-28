@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from optuna.storages import RDBStorage
 from optuna.study import MaxTrialsCallback
 import multiprocessing
+import optunahub
 from copy import deepcopy
 from omegaconf import OmegaConf
 import argparse
@@ -17,8 +18,8 @@ DB_SECRET = OmegaConf.load(ROOT / "optuna_db.yaml")
 @dataclass
 class OptunaConfig:
     study_name: str
-    direction: str
-    metric_to_optimize: str
+    directions: list[str]
+    metrics_to_optimize: list[str]
     num_trials: int
     workers_per_gpu: int
     use_gpus: list[str]
@@ -43,23 +44,23 @@ def define_search_space(trial, keys, types, values):
     return params
 
 
-def objective(trial, base_config, keys, types, values, metric_to_optimize):
+def objective(trial, base_config, keys, types, values, metrics_to_optimize):
     from train import train_ppo
 
     params = define_search_space(trial, keys, types, values)
     dotlist = [f"{k}={v}" for k, v in params.items()]
     updated_config = OmegaConf.merge(base_config, OmegaConf.from_dotlist(dotlist))
     metrics = train_ppo(updated_config)  # Returns a dict like {"eval/mean_reward": value}
-    return metrics[metric_to_optimize]
+    return tuple(metrics[metric] for metric in metrics_to_optimize)
 
 
-def run_trial(gpu, base_config, keys, types, values, study_name, storage, total_trials, metric_to_optimize):
+def run_trial(gpu, base_config, keys, types, values, study_name, storage, total_trials, metrics_to_optimize):
     os.environ["CUDA_VISIBLE_DEVICES"] = gpu
     cfg = deepcopy(base_config)
     cfg["device"] = "cuda:0"
     study = optuna.load_study(study_name=study_name, storage=storage)
     callback = MaxTrialsCallback(total_trials)
-    study.optimize(lambda trial: objective(trial, cfg, keys, types, values, metric_to_optimize), callbacks=[callback])
+    study.optimize(lambda trial: objective(trial, cfg, keys, types, values, metrics_to_optimize), callbacks=[callback])
 
 
 def main():
@@ -81,7 +82,13 @@ def main():
     storage = RDBStorage(
         f"postgresql+psycopg2://{DB_SECRET['db_user']}:{DB_SECRET['db_password']}@{DB_SECRET['db_host']}:{DB_SECRET['db_port']}/{DB_SECRET['db_name']}?sslmode=require"
     )
-    study = optuna.create_study(study_name=optuna_config.study_name, storage=storage, direction=optuna_config.direction, load_if_exists=True)
+    study = optuna.create_study(
+        study_name=optuna_config.study_name,
+        storage=storage,
+        directions=optuna_config.directions,
+        load_if_exists=True,
+        sampler=optunahub.load_module("samplers/auto_sampler").AutoSampler(),  # Automatically selects an algorithm internally
+    )
 
     # Assign GPUs to workers
     gpu_assignments = [gpu for gpu in optuna_config.use_gpus for _ in range(optuna_config.workers_per_gpu)]
@@ -102,7 +109,7 @@ def main():
                 optuna_config.study_name,
                 storage,
                 optuna_config.num_trials,
-                optuna_config.metric_to_optimize,
+                optuna_config.metrics_to_optimize,
             ),
             daemon=True,
         )

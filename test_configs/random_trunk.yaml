@@ -6,7 +6,7 @@ eval_repeats_after_training: 1
 use_tensorboard: false
 device: cuda:1
 training_dtype: ${dtype:float32}
-total_frames: ${mul:5242880,2}
+total_frames: ${mul:5242880,1}
 engine_iters_per_env_step: 4
 num_robots: 128
 time_steps_per_batch: 32
@@ -18,7 +18,7 @@ optimizer: ${cls:torch.optim.AdamW}
 scheduler: ${cls:torch.optim.lr_scheduler.LinearLR}
 scheduler_opts:
   start_factor: 1.0
-  end_factor: 0.05
+  end_factor: 0.1
   total_iters: ${intdiv:${total_frames},${mul:${time_steps_per_batch},${num_robots}}}
 max_grad_norm: 0.5
 grid_res: 0.05
@@ -80,13 +80,13 @@ ppo_opts:
   entropy_bonus: true
   entropy_coef: 0.02
   critic_coef: 1.0
-  loss_critic_type: l2
+  loss_critic_type: smooth_l1
   normalize_advantage: true
   separate_losses: false
 ppo_compile_opts: null
 data_collector_opts:
   split_trajs: false
-  compile_policy: true
+  compile_policy: false
   exploration_type: RANDOM
 objective: ${cls:flipper_training.rl_objectives.trunk_crossing.TrunkCrossing}
 objective_opts:
@@ -101,7 +101,7 @@ objective_opts:
   start_position_orientation: towards_goal
   init_joint_angles: random
   resample_random_joint_angles_on_reset: true
-  cache_size: 30000
+  cache_size: 15000
 reward: ${cls:flipper_training.rl_rewards.rewards.PotentialGoal}
 reward_opts:
   goal_reached_reward: 10.0
