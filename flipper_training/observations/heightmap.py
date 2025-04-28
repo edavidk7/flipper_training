@@ -16,37 +16,28 @@ class HeightmapEncoder(ObservationEncoder):
         super(HeightmapEncoder, self).__init__(output_dim)
         self.img_shape = img_shape  # Keep for reference if needed, but not used in layer defs anymore
         groups_in_norm = 8  # Approx group size for GroupNorm
-
         # Define the sequential convolutional layers
         # Each block roughly corresponds to a downsampling stage in the original
         self.encoder = nn.Sequential(
             # Layer 1: Similar to the original stem but using 3x3 kernel
             # Input: (B, 1, H, W)
-            nn.Conv2d(1, 32, kernel_size=3, stride=2, padding=1, bias=False),
+            nn.Conv2d(1, 16, kernel_size=3, stride=2, padding=1),
+            nn.GroupNorm(max(1, 16 // groups_in_norm), 16),
+            nn.ReLU(inplace=True),
+            # Output: (B, 16, H/2, W/2)
+            # Layer 2: Downsample, increase channels
+            nn.Conv2d(16, 32, kernel_size=3, stride=2, padding=1),
             nn.GroupNorm(max(1, 32 // groups_in_norm), 32),
             nn.ReLU(inplace=True),
-            # Output: (B, 32, H/2, W/2)
-            # Layer 2: Downsample, increase channels
-            nn.Conv2d(32, 64, kernel_size=3, stride=2, padding=1, bias=False),
-            nn.GroupNorm(max(1, 64 // groups_in_norm), 64),
-            nn.ReLU(inplace=True),
-            # Output: (B, 64, H/4, W/4)
+            # Output: (B, 32, H/4, W/4)
             # Layer 3: Downsample, increase channels
-            nn.Conv2d(64, 128, kernel_size=3, stride=2, padding=1, bias=False),
-            nn.GroupNorm(max(1, 128 // groups_in_norm), 128),
+            nn.Conv2d(32, 32, kernel_size=3, stride=2, padding=1),
+            nn.GroupNorm(max(1, 32 // groups_in_norm), 32),
             nn.ReLU(inplace=True),
-            # Output: (B, 128, H/8, W/8)
-            # Layer 4: Downsample, increase channels (Optional, could stop earlier)
-            # If the input image is small, H/16 might become too small.
-            # Let's keep it for now to match the original depth approximately.
-            nn.Conv2d(128, 128, kernel_size=3, stride=2, padding=1, bias=False),
-            nn.GroupNorm(max(1, 128 // groups_in_norm), 128),
-            nn.ReLU(inplace=True),
-            # Output: (B, 128, H/16, W/16)
-            # Final pooling and linear layer (same as before)
-            nn.AdaptiveAvgPool2d((1, 1)),  # Pool to 1x1 spatial dimensions
-            nn.Flatten(),  # Flatten features -> (B, 128)
-            nn.Linear(128, output_dim),  # Linear layer -> (B, output_dim)
+            # Output: (B, 32, H/8, W/8)
+            nn.AdaptiveAvgPool2d((2, 2)),  # Pool to 2x2 spatial dimensions
+            nn.Flatten(),  # Flatten features -> (B, 32 * 2 * 2)
+            nn.Linear(4 * 32, output_dim),  # Linear layer -> (B, output_dim)
         )
 
     def forward(self, hm):

@@ -43,6 +43,7 @@ class PPOExperimentConfig:
     use_wandb: bool
     use_tensorboard: bool
     engine_iters_per_env_step: int
+    eval_repeats_after_training: int
     seed: int
     device: str
     num_robots: int
@@ -54,7 +55,7 @@ class PPOExperimentConfig:
     scheduler_opts: dict[str, Any]
     max_grad_norm: float
     total_frames: int
-    frames_per_batch: int
+    time_steps_per_batch: int
     heightmap_gen: "Type[BaseHeightmapGenerator]"
     world_opts: dict[str, float]
     engine_opts: dict[str, Any]

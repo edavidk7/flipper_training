@@ -1,25 +1,26 @@
-name: deterministic_trunk_debug_for_hparam_calibration
-comment: Debugging PPO on trunk terrain with fixed goal navigation
+name: random_trunk_for_hparam_calibration
+comment: Fixed trunk heightmap with random start and goal positions
 seed: 42
 use_wandb: true
+eval_repeats_after_training: 1
 use_tensorboard: false
-device: cuda:2
+device: cuda:1
 training_dtype: ${dtype:float32}
-total_frames: ${mul:5242880,6}
-engine_iters_per_env_step: 6
-frames_per_batch: 128
-epochs_per_batch: 2
-frames_per_sub_batch: 64
+total_frames: ${mul:5242880,2}
+engine_iters_per_env_step: 4
+num_robots: 128
+time_steps_per_batch: 32
+epochs_per_batch: 1
+frames_per_sub_batch: 512
 eval_and_save_every: 10
-max_eval_steps: 500
+max_eval_steps: 400
 optimizer: ${cls:torch.optim.AdamW}
 scheduler: ${cls:torch.optim.lr_scheduler.LinearLR}
 scheduler_opts:
   start_factor: 1.0
   end_factor: 0.05
-  total_iters: ${intdiv:${total_frames},${mul:${frames_per_batch},${num_robots}}}
+  total_iters: ${intdiv:${total_frames},${mul:${time_steps_per_batch},${num_robots}}}
 max_grad_norm: 0.5
-num_robots: 128
 grid_res: 0.05
 max_coord: 3.2
 heightmap_gen: ${ cls:flipper_training.heightmaps.trunks.FixedTrunkHeightmapGenerator}
@@ -32,7 +33,7 @@ world_opts:
   k_friction_lat: 0.5
 engine_opts:
   damping_alpha: 5.0
-  dt: 0.005
+  dt: 0.007
 engine_compile_opts:
   max-autotune: true
   triton.cudagraphs: true
@@ -79,19 +80,19 @@ ppo_opts:
   entropy_bonus: true
   entropy_coef: 0.02
   critic_coef: 1.0
-  loss_critic_type: smooth_l1
-  normalize_advantage: false
+  loss_critic_type: l2
+  normalize_advantage: true
   separate_losses: false
 ppo_compile_opts: null
 data_collector_opts:
   split_trajs: false
-  compile_policy: false
+  compile_policy: true
   exploration_type: RANDOM
 objective: ${cls:flipper_training.rl_objectives.trunk_crossing.TrunkCrossing}
 objective_opts:
-  min_dist_to_goal: 1.0
-  max_dist_to_goal: 5.0
-  iteration_limit_factor: 8
+  min_dist_to_goal: 2.0
+  max_dist_to_goal: 4.0
+  iteration_limit_factor: 3
   max_feasible_pitch: 1.5
   max_feasible_roll: 1.5
   start_z_offset: 0.2
@@ -103,11 +104,11 @@ objective_opts:
   cache_size: 30000
 reward: ${cls:flipper_training.rl_rewards.rewards.PotentialGoal}
 reward_opts:
-  goal_reached_reward: 100.0
-  failed_reward: -100.0
+  goal_reached_reward: 10.0
+  failed_reward: -10.0
   potential_coef: 20
   gamma: ${gae_opts.gamma}
-  step_penalty: -0.05
+  step_penalty: -0.02
 policy_config: ${cls:flipper_training.policies.mlp_policy.MLPPolicyConfig}
 policy_opts:
   share_encoder: false
@@ -121,8 +122,8 @@ policy_opts:
     hidden_dim: 64
     layernorm: true
   actor_optimizer_opts:
-    lr: 0.0003
+    lr: 0.0002
+    weight_decay: 1e-4
   value_optimizer_opts:
-    lr: 0.002
-# policy_weights_path: runs/ppo/deterministic_trunk_debug_for_hparam_calibration_2025-04-25_16-53-06/weights/policy_step_13778944.pth
-# vecnorm_weights_path: runs/ppo/deterministic_trunk_debug_for_hparam_calibration_2025-04-25_16-53-06/weights/vecnorm_step_13778944.pth
+    lr: 0.001
+    weight_decay: 1e-4

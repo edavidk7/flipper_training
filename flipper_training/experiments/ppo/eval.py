@@ -3,7 +3,7 @@ from typing import TYPE_CHECKING
 
 import torch
 from common import prepare_env, make_formatted_str_lines, log_from_eval_rollout, EVAL_LOG_OPT, make_transformed_env, parse_and_load_config
-from config import PPOExperimentConfig, hash_omegaconf
+from config import PPOExperimentConfig, hash_omegaconf, OmegaConf
 from pathlib import Path
 from simview import SimView
 from torchrl.envs.utils import ExplorationType, set_exploration_type
@@ -42,6 +42,7 @@ def get_eval_rollout(
 
 
 def eval_ppo(config: "DictConfig"):
+    print(OmegaConf.to_yaml(config, sort_keys=True))
     train_config = PPOExperimentConfig(**config)
     if train_config.vecnorm_weights_path is None or train_config.policy_weights_path is None:
         raise ValueError("Policy and VecNorm weights paths must be provided for evaluation.")
@@ -68,7 +69,7 @@ def eval_ppo(config: "DictConfig"):
     # Correct the rewards for robots that have finished the episode
     dones = torch.roll(rollout["next", "done"].float(), 1, 1)  # shifted by one timestep forward
     dones[:, 0] = 0  # first timestep is not done
-    reward_masked = rollout["next", "reward"] * (1 - dones)
+    reward_masked = rollout["next", "raw_reward"] * (1 - dones)
     reward_masked = reward_masked.squeeze()
     cum_reward = torch.cumsum(reward_masked, dim=1)
     for i in range(rollout.shape[1]):

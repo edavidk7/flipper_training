@@ -14,6 +14,7 @@ from omegaconf import DictConfig, OmegaConf
 from flipper_training.utils.logutils import LocalRunReader, WandbRunReader
 
 from torchrl.envs import Compose, VecNorm, StepCounter, TransformedEnv, Transform
+from flipper_training.environment.transforms import RawRewardSaveTransform
 
 if TYPE_CHECKING:
     from config import PPOExperimentConfig
@@ -114,13 +115,15 @@ def log_from_eval_rollout(eval_rollout: "TensorDict") -> dict[str, int | float]:
     """
     Computes the statistics from the evaluation rollout and returns them as a dictionary.
     """
+    if "raw_reward" not in eval_rollout["next"]:
+        raise ValueError("The evaluation rollout must contain the 'raw_reward' key.")
     last_step_count = eval_rollout["step_count"][:, -1].float()
     last_succeeded_mean = eval_rollout["next", "succeeded"][:, -1].float().mean().item()
     last_failed_mean = eval_rollout["next", "failed"][:, -1].float().mean().item()
     return {
-        "eval/mean_step_reward": eval_rollout["next", "reward"].mean().item(),
-        "eval/max_step_reward": eval_rollout["next", "reward"].max().item(),
-        "eval/min_step_reward": eval_rollout["next", "reward"].min().item(),
+        "eval/mean_step_reward": eval_rollout["next", "raw_reward"].mean().item(),
+        "eval/max_step_reward": eval_rollout["next", "raw_reward"].max().item(),
+        "eval/min_step_reward": eval_rollout["next", "raw_reward"].min().item(),
         "eval/mean_step_count": last_step_count.mean().item(),
         "eval/max_step_count": last_step_count.max().item(),
         "eval/min_step_count": last_step_count.min().item(),
@@ -139,12 +142,13 @@ def make_transformed_env(env: "Env", train_config: "PPOExperimentConfig", policy
         **train_config.vecnorm_opts,
     )
     transforms = [t["cls"](**(t["opts"] or {})) for t in train_config.extra_env_transforms] + policy_transforms
+    transforms.append(RawRewardSaveTransform())  # Remember this for evaluation
     transforms.append(StepCounter())
     transforms.append(vecnorm)
     return TransformedEnv(env, Compose(*transforms)), vecnorm
 
 
-def download_config_and_paths(reader: WandbRunReader | LocalRunReader, weight_step: int | None) -> "DictConfig":
+def download_config_and_paths(reader: WandbRunReader | LocalRunReader, weight_step: str | None) -> "DictConfig":
     run_omegaconf = reader.load_config()
     if not isinstance(run_omegaconf, DictConfig):
         raise ValueError("Config must be a DictConfig")
@@ -158,7 +162,7 @@ def parse_and_load_config() -> "DictConfig":
     parser = ArgumentParser()
     parser.add_argument("--local", type=Path, required=False, default=None, help="Path to the local run directory")
     parser.add_argument("--wandb", type=Path, required=False, default=None, help="Name of the run to evaluate")
-    parser.add_argument("--weight_step", type=int, required=False, help="Step from which to load the weights", default=None)
+    parser.add_argument("--weight_step", type=str, required=False, help="Step from which to load the weights", default=None)
     args, unknown = parser.parse_known_args()
     if args.local is None and args.wandb is None:
         raise ValueError("Either --local or --wandb must be provided")

@@ -49,6 +49,30 @@ class Reward(ABC):
 
         raise NotImplementedError
 
+    def curriculum_step(self, reset_mask: torch.Tensor):
+        """
+        Update the curriculum step for the reward function.
+
+        Args:
+            reset_mask (torch.Tensor): The reset mask tensor.
+
+        Returns:
+            None
+        """
+        return None
+    
+    def set_curriculum_step(self, step: int):
+        """
+        Set the curriculum step for the reward function.
+
+        Args:
+            step (int): The curriculum step.
+
+        Returns:
+            None
+        """
+        return None
+
     @property
     def name(self) -> str:
         """

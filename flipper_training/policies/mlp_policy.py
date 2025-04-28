@@ -98,13 +98,13 @@ class MLPPolicyConfig(PolicyConfig):
             raise ValueError(
                 "in_features and out_features are not allowed in the policy MLP options. They are dictated by the environment and the encoder."
             )
-        encoder_module = TensorDictModule(
-            combined_encoder,
+        actor_encoder_module = TensorDictModule(
+            deepcopy(combined_encoder),
             in_keys={k: k for k in combined_encoder.encoders.keys()},
             out_keys=["y_shared"],
             out_to_in_map=True,
         )
-        policy_module = TensorDictModule(
+        actor_module = TensorDictModule(
             module=nn.Sequential(
                 MLP(in_dim=combined_encoder.output_dim, out_dim=2 * action_spec.shape[1], **self.actor_mlp_opts),
                 NormalParamExtractor(),
@@ -112,8 +112,8 @@ class MLPPolicyConfig(PolicyConfig):
             in_keys=["y_shared"],
             out_keys=["loc", "scale"],
         )
-        policy_module = ProbabilisticActor(
-            module=TensorDictSequential([deepcopy(encoder_module), policy_module]),
+        actor_module = ProbabilisticActor(
+            module=TensorDictSequential([actor_encoder_module, actor_module]),
             spec=action_spec,
             in_keys=["loc", "scale"],
             distribution_class=TanhNormal,
@@ -127,18 +127,26 @@ class MLPPolicyConfig(PolicyConfig):
             raise ValueError(
                 "in_features and out_features are not allowed in the value MLP options. They are dictated by the environment and the encoder."
             )
+        value_encoder_module = TensorDictModule(
+            deepcopy(combined_encoder),
+            in_keys={k: k for k in combined_encoder.encoders.keys()},
+            out_keys=["y_shared"],
+            out_to_in_map=True,
+        )
         value_module = TensorDictModule(
             MLP(in_dim=combined_encoder.output_dim, out_dim=1, **self.value_mlp_opts),
             in_keys=["y_shared"],  # pass the observations as input
             out_keys=["state_value"],
         )
         value_operator = TensorDictSequential(
-            [deepcopy(encoder_module), value_module],
+            [value_encoder_module, value_module],
         )
         wrapper = ActorCriticWrapper(
-            policy_operator=policy_module,
+            policy_operator=actor_module,
             value_operator=value_operator,
         )
+        if id(actor_encoder_module.module) == id(value_encoder_module.module):
+            raise ValueError("The encoder module for the policy and value operators should not be the same instance. This is a bug in the code.")
         return wrapper
 
     def _create_shared(self, action_spec, combined_encoder: EncoderCombiner):
@@ -146,7 +154,7 @@ class MLPPolicyConfig(PolicyConfig):
             raise ValueError(
                 "in_features and out_features are not allowed in the policy MLP options. They are dictated by the environment and the encoder."
             )
-        policy_td = TensorDictModule(
+        actor_td = TensorDictModule(
             nn.Sequential(
                 MLP(in_dim=combined_encoder.output_dim, out_dim=2 * action_spec.shape[1], **self.actor_mlp_opts),
                 NormalParamExtractor(),
@@ -154,8 +162,8 @@ class MLPPolicyConfig(PolicyConfig):
             in_keys=["y_shared"],
             out_keys=["loc", "scale"],
         )
-        policy_module = ProbabilisticActor(
-            module=policy_td,
+        actor_module = ProbabilisticActor(
+            module=actor_td,
             spec=action_spec,
             in_keys=["loc", "scale"],
             distribution_class=TanhNormal,
@@ -176,7 +184,7 @@ class MLPPolicyConfig(PolicyConfig):
             out_to_in_map=True,
         )
         return ActorValueOperator(
-            policy_operator=policy_module,
+            policy_operator=actor_module,
             value_operator=value_operator,
             common_operator=encoder_module,
         )
