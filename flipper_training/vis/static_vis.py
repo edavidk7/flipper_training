@@ -6,11 +6,7 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 from matplotlib.collections import LineCollection
 from flipper_training.configs import TerrainConfig
-from flipper_training.engine.engine_state import (
-    PhysicsState,
-    vectorize_iter_of_states,
-    AuxEngineInfo,
-)
+from flipper_training.engine.engine_state import PhysicsState, PhysicsStateDer
 from flipper_training.utils.geometry import quaternion_to_yaw
 
 
@@ -86,7 +82,7 @@ def plot_single_heightmap(
     return ax
 
 
-def plot_heightmap_3d(x: torch.Tensor, y: torch.Tensor, z: torch.Tensor, **kwargs) -> go.Figure:
+def plot_heightmap_3d(x: torch.Tensor, y: torch.Tensor, z: torch.Tensor, fig=None, **kwargs) -> go.Figure:
     """
     Plot the 3D heightmap.
 
@@ -103,7 +99,7 @@ def plot_heightmap_3d(x: torch.Tensor, y: torch.Tensor, z: torch.Tensor, **kwarg
     x = x.detach().cpu()
     y = y.detach().cpu()
     z = z.detach().cpu()
-    fig = go.Figure(data=[go.Surface(z=z.cpu().numpy(), x=x.cpu().numpy(), y=y.cpu().numpy())])
+    fig = go.Figure(data=[go.Surface(z=z.cpu().numpy(), x=x.cpu().numpy(), y=y.cpu().numpy())]) if fig is None else fig
     max_z = z.abs().max().item()
     if "start" in kwargs:
         start = kwargs["start"].detach().cpu()
@@ -160,9 +156,6 @@ def plot_heightmap_3d(x: torch.Tensor, y: torch.Tensor, z: torch.Tensor, **kwarg
             aspectmode="manual",
             aspectratio=dict(x=1.0, y=1.0, z=max_z / (2 * x.max().item())),
         ),
-        width=1000,
-        height=500,
-        margin=dict(l=20, r=20, t=20, b=20),
     )
     return fig
 
@@ -239,7 +232,7 @@ def plot_birdview_trajectory(
 def plot_3d_trajectory(
     world_config: TerrainConfig,
     states: Iterable[PhysicsState],
-    auxs: Iterable[AuxEngineInfo],
+    auxs: Iterable[PhysicsStateDer],
     robot_idx: int = 0,
     fig_opts: dict[str, Any] = {},
 ) -> go.Figure:

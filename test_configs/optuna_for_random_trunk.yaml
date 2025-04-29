@@ -4,12 +4,10 @@ use_gpus:
   - "1"
   - "2"
   - "0"
-workers_per_gpu: 2
+workers_per_gpu: 1
 metrics_to_optimize:
   - "eval/pct_succeeded" # Maximize
   - "eval/pct_failed" # Minimize
-  - "eval/mean_step_reward" # Maximize
-  - "eval/mean_step_count" # Minimize
 directions:
   - "maximize"
   - "minimize"
@@ -32,10 +30,10 @@ optuna_types:
 optuna_values:
   - [0.00005, 0.0007]
   - [0.0001, 0.003]
-  - [10.0, 50.0]
-  - [-50.0, -10.0]
-  - [10.0, 50.0]
-  - [-0.5, -0.01]
+  - [1.0, 20.0]
+  - [-20.0, -1.0]
+  - [20.0, 50.0]
+  - [-0.5, -0.1]
 train_config_overrides:
   use_wandb: false
   eval_repeats_after_training: 20
