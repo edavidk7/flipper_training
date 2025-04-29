@@ -35,9 +35,6 @@ engine_opts:
   damping_alpha: 5.0
   dt: 0.007
 engine_compile_opts:
-  options:
-    triton.cudagraphs: true
-    coordinate_descent_tuning: true
   fullgraph: true
   correctness_iters: 200
   benchmark_iters: 1000

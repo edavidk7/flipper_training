@@ -1,5 +1,5 @@
-study_name: "optuna_test5"
-num_trials: 100
+study_name: "optuna_test6"
+num_trials: 120
 use_gpus:
   - "1"
   - "2"
@@ -9,8 +9,6 @@ metrics_to_optimize:
   - "eval/pct_succeeded" # Maximize
   - "eval/pct_failed" # Minimize
 directions:
-  - "maximize"
-  - "minimize"
   - "maximize"
   - "minimize"
 optuna_keys:
@@ -28,10 +26,10 @@ optuna_types:
   - "float"
   - "float"
 optuna_values:
-  - [0.00005, 0.0007]
+  - [0.00005, 0.0005]
   - [0.0001, 0.003]
-  - [1.0, 20.0]
-  - [-20.0, -1.0]
+  - [1.0, 10.0]
+  - [-10.0, -1.0]
   - [20.0, 50.0]
   - [-0.5, -0.1]
 train_config_overrides:
