@@ -173,26 +173,26 @@ def train_ppo(
         pbar.update(iteration_size)
         scheduler.step()
 
-    # env.eval()
-    # actor_operator.eval()
-    # value_operator.eval()
-    # with (
-    #     set_exploration_type(ExplorationType.DETERMINISTIC),
-    #     torch.inference_mode(),
-    # ):
-    #     eval_rollout = env.rollout(train_config.max_eval_steps, actor_operator, break_when_all_done=True, auto_reset=True)
-    #     for _ in range(train_config.eval_repeats_after_training - 1):
-    #         eval_rollout += env.rollout(train_config.max_eval_steps, actor_operator, break_when_all_done=True, auto_reset=True)
-    #     avg_eval_rollout = eval_rollout / train_config.eval_repeats_after_training
-    #     avg_eval_log = log_from_eval_rollout(avg_eval_rollout)
-    #     log.update(avg_eval_log)
-    #     RUN_LOGGER.save_weights(actor_value_wrapper.state_dict(), "policy_final")
-    #     RUN_LOGGER.save_weights(vecnorm.state_dict(), "vecnorm_final")
-    #     del eval_rollout
-    #     del avg_eval_rollout
-    # RUN_LOGGER.log_data(log, train_config.total_frames)
-    # print(make_formatted_str_lines(avg_eval_log, EVAL_LOG_OPT))
-    # return avg_eval_log
+    env.eval()
+    actor_operator.eval()
+    value_operator.eval()
+    with (
+        set_exploration_type(ExplorationType.DETERMINISTIC),
+        torch.inference_mode(),
+    ):
+        eval_rollout = env.rollout(train_config.max_eval_steps, actor_operator, break_when_all_done=True, auto_reset=True)
+        for _ in range(train_config.eval_repeats_after_training - 1):
+            eval_rollout += env.rollout(train_config.max_eval_steps, actor_operator, break_when_all_done=True, auto_reset=True)
+        avg_eval_rollout = eval_rollout / train_config.eval_repeats_after_training
+        avg_eval_log = log_from_eval_rollout(avg_eval_rollout)
+        log.update(avg_eval_log)
+        RUN_LOGGER.save_weights(actor_value_wrapper.state_dict(), "policy_final")
+        RUN_LOGGER.save_weights(vecnorm.state_dict(), "vecnorm_final")
+        del eval_rollout
+        del avg_eval_rollout
+    RUN_LOGGER.log_data(log, train_config.total_frames)
+    print(make_formatted_str_lines(avg_eval_log, EVAL_LOG_OPT))
+    return avg_eval_log
 
 
 if __name__ == "__main__":
