@@ -69,7 +69,8 @@ def eval_ppo(config: "DictConfig"):
     # Correct the rewards for robots that have finished the episode
     dones = torch.roll(rollout["next", "done"].float(), 1, 1)  # shifted by one timestep forward
     dones[:, 0] = 0  # first timestep is not done
-    reward_masked = rollout["next", "raw_reward"] * (1 - dones)
+    reward_key = "raw_reward" if "raw_reward" in rollout["next"] else "reward"
+    reward_masked = rollout["next", reward_key] * (1 - dones)
     reward_masked = reward_masked.squeeze()
     cum_reward = torch.cumsum(reward_masked, dim=1)
     for i in range(rollout.shape[1]):

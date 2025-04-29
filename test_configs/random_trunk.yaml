@@ -4,14 +4,14 @@ seed: 42
 use_wandb: true
 eval_repeats_after_training: 1
 use_tensorboard: false
-device: cuda:1
+device: cuda:0
 training_dtype: ${dtype:float32}
-total_frames: ${mul:5242880,1}
+total_frames: ${mul:5242880,2}
 engine_iters_per_env_step: 4
-num_robots: 128
-time_steps_per_batch: 32
-epochs_per_batch: 1
-frames_per_sub_batch: 512
+num_robots: 256
+time_steps_per_batch: 96
+epochs_per_batch: 5
+frames_per_sub_batch: 4096
 eval_and_save_every: 10
 max_eval_steps: 400
 optimizer: ${cls:torch.optim.AdamW}
@@ -35,13 +35,14 @@ engine_opts:
   damping_alpha: 5.0
   dt: 0.007
 engine_compile_opts:
-  max-autotune: true
-  triton.cudagraphs: true
-  coordinate_descent_tuning: true
-  correctness_iters: 100
+  options:
+    triton.cudagraphs: true
+    coordinate_descent_tuning: true
+  fullgraph: true
+  correctness_iters: 200
   benchmark_iters: 1000
-  atol: 1
-  rtol: 0
+  atol: 1e-2
+  rtol: 1e-6
 robot_model_opts:
   kind: marv
   mesh_voxel_size: 0.01
@@ -85,8 +86,8 @@ ppo_opts:
   separate_losses: false
 ppo_compile_opts: null
 data_collector_opts:
-  split_trajs: false
   compile_policy: false
+  split_trajs: false
   exploration_type: RANDOM
 objective: ${cls:flipper_training.rl_objectives.trunk_crossing.TrunkCrossing}
 objective_opts:
@@ -101,7 +102,7 @@ objective_opts:
   start_position_orientation: towards_goal
   init_joint_angles: random
   resample_random_joint_angles_on_reset: true
-  cache_size: 15000
+  cache_size: 1000
 reward: ${cls:flipper_training.rl_rewards.rewards.PotentialGoal}
 reward_opts:
   goal_reached_reward: 10.0

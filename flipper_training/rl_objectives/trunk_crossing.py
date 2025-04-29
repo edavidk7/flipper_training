@@ -88,20 +88,18 @@ class TrunkCrossing(BaseObjective):
         self._cache_cursor = 0
 
     def _get_initial_joint_angles(self) -> torch.Tensor:
+        high = self.robot_model.joint_limits[None, 1].cpu()
+        low = self.robot_model.joint_limits[None, 0].cpu()
         match self.init_joint_angles:
             case "max":
-                return self.robot_model.joint_limits[None, 1].to(self.device).repeat(self.physics_config.num_robots, 1)
+                return high.repeat(self.physics_config.num_robots, 1)
             case "min":
-                return self.robot_model.joint_limits[None, 0].to(self.device).repeat(self.physics_config.num_robots, 1)
+                return low.repeat(self.physics_config.num_robots, 1)
             case "random":
-                ang = (
-                    torch.rand((self.physics_config.num_robots, self.robot_model.num_driving_parts), device=self.device)
-                    * (self.robot_model.joint_limits[None, 1] - self.robot_model.joint_limits[None, 0])
-                    + self.robot_model.joint_limits[None, 0]
-                )
+                ang = torch.rand((self.physics_config.num_robots, self.robot_model.num_driving_parts), generator=self.rng) * (high - low) + low
                 ang = ang.clamp(
-                    min=self.robot_model.joint_limits[None, 0].to(self.device),
-                    max=self.robot_model.joint_limits[None, 1].to(self.device),
+                    min=low,
+                    max=high,
                 )
                 return ang
             case torch.Tensor():
@@ -109,11 +107,8 @@ class TrunkCrossing(BaseObjective):
                     raise ValueError(
                         f"Invalid shape for init_joint_angles: {self.init_joint_angles.shape}. Expected {self.robot_model.num_driving_parts}."
                     )
-                ang = self.init_joint_angles.to(self.device).repeat(self.physics_config.num_robots, 1)
-                ang = ang.clamp(
-                    min=self.robot_model.joint_limits[None, 0].to(self.device),
-                    max=self.robot_model.joint_limits[None, 1].to(self.device),
-                )
+                ang = self.init_joint_angles.repeat(self.physics_config.num_robots, 1)
+                ang = ang.clamp(min=low, max=high)
                 return ang
             case _:
                 raise ValueError("Invalid value for init_joint_angles.")
@@ -134,11 +129,11 @@ class TrunkCrossing(BaseObjective):
             batch_size=start_pos.shape[0],
             device=self.device,
             x=start_pos.to(self.device),
-            q=oris,
+            q=oris.to(self.device),
             thetas=thetas.to(self.device),
         )
         goal_state = PhysicsState.dummy(
-            robot_model=self.robot_model, batch_size=goal_pos.shape[0], device=self.device, x=goal_pos.to(self.device), q=oris
+            robot_model=self.robot_model, batch_size=goal_pos.shape[0], device=self.device, x=goal_pos.to(self.device), q=oris.to(self.device)
         )
         goal_state.x[..., 2] += self.goal_z_offset
         start_state.x[..., 2] += self.start_z_offset
@@ -198,7 +193,7 @@ class TrunkCrossing(BaseObjective):
                 diff_vecs = goals_x[..., :2] - starts_x[..., :2]
                 ori = torch.atan2(diff_vecs[..., 1], diff_vecs[..., 0])
             case "random":
-                ori = torch.rand(starts_x.shape[0], device=starts_x.device) * 2 * torch.pi  # random orientation
+                ori = torch.rand(starts_x.shape[0], device=starts_x.device, generator=self.rng) * 2 * torch.pi  # random orientation
             case _:
                 raise ValueError(f"Invalid start_position_orientation: {self.start_position_orientation}")
         return euler_to_quaternion(torch.zeros_like(ori), torch.zeros_like(ori), ori)

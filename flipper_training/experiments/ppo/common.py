@@ -14,7 +14,6 @@ from omegaconf import DictConfig, OmegaConf
 from flipper_training.utils.logutils import LocalRunReader, WandbRunReader
 
 from torchrl.envs import Compose, VecNorm, StepCounter, TransformedEnv, Transform
-from flipper_training.environment.transforms import RawRewardSaveTransform
 
 if TYPE_CHECKING:
     from config import PPOExperimentConfig
@@ -115,15 +114,14 @@ def log_from_eval_rollout(eval_rollout: "TensorDict") -> dict[str, int | float]:
     """
     Computes the statistics from the evaluation rollout and returns them as a dictionary.
     """
-    if "raw_reward" not in eval_rollout["next"]:
-        raise ValueError("The evaluation rollout must contain the 'raw_reward' key.")
+    reward_key = "raw_reward" if "raw_reward" in eval_rollout["next"] else "reward"
     last_step_count = eval_rollout["step_count"][:, -1].float()
     last_succeeded_mean = eval_rollout["next", "succeeded"][:, -1].float().mean().item()
     last_failed_mean = eval_rollout["next", "failed"][:, -1].float().mean().item()
     return {
-        "eval/mean_step_reward": eval_rollout["next", "raw_reward"].mean().item(),
-        "eval/max_step_reward": eval_rollout["next", "raw_reward"].max().item(),
-        "eval/min_step_reward": eval_rollout["next", "raw_reward"].min().item(),
+        "eval/mean_step_reward": eval_rollout["next", reward_key].mean().item(),
+        "eval/max_step_reward": eval_rollout["next", reward_key].max().item(),
+        "eval/min_step_reward": eval_rollout["next", reward_key].min().item(),
         "eval/mean_step_count": last_step_count.mean().item(),
         "eval/max_step_count": last_step_count.max().item(),
         "eval/min_step_count": last_step_count.min().item(),
@@ -142,7 +140,6 @@ def make_transformed_env(env: "Env", train_config: "PPOExperimentConfig", policy
         **train_config.vecnorm_opts,
     )
     transforms = [t["cls"](**(t["opts"] or {})) for t in train_config.extra_env_transforms] + policy_transforms
-    transforms.append(RawRewardSaveTransform())  # Remember this for evaluation
     transforms.append(StepCounter())
     transforms.append(vecnorm)
     return TransformedEnv(env, Compose(*transforms)), vecnorm

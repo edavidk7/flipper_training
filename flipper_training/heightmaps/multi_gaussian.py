@@ -19,26 +19,31 @@ class MultiGaussianHeightmapGenerator(BaseHeightmapGenerator):
     max_std_fraction: float = 0.3
     min_sigma_ratio: float = 0.3
 
-    def _generate_heightmap(self, x, y, max_coord, rng=None):
+    def _generate_heightmap(self, x, y, max_coord, rng):
         B = x.shape[0]
         z = torch.zeros_like(x)
         for i in range(B):
             # Generate random number of gaussians
             num_gaussians = int(torch.randint(self.min_gaussians, self.max_gaussians + 1, (1,), generator=rng).item())
             # Generate means from -max_coord to max_coord
-            mus = torch.rand((2, num_gaussians), device=x.device) * 2 * max_coord - max_coord
+            mus = torch.rand((2, num_gaussians), device=x.device, generator=rng) * 2 * max_coord - max_coord
             # Generate standard deviations from min_std_fraction * max_coord to max_std_fraction * max_coord
             sigmas = (
-                torch.rand((num_gaussians, 1), device=x.device) * (self.max_std_fraction - self.min_std_fraction) * max_coord
+                torch.rand((num_gaussians, 1), generator=rng).to(x.device) * (self.max_std_fraction - self.min_std_fraction) * max_coord
                 + self.min_std_fraction * max_coord
             )
             ratios = (
-                torch.rand((num_gaussians,), device=x.device) * (1 - self.min_sigma_ratio) + self.min_sigma_ratio
+                torch.rand((num_gaussians,), generator=rng).to(x.device) * (1 - self.min_sigma_ratio) + self.min_sigma_ratio
             )  # ratio of the standard deviations of the x and y components in range [min_sigma_ratio, 1]
-            higher_indices = torch.randint(0, 2, (num_gaussians,), device=x.device)  # whether the x or y component has the  higher standard deviation
+            higher_indices = torch.randint(0, 2, (num_gaussians,), generator=rng).to(
+                x.device
+            )  # whether the x or y component has the  higher standard deviation
             sigmas = sigmas.repeat(1, 2)
             sigmas[torch.arange(num_gaussians), higher_indices] *= ratios
-            heights = torch.rand((num_gaussians,), device=x.device) * (self.max_height_fraction - self.min_height_fraction) + self.min_height_fraction
+            heights = (
+                torch.rand((num_gaussians,), generator=rng).to(x.device) * (self.max_height_fraction - self.min_height_fraction)
+                + self.min_height_fraction
+            )
             z[i] = torch.sum(
                 heights.view(-1, 1, 1)
                 * torch.exp(

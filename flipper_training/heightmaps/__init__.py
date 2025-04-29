@@ -22,7 +22,7 @@ class BaseHeightmapGenerator(ABC):
     noise_mu: float = 0.0  # Mean of the Gaussian noise in meters
 
     def __call__(
-        self, grid_res: float, max_coord: float, num_robots: int, rng: torch.Generator | None = None
+        self, grid_res: float, max_coord: float, num_robots: int, rng: torch.Generator
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, dict[str, torch.Tensor]]:
         """
         Generates a heightmap.
@@ -47,7 +47,7 @@ class BaseHeightmapGenerator(ABC):
 
     @abstractmethod
     def _generate_heightmap(
-        self, x: torch.Tensor, y: torch.Tensor, max_coord: float, rng: torch.Generator | None = None
+        self, x: torch.Tensor, y: torch.Tensor, max_coord: float, rng: torch.Generator
     ) -> tuple[torch.Tensor, dict[str, torch.Tensor]]:
         """
         Generates a heightmap.
@@ -63,7 +63,7 @@ class BaseHeightmapGenerator(ABC):
         """
         raise NotImplementedError
 
-    def _add_noise_to_heightmap(self, z: torch.Tensor, rng: torch.Generator | None = None) -> torch.Tensor:
+    def _add_noise_to_heightmap(self, z: torch.Tensor, rng: torch.Generator) -> torch.Tensor:
         """
         Adds Gaussian noise to a heightmap.
 

@@ -7,6 +7,7 @@ from ast import literal_eval
 from importlib import import_module
 from omegaconf import OmegaConf
 
+
 PACKAGE_ROOT = Path(__file__).parent
 ROOT = PACKAGE_ROOT.parent
 

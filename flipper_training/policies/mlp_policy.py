@@ -101,7 +101,7 @@ class MLPPolicyConfig(PolicyConfig):
         actor_encoder_module = TensorDictModule(
             deepcopy(combined_encoder),
             in_keys={k: k for k in combined_encoder.encoders.keys()},
-            out_keys=["y_shared"],
+            out_keys=["y_actor"],
             out_to_in_map=True,
         )
         actor_module = TensorDictModule(
@@ -109,7 +109,7 @@ class MLPPolicyConfig(PolicyConfig):
                 MLP(in_dim=combined_encoder.output_dim, out_dim=2 * action_spec.shape[1], **self.actor_mlp_opts),
                 NormalParamExtractor(),
             ),
-            in_keys=["y_shared"],
+            in_keys=["y_actor"],
             out_keys=["loc", "scale"],
         )
         actor_module = ProbabilisticActor(
@@ -130,12 +130,12 @@ class MLPPolicyConfig(PolicyConfig):
         value_encoder_module = TensorDictModule(
             deepcopy(combined_encoder),
             in_keys={k: k for k in combined_encoder.encoders.keys()},
-            out_keys=["y_shared"],
+            out_keys=["y_value"],
             out_to_in_map=True,
         )
         value_module = TensorDictModule(
             MLP(in_dim=combined_encoder.output_dim, out_dim=1, **self.value_mlp_opts),
-            in_keys=["y_shared"],  # pass the observations as input
+            in_keys=["y_value"],  # pass the observations as input
             out_keys=["state_value"],
         )
         value_operator = TensorDictSequential(
@@ -203,7 +203,7 @@ class MLPPolicyConfig(PolicyConfig):
 
         if share_encoder:
             # ActorValueOperator structure
-            encoder_params = count_parameters(actor_value_wrapper.common_operator)
+            encoder_params = count_parameters(actor_value_wrapper.get_common_operator())
             # policy_operator and value_operator are just the heads in this case
             actor_head_params = actor_params
             value_head_params = value_params

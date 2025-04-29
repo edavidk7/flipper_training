@@ -110,7 +110,7 @@ class Env(EnvBase):
             states.append(state)
             prev_state_ders.append(prev_state_der)
         # Compile the engine
-        self.engine = torch.compile(self.engine, options=kwargs)
+        self.engine.compile(**kwargs)
         self.engine(state, act, self.terrain_cfg)  # Dummy forward pass to compile the engine, record the return tensors
         state = self.start.clone()  # Reset the state
         self.logger.info(f"Engine compiled successfully, testing correctness with {atol=}, {rtol=}")

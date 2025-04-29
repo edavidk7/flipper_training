@@ -8,7 +8,7 @@ def set_device(device: str) -> torch.device:
     """
     if "cuda" in device and torch.cuda.is_available():
         torch.backends.cudnn.deterministic = True
-        torch.backends.cudnn.benchmark = True
+        torch.backends.cudnn.benchmark = False
         return torch.device(device)
     elif device == "mps" and torch.mps.is_available():
         return torch.device("mps")
@@ -21,9 +21,7 @@ def seed_all(seed: int) -> torch.Generator:
     """
     rng = torch.manual_seed(seed)
     np.random.seed(seed)
-    if torch.backends.cuda.is_built():
-        torch.cuda.manual_seed(seed)
-        torch.cuda.manual_seed_all(seed)
-    if torch.backends.mps.is_built():
-        torch.mps.manual_seed(seed)
+    torch.cuda.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+    torch.mps.manual_seed(seed)
     return rng

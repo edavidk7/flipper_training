@@ -1,12 +1,13 @@
 from typing import TYPE_CHECKING, Tuple
 import torch
+import traceback
 from common import (
     prepare_env,
     log_from_eval_rollout,
     parse_and_load_config,
     make_transformed_env,
-    make_formatted_str_lines,
-    EVAL_LOG_OPT,
+    # EVAL_LOG_OPT,
+    # make_formatted_str_lines,
 )
 from torchrl.collectors import SyncDataCollector
 from torchrl.data import LazyTensorStorage, SamplerWithoutReplacement, TensorDictReplayBuffer
@@ -14,7 +15,7 @@ from config import PPOExperimentConfig, OmegaConf
 from torchrl.envs.utils import ExplorationType, set_exploration_type
 from torchrl.objectives import ClipPPOLoss
 from torchrl.objectives.value import GAE
-from tqdm import tqdm, trange
+from tqdm import tqdm
 from flipper_training.environment.env import Env
 from flipper_training.utils.logutils import RunLogger, get_terminal_logger
 
@@ -46,7 +47,9 @@ def train_step_to_log(rollout_td: "TensorDict", loss_td: "TensorDict", grad_norm
     }
 
 
-def prepare_data_collection(env: "Env", policy: "SafeSequential", cfg: "PPOExperimentConfig") -> Tuple[SyncDataCollector, TensorDictReplayBuffer]:
+def prepare_data_collection(
+    env: "Env", policy: "SafeSequential", cfg: "PPOExperimentConfig", rng: torch.Generator
+) -> Tuple[SyncDataCollector, TensorDictReplayBuffer]:
     collector = SyncDataCollector(
         env,
         policy,
@@ -69,22 +72,6 @@ def prepare_data_collection(env: "Env", policy: "SafeSequential", cfg: "PPOExper
         compilable=True,
     )
     return collector, replay_buffer
-
-
-def get_eval_rollout_log(env, policy, train_config):
-    """
-    Get the evaluation rollout for the given environment and policy.
-    """
-    policy.eval()
-    env.eval()
-    with (
-        set_exploration_type(ExplorationType.DETERMINISTIC),
-        torch.inference_mode(),
-    ):
-        eval_rollout = env.rollout(train_config.max_eval_steps, policy, auto_reset=True, break_when_all_done=True)
-    eval_log = log_from_eval_rollout(eval_rollout)
-    del eval_rollout
-    return eval_log
 
 
 def train_ppo(
@@ -121,7 +108,7 @@ def train_ppo(
     if train_config.vecnorm_weights_path is not None:
         vecnorm.load_state_dict(torch.load(train_config.vecnorm_weights_path, map_location=device), strict=False)
     # Collector
-    collector, replay_buffer = prepare_data_collection(env, actor_operator, train_config)
+    collector, replay_buffer = prepare_data_collection(env, actor_operator, train_config, rng)
     # PPO setup
     advantage_module = GAE(
         **train_config.gae_opts, value_network=value_operator, time_dim=1, device=device, differentiable=False
@@ -168,32 +155,44 @@ def train_ppo(
         total_collected_frames = (i + 1) * iteration_size
 
         if i % train_config.eval_and_save_every == 0:
-            eval_log = get_eval_rollout_log(env, actor_operator, train_config)
-            log.update(eval_log)
-            RUN_LOGGER.save_weights(actor_value_wrapper.state_dict(), f"policy_step_{total_collected_frames}")
-            RUN_LOGGER.save_weights(vecnorm.state_dict(), f"vecnorm_step_{total_collected_frames}")
+            actor_operator.eval()
+            value_operator.eval()
+            env.eval()
+            with (
+                set_exploration_type(ExplorationType.DETERMINISTIC),
+                torch.inference_mode(),
+            ):
+                eval_rollout = env.rollout(train_config.max_eval_steps, actor_operator, break_when_all_done=True, auto_reset=True)
+                eval_log = log_from_eval_rollout(eval_rollout)
+                log.update(eval_log)
+                RUN_LOGGER.save_weights(actor_value_wrapper.state_dict(), f"policy_step_{total_collected_frames}")
+                RUN_LOGGER.save_weights(vecnorm.state_dict(), f"vecnorm_step_{total_collected_frames}")
+                del eval_rollout
 
         RUN_LOGGER.log_data(log, total_collected_frames)
         pbar.update(iteration_size)
         scheduler.step()
 
-    averaged_eval_log = get_eval_rollout_log(env, actor_operator, train_config)
-    for _ in trange(train_config.eval_repeats_after_training - 1, desc="Final evaluation", unit="rollouts"):
-        eval_log = get_eval_rollout_log(env, actor_operator, train_config)
-        for key in eval_log:
-            averaged_eval_log[key] += eval_log[key]
-    for key in averaged_eval_log:
-        averaged_eval_log[key] /= train_config.eval_repeats_after_training
-    str_lines = make_formatted_str_lines(
-        averaged_eval_log,
-        EVAL_LOG_OPT,
-    )
-    TERM_LOGGER.info(f"Final evaluation after {train_config.eval_repeats_after_training} repeats:")
-    TERM_LOGGER.info("\n".join(str_lines))
-    RUN_LOGGER.log_data(averaged_eval_log, train_config.total_frames)
-    RUN_LOGGER.save_weights(actor_value_wrapper.state_dict(), "policy_step_last")
-    RUN_LOGGER.save_weights(vecnorm.state_dict(), "vecnorm_step_last")
-    return averaged_eval_log
+    # env.eval()
+    # actor_operator.eval()
+    # value_operator.eval()
+    # with (
+    #     set_exploration_type(ExplorationType.DETERMINISTIC),
+    #     torch.inference_mode(),
+    # ):
+    #     eval_rollout = env.rollout(train_config.max_eval_steps, actor_operator, break_when_all_done=True, auto_reset=True)
+    #     for _ in range(train_config.eval_repeats_after_training - 1):
+    #         eval_rollout += env.rollout(train_config.max_eval_steps, actor_operator, break_when_all_done=True, auto_reset=True)
+    #     avg_eval_rollout = eval_rollout / train_config.eval_repeats_after_training
+    #     avg_eval_log = log_from_eval_rollout(avg_eval_rollout)
+    #     log.update(avg_eval_log)
+    #     RUN_LOGGER.save_weights(actor_value_wrapper.state_dict(), "policy_final")
+    #     RUN_LOGGER.save_weights(vecnorm.state_dict(), "vecnorm_final")
+    #     del eval_rollout
+    #     del avg_eval_rollout
+    # RUN_LOGGER.log_data(log, train_config.total_frames)
+    # print(make_formatted_str_lines(avg_eval_log, EVAL_LOG_OPT))
+    # return avg_eval_log
 
 
 if __name__ == "__main__":
@@ -203,5 +202,6 @@ if __name__ == "__main__":
         TERM_LOGGER.info("Training interrupted by user.")
     except Exception as e:
         TERM_LOGGER.error(f"Training failed with error: {e}")
+        traceback.print_exception(e)
     if RUN_LOGGER is not None:
         RUN_LOGGER.close()
