@@ -6,27 +6,31 @@ eval_repeats_after_training: 1
 use_tensorboard: false
 device: cuda
 training_dtype: ${dtype:float32}
-total_frames: ${mul:5242880,2}
+total_frames: ${mul:5242880,3}
 engine_iters_per_env_step: 4
 num_robots: 256
 time_steps_per_batch: 128
-epochs_per_batch: 5
+epochs_per_batch: 7
 frames_per_sub_batch: 4096
 eval_and_save_every: 10
-max_eval_steps: 400
+max_eval_steps: 600
 optimizer: ${cls:torch.optim.AdamW}
-scheduler: ${cls:torch.optim.lr_scheduler.LinearLR}
+scheduler: ${cls:flipper_training.utils.schedulers.LinearDecayThenConstantLR}
 scheduler_opts:
-  start_factor: 1.0
   end_factor: 0.1
-  total_iters: ${intdiv:${total_frames},${mul:${time_steps_per_batch},${num_robots}}}
+  end_step: 320
 max_grad_norm: 0.5
 grid_res: 0.05
 max_coord: 3.2
-heightmap_gen: ${ cls:flipper_training.heightmaps.trunks.FixedTrunkHeightmapGenerator}
+heightmap_gen: ${ cls:flipper_training.heightmaps.trunks.TrunkHeightmapGenerator}
 heightmap_gen_opts:
-  trunk_height: 0.2
-  trunk_width: 0.8
+  min_trunk_height: 0.15
+  max_trunk_height: 0.3
+  max_dist_from_origin: 0.5
+  trunk_deadzone_width: 0.5
+  max_trunk_width: 1.2
+  min_trunk_width: 0.6
+  exp: 6
 world_opts:
   k_stiffness: 35000
   k_friction_lon: 0.8
@@ -35,10 +39,14 @@ engine_opts:
   damping_alpha: 5.0
   dt: 0.007
 engine_compile_opts:
+  # options:
+  #   triton.cudagraphs: true
+  #   max-autotune: true
+  #   coordinate_descent_tuning: true
   fullgraph: true
-  correctness_iters: 200
+  correctness_iters: 10
   benchmark_iters: 1000
-  atol: 1e-2
+  atol: 1e-1
   rtol: 1e-6
 robot_model_opts:
   kind: marv
@@ -99,7 +107,7 @@ objective_opts:
   start_position_orientation: towards_goal
   init_joint_angles: random
   resample_random_joint_angles_on_reset: true
-  cache_size: 12000
+  cache_size: 20000
 reward: ${cls:flipper_training.rl_rewards.rewards.PotentialGoal}
 reward_opts:
   goal_reached_reward: 5.0

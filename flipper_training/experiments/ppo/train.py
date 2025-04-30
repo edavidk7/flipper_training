@@ -6,8 +6,8 @@ from common import (
     log_from_eval_rollout,
     parse_and_load_config,
     make_transformed_env,
-    # EVAL_LOG_OPT,
-    # make_formatted_str_lines,
+    EVAL_LOG_OPT,
+    make_formatted_str_lines,
 )
 from torchrl.collectors import SyncDataCollector
 from torchrl.data import LazyTensorStorage, SamplerWithoutReplacement, TensorDictReplayBuffer
@@ -172,7 +172,7 @@ def train_ppo(
         RUN_LOGGER.log_data(log, total_collected_frames)
         pbar.update(iteration_size)
         scheduler.step()
-
+    pbar.close()
     env.eval()
     actor_operator.eval()
     value_operator.eval()
@@ -190,8 +190,9 @@ def train_ppo(
         RUN_LOGGER.save_weights(vecnorm.state_dict(), "vecnorm_final")
         del eval_rollout
         del avg_eval_rollout
-    RUN_LOGGER.log_data(log, train_config.total_frames)
-    print(make_formatted_str_lines(avg_eval_log, EVAL_LOG_OPT))
+    RUN_LOGGER.log_data(log, total_collected_frames + iteration_size)
+    print(f"\nFinal evaluation results ({train_config.eval_repeats_after_training} samples):")
+    print("\n".join(make_formatted_str_lines(avg_eval_log, EVAL_LOG_OPT)))
     return avg_eval_log
 
 

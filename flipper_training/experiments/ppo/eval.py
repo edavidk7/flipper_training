@@ -18,7 +18,7 @@ if TYPE_CHECKING:
 
 
 def get_eval_rollout(
-    train_config: PPOExperimentConfig, policy_weights_path: str | Path, vecnorm_weights_path: str | Path
+    train_config: PPOExperimentConfig, policy_weights_path: str | Path | None, vecnorm_weights_path: str | Path | None
 ) -> tuple["TransformedEnv", "TensorDictBase"]:
     env, device, rng = prepare_env(train_config, mode="eval")
     policy_config = train_config.policy_config(**train_config.policy_opts)
@@ -44,8 +44,6 @@ def get_eval_rollout(
 def eval_ppo(config: "DictConfig"):
     print(OmegaConf.to_yaml(config, sort_keys=True))
     train_config = PPOExperimentConfig(**config)
-    if train_config.vecnorm_weights_path is None or train_config.policy_weights_path is None:
-        raise ValueError("Policy and VecNorm weights paths must be provided for evaluation.")
     # Compose the simview model
     env, rollout = get_eval_rollout(train_config, train_config.policy_weights_path, train_config.vecnorm_weights_path)
     str_lines = make_formatted_str_lines(

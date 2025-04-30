@@ -136,7 +136,7 @@ class DPhysicsEngine(torch.nn.Module):
         """
         torque = torch.sum(torch.cross(cog_corrected_points, act_force, dim=-1), dim=1)
         torque = torch.clamp(torque, -self.config.torque_limit, self.config.torque_limit)
-        omega_d = torch.linalg.solve_ex(inertia, torque)[0]
+        omega_d = torch.linalg.solve(inertia, torque)
         return torque, omega_d
 
     def calculate_friction(
