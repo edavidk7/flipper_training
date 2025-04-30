@@ -74,14 +74,11 @@ class PyramidHeightmapGenerator(BaseHeightmapGenerator):
             if self.exponent is None:  # Hard steps
                 z_i = level_index * level_height
             else:  # Soft steps
-                # Height at the start of the level (closer to peak)
                 h_start = level_index * level_height
-                # Distance into the current level (from the edge closer to peak, moving outwards)
                 dist_from_inner_edge = dist - level_index_raw * level_width
-                # Normalize distance within the level width
                 normalized_dist = (dist_from_inner_edge / (level_width + 1e-9)).clamp_(0.0, 1.0)
                 # Apply exponent for soft transition profile (drops by level_height across the level)
-                height_decrease = level_height * (1 - (1 - normalized_dist) ** self.exponent)
+                height_decrease = level_height * (normalized_dist ** float(self.exponent))
                 z_i = h_start - height_decrease
 
             # Clamp overall height
@@ -143,14 +140,11 @@ class FixedPyramidHeightmapGenerator(BaseHeightmapGenerator):
         if self.exponent is None:  # Hard steps
             z = level_index * self.level_height
         else:  # Soft steps
-            # Height at the start of the level (closer to peak)
             h_start = level_index * self.level_height
-            # Distance into the current level (from the edge closer to peak, moving outwards)
             dist_from_inner_edge = dist - level_index_raw * level_width
-            # Normalize distance within the level width
             normalized_dist = (dist_from_inner_edge / (level_width + 1e-9)).clamp_(0.0, 1.0)
             # Apply exponent for soft transition profile (drops by level_height across the level)
-            height_decrease = self.level_height * (1 - (1 - normalized_dist) ** self.exponent)
+            height_decrease = self.level_height * (normalized_dist ** float(self.exponent))
             z = h_start - height_decrease
 
         # Clamp overall height
@@ -191,12 +185,12 @@ if __name__ == "__main__":
     batch_size = 1  # Use batch size 1 for simplicity
     device = "cpu"
     seed = 45
-    rng = torch.Generator(device=device).manual_seed(seed)
-    soft_exponent = 2.0  # Make exponent smaller for softer look
+    rng = torch.manual_seed(seed)
+    soft_exponent = 50.0  # Make exponent smaller for softer look
 
     # --- Random Pyramid Generation (Hard) ---
     print("Generating random 4-sided pyramid (Hard)...")
-    random_gen_hard = PyramidHeightmapGenerator(min_levels=8, max_levels=12, min_level_height=0.08, max_level_height=0.15, exponent=None)
+    random_gen_hard = PyramidHeightmapGenerator(min_levels=3, max_levels=5, min_level_height=0.18, max_level_height=0.3, exponent=None)
     x_random_hard, y_random_hard, z_random_hard, extras_hard_rand = random_gen_hard(
         grid_res=resolution, max_coord=max_coord, num_robots=batch_size, rng=rng
     )
@@ -204,8 +198,7 @@ if __name__ == "__main__":
 
     # --- Random Pyramid Generation (Soft) ---
     print("Generating random 4-sided pyramid (Soft)...")
-    random_gen_soft = PyramidHeightmapGenerator(min_levels=8, max_levels=12, min_level_height=0.08, max_level_height=0.15, exponent=soft_exponent)
-    rng.manual_seed(seed)  # Reset RNG for comparable generation
+    random_gen_soft = PyramidHeightmapGenerator(min_levels=3, max_levels=5, min_level_height=0.18, max_level_height=0.3, exponent=soft_exponent)
     x_random_soft, y_random_soft, z_random_soft, extras_soft_rand = random_gen_soft(
         grid_res=resolution, max_coord=max_coord, num_robots=batch_size, rng=rng
     )
@@ -214,9 +207,9 @@ if __name__ == "__main__":
     # --- Fixed Pyramid Generation (Hard) ---
     print("Generating fixed 4-sided pyramid (Hard)...")
     fixed_gen_hard = FixedPyramidHeightmapGenerator(
-        rotation_angle=math.pi / 6,  # Rotate 30 deg
-        n_levels=10,
-        level_height=0.12,
+        rotation_angle=0,  # Rotate 30 deg
+        n_levels=5,
+        level_height=0.2,
         exponent=None,
     )
     x_fixed_hard, y_fixed_hard, z_fixed_hard, extras_hard_fixed = fixed_gen_hard(
@@ -227,9 +220,9 @@ if __name__ == "__main__":
     # --- Fixed Pyramid Generation (Soft) ---
     print("Generating fixed 4-sided pyramid (Soft)...")
     fixed_gen_soft = FixedPyramidHeightmapGenerator(
-        rotation_angle=math.pi / 6,  # Rotate 30 deg
-        n_levels=10,
-        level_height=0.12,
+        rotation_angle=0,  # Rotate 30 deg
+        n_levels=5,
+        level_height=0.2,
         exponent=soft_exponent,
     )
     x_fixed_soft, y_fixed_soft, z_fixed_soft, extras_soft_fixed = fixed_gen_soft(
@@ -248,11 +241,13 @@ if __name__ == "__main__":
     fig.add_trace(go.Surface(x=x_fixed_hard[0].cpu(), y=y_fixed_hard[0].cpu(), z=z_fixed_hard[0].cpu(), showscale=False), row=2, col=1)
     fig.add_trace(go.Surface(x=x_fixed_soft[0].cpu(), y=y_fixed_soft[0].cpu(), z=z_fixed_soft[0].cpu(), showscale=False), row=2, col=2)
 
-    fig.update_layout(title_text="4-Sided Pyramid Variations", height=800, width=900)
+    fig.update_layout(title_text="4-Sided Pyramid Variations")
     # Update scene aspect ratio for all subplots
     max_z = max(z_random_hard.max(), z_random_soft.max(), z_fixed_hard.max(), z_fixed_soft.max()).item()
     aspect = dict(x=1, y=1, z=max(0.1, max_z / (2 * max_coord)))  # Ensure z aspect is reasonable
     fig.update_scenes(aspectmode="manual", aspectratio=aspect)
+    # Minimize figure margins to bring subplots closer
+    fig.update_layout(margin=dict(l=10, r=10, t=40, b=10))  # Adjust left, right, top, bottom margins
     fig.show()
 
     # --- Matplotlib Index Maps (Combined) ---

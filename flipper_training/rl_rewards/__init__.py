@@ -49,27 +49,12 @@ class Reward(ABC):
 
         raise NotImplementedError
 
-    def curriculum_step(self, reset_mask: torch.Tensor):
+    def reset(self, reset_mask: torch.Tensor, training: bool):
         """
-        Update the curriculum step for the reward function.
-
+        Reset the internal state of the reward function. Should be called when the environment is reset.
         Args:
-            reset_mask (torch.Tensor): The reset mask tensor.
-
-        Returns:
-            None
-        """
-        return None
-    
-    def set_curriculum_step(self, step: int):
-        """
-        Set the curriculum step for the reward function.
-
-        Args:
-            step (int): The curriculum step.
-
-        Returns:
-            None
+            - reset_mask (torch.Tensor): A tensor indicating which robots should be reset.
+            - training (bool): A boolean indicating whether the environment is in training mode.
         """
         return None
 

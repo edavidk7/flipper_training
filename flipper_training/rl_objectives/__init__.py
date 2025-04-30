@@ -116,22 +116,12 @@ class BaseObjective(ABC):
         """
         raise NotImplementedError("Not implemented for this objective")
 
-    def curriculum_step(self, reset_mask: torch.Tensor) -> None:
+    def reset(self, reset_mask: torch.Tensor, training: bool) -> None:
         """
-        Curriculum step function to be called at the end of each episode.
-        This function can be used to update the curriculum or difficulty level of the task.
-
+        Reset the internal state of the objective. Should be called when the environment is reset.
         Args:
-        - reset_mask: Tensor indicating which robots should be reset.
-        """
-        return None
-
-    def set_curriculum_step(self, step: int) -> None:
-        """
-        Set the curriculum step for the objective.
-
-        Args:
-        - step: The current curriculum step.
+        - reset_mask: A tensor indicating which robots should be reset.
+        - training: A boolean indicating whether the environment is in training mode.
         """
         return None
 

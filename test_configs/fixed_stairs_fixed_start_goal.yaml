@@ -22,15 +22,11 @@ scheduler_opts:
 max_grad_norm: 0.5
 grid_res: 0.05
 max_coord: 3.2
-heightmap_gen: ${ cls:flipper_training.heightmaps.trunks.TrunkHeightmapGenerator}
+heightmap_gen: ${ cls:flipper_training.heightmaps.stairs.FixedBidirectionalStairsHeightmapGenerator}
 heightmap_gen_opts:
-  min_trunk_height: 0.15
-  max_trunk_height: 0.3
-  max_dist_from_origin: 0.5
-  trunk_deadzone_width: 0.5
-  max_trunk_width: 1.2
-  min_trunk_width: 0.6
-  exp: 6
+  normal_angle: 0.5
+  n_steps: 5
+  step_height: 0.15
 world_opts:
   k_stiffness: 35000
   k_friction_lon: 0.8
@@ -94,10 +90,9 @@ data_collector_opts:
   compile_policy: false
   split_trajs: false
   exploration_type: RANDOM
-objective: ${cls:flipper_training.rl_objectives.trunk_crossing.TrunkCrossing}
+objective: ${cls:flipper_training.rl_objectives.stair_crossing.StairCrossing}
 objective_opts:
-  min_dist_to_goal: 2.0
-  max_dist_to_goal: 4.0
+  min_dist_from_edge: 0.5
   iteration_limit_factor: 5
   max_feasible_pitch: 1.5
   max_feasible_roll: 1.5
@@ -107,11 +102,12 @@ objective_opts:
   start_position_orientation: towards_goal
   init_joint_angles: random
   resample_random_joint_angles_on_reset: true
-  cache_size: 20000
+  sampling_mode: any
+  cache_size: 1000
 reward: ${cls:flipper_training.rl_rewards.rewards.PotentialGoal}
 reward_opts:
-  goal_reached_reward: 5.0
-  failed_reward: -5.0
+  goal_reached_reward: 2.0
+  failed_reward: -2.0
   potential_coef: 20
   gamma: ${gae_opts.gamma}
   step_penalty: -0.1

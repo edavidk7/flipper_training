@@ -219,10 +219,12 @@ class Env(EnvBase):
         # Generate start and goal states, iteration limits for done/terminated robots
         if tensordict is not None and "_reset" in tensordict:  # this is passed in training
             reset_mask = tensordict["_reset"].squeeze(-1)
-            self.objective.curriculum_step(reset_mask)
-            self.reward.curriculum_step(reset_mask)
         else:
             reset_mask = torch.full((self.n_robots,), True, device=self.device, dtype=torch.bool)
+        training = tensordict is not None and "_step" in tensordict
+        self.objective.reset(reset_mask, training)
+        self.reward.reset(reset_mask, training)
+        # Generate new start and goal states
         new_start, new_goal, new_step_limits = self.objective.generate_start_goal_states()
         # Update the state variables for the done robots
         self.start[reset_mask] = new_start[reset_mask]

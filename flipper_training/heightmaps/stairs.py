@@ -221,10 +221,10 @@ class FixedBidirectionalStairsHeightmapGenerator(BaseHeightmapGenerator):
         z[right_mask] = z2[right_mask] + left_highest_point - z2[right_mask].min()  # this creates the landing
         # Set the indices for the left side
         valid_step_mask1 = (step_index_raw1 >= 0) & (step_index_raw1 < self.n_steps)
-        step_indices[left_mask][valid_step_mask1] = step_index1[valid_step_mask1].long()
+        step_indices[left_mask & valid_step_mask1] = step_index1[valid_step_mask1 & left_mask].long()
         # Right side indices are increased by n_steps
         valid_step_mask2 = (step_index_raw2 >= 0) & (step_index_raw2 < self.n_steps)
-        step_indices[right_mask][valid_step_mask2] = step_index2[valid_step_mask2].long() + self.n_steps - 1
+        step_indices[right_mask & valid_step_mask2] = step_index2[valid_step_mask2 & right_mask].long() + self.n_steps - 1
         # Create the suitable mask
         suitable_mask = torch.ones_like(x, dtype=torch.bool)
         return z, {"suitable_mask": suitable_mask, "step_indices": step_indices}
