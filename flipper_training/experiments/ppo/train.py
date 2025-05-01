@@ -34,7 +34,7 @@ def train_step_to_log(rollout_td: "TensorDict", loss_td: "TensorDict", grad_norm
     Extract important data from the training tensordicts to log.
     """
     return {
-        "train/mean_reward": rollout_td["reward"].mean().item(),
+        "train/mean_reward": rollout_td["next", "reward"].mean().item(),
         "train/mean_action_sample_log_prob": rollout_td["sample_log_prob"].mean().item(),
         "train/mean_critic_loss": loss_td["loss_critic"].mean().item(),
         "train/mean_objective_loss": loss_td["loss_objective"].mean().item(),

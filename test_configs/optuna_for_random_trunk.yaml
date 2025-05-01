@@ -1,5 +1,5 @@
-study_name: "optuna_test8"
-num_trials: 120
+study_name: "optuna_test9"
+num_trials: 180
 use_gpus:
   - "0"
   # - "1"

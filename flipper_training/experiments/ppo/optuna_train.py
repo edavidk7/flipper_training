@@ -53,7 +53,7 @@ def objective(trial, base_config, keys, types, values, metrics_to_optimize, trai
 
 
 def run_trial(gpu, base_config, keys, types, values, study_name, storage, total_trials, metrics_to_optimize):
-    os.environ["CUDA_VISIBLE_DEVICES"] = gpu
+    os.environ["CUDA_VISIBLE_DEVICES"] = str(gpu)
     from train import train_ppo
 
     cfg = deepcopy(base_config)
