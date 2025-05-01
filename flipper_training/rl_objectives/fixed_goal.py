@@ -102,10 +102,12 @@ class FixedStartGoalNavigation(BaseObjective):
         start_state, goal_state = self._construct_full_start_goal_states()
         return start_state, goal_state, step_limits
 
-    def check_reached_goal(self, state: PhysicsState, goal: PhysicsState) -> torch.BoolTensor:
+    @override
+    def check_reached_goal(self, prev_state: PhysicsState, state: PhysicsState, goal: PhysicsState) -> torch.BoolTensor:
         return torch.linalg.norm(state.x - goal.x, dim=-1) <= self.goal_reached_threshold
 
-    def check_terminated_wrong(self, state: PhysicsState, goal: PhysicsState) -> torch.BoolTensor:
+    @override
+    def check_terminated_wrong(self, prev_state: PhysicsState, state: PhysicsState, goal: PhysicsState) -> torch.BoolTensor:
         rolls, pitches, _ = quaternion_to_euler(state.q)
         return (
             (pitches.abs() > self.max_feasible_pitch)

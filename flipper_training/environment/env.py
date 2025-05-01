@@ -1,4 +1,3 @@
-import flipper_training
 import time
 from typing import TYPE_CHECKING
 
@@ -253,8 +252,8 @@ class Env(EnvBase):
         # Step the engine
         prev_state_der, curr_state = self._step_engine(prev_state=prev_state, action=action)
         # Check if the robots have reached the goal or terminated
-        reached_goal = self.objective.check_reached_goal(state=curr_state, goal=self.goal)
-        failed = self.objective.check_terminated_wrong(state=curr_state, goal=self.goal)
+        reached_goal = self.objective.check_reached_goal(prev_state, curr_state, self.goal)
+        failed = self.objective.check_terminated_wrong(prev_state, curr_state, self.goal)
         truncated = self.step_count >= self.step_limits
         # Output tensordict
         obs_td = self._get_observations(prev_state=prev_state, action=action, prev_state_der=prev_state_der, curr_state=curr_state)

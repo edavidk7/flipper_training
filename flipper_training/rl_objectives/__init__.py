@@ -74,13 +74,14 @@ class BaseObjective(ABC):
         """
 
     @abstractmethod
-    def check_reached_goal(self, state: "PhysicsState", goal: "PhysicsState") -> torch.BoolTensor:
+    def check_reached_goal(self, prev_state: "PhysicsState", state: "PhysicsState", goal: "PhysicsState") -> torch.BoolTensor:
         """
         Check if the robots have reached the goal.
 
         This function should be as efficient as possible, as it is called every iteration.
 
         Args:
+        - prev_state: PhysicsState object containing the previous state of the robot.
         - state: PhysicsState object containing the current state of the robot.
         - goal: PhysicsState object containing the goal state of the robot.
 
@@ -89,13 +90,14 @@ class BaseObjective(ABC):
         """
 
     @abstractmethod
-    def check_terminated_wrong(self, state: "PhysicsState", goal: "PhysicsState") -> torch.BoolTensor:
+    def check_terminated_wrong(self, prev_state: "PhysicsState", state: "PhysicsState", goal: "PhysicsState") -> torch.BoolTensor:
         """
         Check if the robots have terminated due to reaching an infeasible/illegal state.
 
         This function should be as efficient as possible, as it is called every iteration.
 
         Args:
+        - prev_state: PhysicsState object containing the previous state of the robot.
         - state: PhysicsState object containing the current state of the robot.
         - goal: PhysicsState object containing the goal state of the robot.
 

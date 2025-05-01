@@ -13,7 +13,8 @@ class TerrainConfig(BaseConfig):
 
     **Note**:
         1) the convention for grids is torch's "xy" indexing of the meshgrid. This means that the first
-            dimension of the grid corresponds to the y-coordinate and the second dimension corresponds to the x-coordinate. The coordinate increases with increasing index, i.e. the Y down and X right. Generate them with torch.meshgrid(y, x, indexing="xy").
+            dimension of the grid corresponds to the y-coordinate and the second dimension corresponds to the x-coordinate.
+            The coordinate increases with increasing index, i.e. the Y down and X right. Generate them with torch.meshgrid(y, x, indexing="xy").
         2) origin [0,0] is at the center of the grid.
 
     x_grid (torch.Tensor):  x-coordinates of the grid, shape (B, grid_dim, grid)
@@ -53,3 +54,27 @@ class TerrainConfig(BaseConfig):
             int: size of the grid.
         """
         return self.z_grid.shape[-1]
+
+    def xy2ij(self, xy: torch.Tensor) -> torch.Tensor:
+        """
+        Converts x-y coordinates to i-j coordinates.
+
+        Args:
+            xy (torch.Tensor): x-y coordinates of shape (B, 2).
+
+        Returns:
+            torch.Tensor: i-j coordinates of shape (B, 2).
+        """
+        return ((xy + self.max_coord) / self.grid_res).long().clamp(0, self.grid_size - 1)
+
+    def ij2xy(self, ij: torch.Tensor) -> torch.Tensor:
+        """
+        Converts i-j coordinates to x-y coordinates.
+
+        Args:
+            ij (torch.Tensor): i-j coordinates of shape (B, 2).
+
+        Returns:
+            torch.Tensor: x-y coordinates of shape (B, 2).
+        """
+        return ((ij * self.grid_res) - self.max_coord).clamp(-self.max_coord, self.max_coord)

@@ -129,3 +129,5 @@ policy_opts:
   value_optimizer_opts:
     lr: 0.001
     weight_decay: 1e-4
+policy_weights_path: /Users/davidkorcak/Documents/ctu/bachelors/flipper_training/runs/ppo/random_trunk_for_hparam_calibration_2025-04-29_17-59-09/wandb_weights/policy_step_10190848.pth
+vecnorm_weights_path: /Users/davidkorcak/Documents/ctu/bachelors/flipper_training/runs/ppo/random_trunk_for_hparam_calibration_2025-04-29_17-59-09/wandb_weights/vecnorm_step_10190848.pth

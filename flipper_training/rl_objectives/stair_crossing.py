@@ -1,5 +1,6 @@
 import torch
 import logging
+import math
 from tqdm import trange
 from typing import Literal, override
 from dataclasses import dataclass
@@ -34,19 +35,25 @@ class StairCrossing(BaseObjective):
     def _get_suitable_core_mask(self, step_indices: torch.Tensor) -> torch.BoolTensor:
         """Identifies cells sufficiently far from the non-stair area (-1 index)."""
         grid_res = self.terrain_config.grid_res
-        radius_cells = int(torch.ceil(torch.tensor(self.min_dist_from_edge / grid_res)).item())
+        # use math.ceil on floats
+        radius_cells = int(math.ceil(self.min_dist_from_edge / grid_res))
         if radius_cells == 0:
             return step_indices != -1
 
-        # Use max pooling on the 'is_outside' mask to dilate the edges
-        is_outside_mask = (step_indices == -1).float().unsqueeze(1)  # (B, 1, H, W)
+        # mark original outside cells
+        is_outside_mask = (step_indices == -1).float().unsqueeze(1)  # (B,1,H,W)
         kernel_size = 2 * radius_cells + 1
-        # Pad symmetrically
-        padding = radius_cells
-        # Perform max pooling
-        dilated_edges = F.max_pool2d(is_outside_mask, kernel_size=kernel_size, stride=1, padding=padding)
-        # Suitable core mask is where the dilated edge mask is 0 AND the original index is not -1
-        suitable_core_mask = (dilated_edges.squeeze(1) == 0) & (step_indices != -1)
+
+        # pad with 1.0 to treat beyond-boundary as outside
+        padded = F.pad(
+            is_outside_mask,
+            (radius_cells, radius_cells, radius_cells, radius_cells),
+            mode="constant",
+            value=1.0,
+        )
+        # dilate outside region
+        dilated = F.max_pool2d(padded, kernel_size=kernel_size, stride=1, padding=0)
+        suitable_core_mask = (dilated.squeeze(1) == 0) & (step_indices != -1)
         return suitable_core_mask
 
     def _init_cache(self) -> None:
@@ -67,7 +74,8 @@ class StairCrossing(BaseObjective):
 
             if valid_core_indices_b.shape[0] == 0:
                 raise ValueError(
-                    f"No suitable core cells found for robot {b} with min_dist_from_edge={self.min_dist_from_edge}. Try reducing the distance or increasing grid size."
+                    f"No suitable core cells found for robot {b} with min_dist_from_edge={self.min_dist_from_edge}."
+                    "Try reducing the distance or increasing grid size."
                 )
 
             collected = 0
@@ -246,18 +254,29 @@ class StairCrossing(BaseObjective):
                 raise ValueError(f"Invalid start_position_orientation: {self.start_position_orientation}")
         return euler_to_quaternion(torch.zeros_like(ori), torch.zeros_like(ori), ori)
 
-    def check_reached_goal(self, state: PhysicsState, goal: PhysicsState) -> torch.BoolTensor:
+    def check_reached_goal(self, prev_state: PhysicsState, state: PhysicsState, goal: PhysicsState) -> torch.BoolTensor:
         # Identical to TrunkCrossing
         return torch.linalg.norm(state.x - goal.x, dim=-1) <= self.goal_reached_threshold
 
-    def check_terminated_wrong(self, state: PhysicsState, goal: PhysicsState) -> torch.BoolTensor:
-        # Identical to TrunkCrossing
+    def check_terminated_wrong(self, prev_state: PhysicsState, state: PhysicsState, goal: PhysicsState) -> torch.BoolTensor:
+        # Identical to TrunkCrossing + step‐jump check
         rolls, pitches, _ = quaternion_to_euler(state.q)
-        return (
+        old_fail = (
             (pitches.abs() > self.max_feasible_pitch)
             | (rolls.abs() > self.max_feasible_roll)
             | (state.x.abs() > self.terrain_config.max_coord).any(dim=-1)
         )
+        # new: terminate if step index changed by >1
+        ti = self.terrain_config.grid_extras["step_indices"]  # (B, H, W)
+        B_range = torch.arange(self.physics_config.num_robots, device=self.device)
+        prev_xy = prev_state.x[..., :2]  # (B,2)
+        curr_xy = state.x[..., :2]  # (B,2)
+        prev_ij = self.terrain_config.xy2ij(prev_xy)  # (B,2)
+        curr_ij = self.terrain_config.xy2ij(curr_xy)  # (B,2)
+        prev_idx = ti[B_range, *prev_ij.unbind(1)]  # (B,)
+        curr_idx = ti[B_range, *curr_ij.unbind(1)]  # (B,)
+        jump_fail = (curr_idx - prev_idx).abs() > 1
+        return old_fail | jump_fail
 
     def _compute_step_limits(
         self,

@@ -198,10 +198,10 @@ class TrunkCrossing(BaseObjective):
                 raise ValueError(f"Invalid start_position_orientation: {self.start_position_orientation}")
         return euler_to_quaternion(torch.zeros_like(ori), torch.zeros_like(ori), ori)
 
-    def check_reached_goal(self, state: PhysicsState, goal: PhysicsState) -> torch.BoolTensor:
+    def check_reached_goal(self, prev_state: PhysicsState, state: PhysicsState, goal: PhysicsState) -> torch.BoolTensor:
         return torch.linalg.norm(state.x - goal.x, dim=-1) <= self.goal_reached_threshold
 
-    def check_terminated_wrong(self, state: PhysicsState, goal: PhysicsState) -> torch.BoolTensor:
+    def check_terminated_wrong(self, prev_state: PhysicsState, state: PhysicsState, goal: PhysicsState) -> torch.BoolTensor:
         rolls, pitches, _ = quaternion_to_euler(state.q)
         return (
             (pitches.abs() > self.max_feasible_pitch)

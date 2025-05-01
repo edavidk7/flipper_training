@@ -80,7 +80,6 @@ gae_opts:
   lmbda: 0.95
   average_gae: false
   skip_existing: false
-gae_compile_opts: null
 ppo_opts:
   clip_epsilon: 0.2
   entropy_bonus: true
@@ -89,7 +88,6 @@ ppo_opts:
   loss_critic_type: smooth_l1
   normalize_advantage: true
   separate_losses: false
-ppo_compile_opts: null
 data_collector_opts:
   compile_policy: false
   split_trajs: false
