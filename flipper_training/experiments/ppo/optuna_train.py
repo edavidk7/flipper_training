@@ -1,4 +1,5 @@
 import optuna
+import traceback
 from typing import Any
 from dataclasses import dataclass
 from optuna.storages import RDBStorage
@@ -44,11 +45,19 @@ def define_search_space(trial, keys, types, values):
     return params
 
 
+class FailedTrialException(Exception):
+    pass
+
+
 def objective(trial, base_config, keys, types, values, metrics_to_optimize, trainer):
     params = define_search_space(trial, keys, types, values)
     dotlist = [f"{k}={v}" for k, v in params.items()]
     updated_config = OmegaConf.merge(base_config, OmegaConf.from_dotlist(dotlist))
-    metrics = trainer(updated_config)  # Returns a dict like {"eval/mean_reward": value}
+    try:
+        metrics = trainer(updated_config)  # Returns a dict like {"eval/mean_reward": value}
+    except Exception as e:
+        traceback.print_exception(e)
+        raise FailedTrialException(f"Trial failed with exception: {e}") from params
     return tuple(metrics[metric] for metric in metrics_to_optimize)
 
 
@@ -60,7 +69,11 @@ def run_trial(gpu, base_config, keys, types, values, study_name, storage, total_
     cfg["device"] = "cuda:0"
     study = optuna.load_study(study_name=study_name, storage=storage)
     callback = MaxTrialsCallback(total_trials)
-    study.optimize(lambda trial: objective(trial, cfg, keys, types, values, metrics_to_optimize, trainer=train_ppo), callbacks=[callback])
+    study.optimize(
+        lambda trial: objective(trial, cfg, keys, types, values, metrics_to_optimize, trainer=train_ppo),
+        callbacks=[callback],
+        catch=[FailedTrialException],
+    )
 
 
 def main():
