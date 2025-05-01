@@ -11,6 +11,7 @@ import argparse
 import time
 import os
 from flipper_training import ROOT
+from train import train_ppo
 
 DB_SECRET = OmegaConf.load(ROOT / "optuna_db.yaml")
 
@@ -45,8 +46,6 @@ def define_search_space(trial, keys, types, values):
 
 
 def objective(trial, base_config, keys, types, values, metrics_to_optimize):
-    from train import train_ppo
-
     params = define_search_space(trial, keys, types, values)
     dotlist = [f"{k}={v}" for k, v in params.items()]
     updated_config = OmegaConf.merge(base_config, OmegaConf.from_dotlist(dotlist))

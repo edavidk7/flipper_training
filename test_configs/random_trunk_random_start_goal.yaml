@@ -13,7 +13,7 @@ time_steps_per_batch: 128
 epochs_per_batch: 5
 frames_per_sub_batch: 4096
 eval_and_save_every: 10
-max_eval_steps: 400
+max_eval_steps: 500
 optimizer: ${cls:torch.optim.AdamW}
 scheduler: ${cls:flipper_training.utils.schedulers.LinearDecayThenConstantLR}
 scheduler_opts:
@@ -39,10 +39,8 @@ engine_opts:
   damping_alpha: 5.0
   dt: 0.007
 engine_compile_opts:
-  # options:
-  #   triton.cudagraphs: true
-  #   max-autotune: true
-  #   coordinate_descent_tuning: true
+  options:
+    triton.cudagraphs: true
   fullgraph: true
   correctness_iters: 10
   benchmark_iters: 1000

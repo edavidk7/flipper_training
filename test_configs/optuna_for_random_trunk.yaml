@@ -1,8 +1,6 @@
-study_name: "optuna_test6"
+study_name: "optuna_test7"
 num_trials: 120
 use_gpus:
-  - "1"
-  - "2"
   - "0"
 workers_per_gpu: 1
 metrics_to_optimize:
@@ -35,4 +33,4 @@ optuna_values:
 train_config_overrides:
   use_wandb: false
   eval_repeats_after_training: 20
-delay: 30
+delay: 60
