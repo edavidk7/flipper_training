@@ -1,5 +1,5 @@
 name: random_trunk_for_hparam_calibration
-comment: Fixed trunk heightmap with random start and goal positions
+comment: "Random trunk, random start and goal"
 seed: 42
 use_wandb: true
 eval_repeats_after_training: 1
@@ -78,7 +78,6 @@ gae_opts:
   lmbda: 0.95
   average_gae: false
   skip_existing: false
-gae_compile_opts: null
 ppo_opts:
   clip_epsilon: 0.2
   entropy_bonus: true
@@ -87,7 +86,6 @@ ppo_opts:
   loss_critic_type: smooth_l1
   normalize_advantage: true
   separate_losses: false
-ppo_compile_opts: null
 data_collector_opts:
   compile_policy: false
   split_trajs: false

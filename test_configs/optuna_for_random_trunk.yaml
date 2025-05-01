@@ -1,7 +1,8 @@
-study_name: "optuna_test7"
+study_name: "optuna_test8"
 num_trials: 120
 use_gpus:
   - "0"
+  # - "1"
 workers_per_gpu: 1
 metrics_to_optimize:
   - "eval/pct_succeeded" # Maximize

@@ -11,7 +11,6 @@ import argparse
 import time
 import os
 from flipper_training import ROOT
-from train import train_ppo
 
 DB_SECRET = OmegaConf.load(ROOT / "optuna_db.yaml")
 
@@ -45,21 +44,23 @@ def define_search_space(trial, keys, types, values):
     return params
 
 
-def objective(trial, base_config, keys, types, values, metrics_to_optimize):
+def objective(trial, base_config, keys, types, values, metrics_to_optimize, trainer):
     params = define_search_space(trial, keys, types, values)
     dotlist = [f"{k}={v}" for k, v in params.items()]
     updated_config = OmegaConf.merge(base_config, OmegaConf.from_dotlist(dotlist))
-    metrics = train_ppo(updated_config)  # Returns a dict like {"eval/mean_reward": value}
+    metrics = trainer(updated_config)  # Returns a dict like {"eval/mean_reward": value}
     return tuple(metrics[metric] for metric in metrics_to_optimize)
 
 
 def run_trial(gpu, base_config, keys, types, values, study_name, storage, total_trials, metrics_to_optimize):
     os.environ["CUDA_VISIBLE_DEVICES"] = gpu
+    from train import train_ppo
+
     cfg = deepcopy(base_config)
     cfg["device"] = "cuda:0"
     study = optuna.load_study(study_name=study_name, storage=storage)
     callback = MaxTrialsCallback(total_trials)
-    study.optimize(lambda trial: objective(trial, cfg, keys, types, values, metrics_to_optimize), callbacks=[callback])
+    study.optimize(lambda trial: objective(trial, cfg, keys, types, values, metrics_to_optimize, trainer=train_ppo), callbacks=[callback])
 
 
 def main():
@@ -67,9 +68,10 @@ def main():
     parser = argparse.ArgumentParser(description="Optuna optimization for PPO training")
     parser.add_argument("--train_config", type=str, required=True)
     parser.add_argument("--optuna_config", type=str, required=True)
-    args = parser.parse_args()
+    args, unknown = parser.parse_known_args()
 
     optuna_config = OptunaConfig(**OmegaConf.load(args.optuna_config))
+    optuna_config = OmegaConf.merge(optuna_config, OmegaConf.from_dotlist(unknown))
     train_config = OmegaConf.load(args.train_config)
     train_config = OmegaConf.merge(train_config, optuna_config.train_config_overrides)
 

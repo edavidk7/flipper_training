@@ -1,3 +1,4 @@
+import flipper_training
 import time
 from typing import TYPE_CHECKING
 
@@ -110,6 +111,7 @@ class Env(EnvBase):
             states.append(state)
             prev_state_ders.append(prev_state_der)
         # Compile the engine
+        torch._dynamo.reset()
         self.engine.compile(**kwargs)
         self.engine(state, act, self.terrain_cfg)  # Dummy forward pass to compile the engine, record the return tensors
         state = self.start.clone()  # Reset the state
@@ -150,10 +152,12 @@ class Env(EnvBase):
 
     def _make_observation_spec(self) -> Composite:
         obs_specs = {o.name: o.get_spec() for o in self.observations}
-        state_spec = {Env.STATE_KEY: make_composite_from_td(self.start)}
+        state_spec = {Env.STATE_KEY: make_composite_from_td(self.start.to_tensordict())}
         if self.return_derivative:
             der_spec = {
-                Env.PREV_STATE_DER_KEY: make_composite_from_td(PhysicsStateDer.dummy(self.robot_cfg, device=self.device, batch_size=self.n_robots))
+                Env.PREV_STATE_DER_KEY: make_composite_from_td(
+                    PhysicsStateDer.dummy(self.robot_cfg, device=self.device, batch_size=self.n_robots).to_tensordict()
+                )
             }
         else:
             der_spec = {}

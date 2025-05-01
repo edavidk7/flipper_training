@@ -1,3 +1,11 @@
+import os
+
+os.environ["TORCHDYNAMO_REPRO_LEVEL"] = "4"
+os.environ["TORCH_LOGS"] = "recompiles,dynamo"
+
+print("Torch Dynamo Repro Level:", os.environ["TORCHDYNAMO_REPRO_LEVEL"])
+print("Torch Logs:", os.environ["TORCH_LOGS"])
+
 from pathlib import Path
 import torch
 from typing import Type
@@ -5,6 +13,9 @@ from lovely_tensors import monkey_patch
 import math
 from importlib import import_module
 from omegaconf import OmegaConf
+
+torch._inductor.config.fallback_random = True
+torch._dynamo.config.cache_size_limit = 128
 
 
 PACKAGE_ROOT = Path(__file__).parent

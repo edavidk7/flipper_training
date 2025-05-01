@@ -1,3 +1,4 @@
+import flipper_training
 from typing import TYPE_CHECKING, Tuple
 import torch
 import traceback
@@ -33,6 +34,7 @@ def train_step_to_log(rollout_td: "TensorDict", loss_td: "TensorDict", grad_norm
     Extract important data from the training tensordicts to log.
     """
     return {
+        "train/mean_reward": rollout_td["reward"].mean().item(),
         "train/mean_action_sample_log_prob": rollout_td["sample_log_prob"].mean().item(),
         "train/mean_critic_loss": loss_td["loss_critic"].mean().item(),
         "train/mean_objective_loss": loss_td["loss_objective"].mean().item(),
@@ -72,6 +74,19 @@ def prepare_data_collection(
         compilable=True,
     )
     return collector, replay_buffer
+
+
+def get_eval_rollout_results(env, actor_operator, max_steps) -> dict[str, int | float]:
+    env.eval()
+    actor_operator.eval()
+    with (
+        set_exploration_type(ExplorationType.DETERMINISTIC),
+        torch.inference_mode(),
+    ):
+        eval_rollout = env.rollout(max_steps, actor_operator, break_when_all_done=True, auto_reset=True)
+    results = log_from_eval_rollout(eval_rollout)
+    del eval_rollout
+    return results
 
 
 def train_ppo(
@@ -116,11 +131,6 @@ def train_ppo(
     advantage_module = advantage_module.to(train_config.training_dtype)
     loss_module = ClipPPOLoss(actor_operator, value_operator, **train_config.ppo_opts)
     loss_module = loss_module.to(train_config.training_dtype)
-    # Compile
-    if train_config.gae_compile_opts:
-        advantage_module.compile(**train_config.gae_compile_opts)
-    if train_config.ppo_compile_opts:
-        loss_module.compile(**train_config.ppo_compile_opts)
     # Optim
     optim = train_config.optimizer(
         optim_groups,
@@ -155,42 +165,29 @@ def train_ppo(
         total_collected_frames = (i + 1) * iteration_size
 
         if i % train_config.eval_and_save_every == 0:
-            actor_operator.eval()
-            value_operator.eval()
-            env.eval()
-            with (
-                set_exploration_type(ExplorationType.DETERMINISTIC),
-                torch.inference_mode(),
-            ):
-                eval_rollout = env.rollout(train_config.max_eval_steps, actor_operator, break_when_all_done=True, auto_reset=True)
-                eval_log = log_from_eval_rollout(eval_rollout)
-                log.update(eval_log)
-                RUN_LOGGER.save_weights(actor_value_wrapper.state_dict(), f"policy_step_{total_collected_frames}")
-                RUN_LOGGER.save_weights(vecnorm.state_dict(), f"vecnorm_step_{total_collected_frames}")
-                del eval_rollout
+            eval_log = get_eval_rollout_results(env, actor_operator, train_config.max_eval_steps)
+            log.update(eval_log)
+            RUN_LOGGER.save_weights(actor_value_wrapper.state_dict(), f"policy_step_{total_collected_frames}")
+            RUN_LOGGER.save_weights(vecnorm.state_dict(), f"vecnorm_step_{total_collected_frames}")
 
         RUN_LOGGER.log_data(log, total_collected_frames)
         pbar.update(iteration_size)
         scheduler.step()
+    # end of training
     pbar.close()
-    env.eval()
-    actor_operator.eval()
-    value_operator.eval()
-    with (
-        set_exploration_type(ExplorationType.DETERMINISTIC),
-        torch.inference_mode(),
-    ):
-        eval_rollout = env.rollout(train_config.max_eval_steps, actor_operator, break_when_all_done=True, auto_reset=True)
-        for _ in range(train_config.eval_repeats_after_training - 1):
-            eval_rollout += env.rollout(train_config.max_eval_steps, actor_operator, break_when_all_done=True, auto_reset=True)
-        avg_eval_rollout = eval_rollout / train_config.eval_repeats_after_training
-        avg_eval_log = log_from_eval_rollout(avg_eval_rollout)
-        log.update(avg_eval_log)
-        RUN_LOGGER.save_weights(actor_value_wrapper.state_dict(), "policy_final")
-        RUN_LOGGER.save_weights(vecnorm.state_dict(), "vecnorm_final")
-        del eval_rollout
-        del avg_eval_rollout
-    RUN_LOGGER.log_data(log, total_collected_frames + iteration_size)
+    TERM_LOGGER.info(f"Training finished, evaluating the final policy for {train_config.eval_repeats_after_training} samples.")
+    avg_eval_log = get_eval_rollout_results(env, actor_operator, train_config.max_eval_steps)
+    for _ in range(train_config.eval_repeats_after_training - 1):
+        for k, v in get_eval_rollout_results(env, actor_operator, train_config.max_eval_steps).items():
+            avg_eval_log[k] += v
+    for k in avg_eval_log.keys():
+        avg_eval_log[k] /= train_config.eval_repeats_after_training  # average over the number of evaluations
+    log.update(avg_eval_log)
+    RUN_LOGGER.save_weights(actor_value_wrapper.state_dict(), "policy_final")
+    RUN_LOGGER.save_weights(vecnorm.state_dict(), "vecnorm_final")
+    RUN_LOGGER.save_weights(actor_value_wrapper.state_dict(), f"policy_step_{train_config.total_frames}")
+    RUN_LOGGER.save_weights(vecnorm.state_dict(), f"vecnorm_step_{train_config.total_frames}")
+    RUN_LOGGER.log_data(log, train_config.total_frames)
     print(f"\nFinal evaluation results ({train_config.eval_repeats_after_training} samples):")
     print("\n".join(make_formatted_str_lines(avg_eval_log, EVAL_LOG_OPT)))
     return avg_eval_log

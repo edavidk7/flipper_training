@@ -51,8 +51,6 @@ class PPOExperimentConfig:
     max_coord: float
     robot_model_opts: dict[str, Any]
     optimizer: "Type[Optimizer]"
-    scheduler: "Type[LRScheduler]"
-    scheduler_opts: dict[str, Any]
     max_grad_norm: float
     total_frames: int
     time_steps_per_batch: int
@@ -75,11 +73,11 @@ class PPOExperimentConfig:
     policy_opts: dict[str, Any]
     vecnorm_opts: dict[str, Any]
     vecnorm_on_reward: bool
+    scheduler: "Type[LRScheduler]"
+    scheduler_opts: dict[str, Any]
     policy_weights_path: str | None = None
     vecnorm_weights_path: str | None = None
     extra_env_transforms: list[EnvTransformConfig] = field(default_factory=list)
     optimizer_opts: dict[str, Any] = field(default_factory=dict)
     heightmap_gen_opts: dict[str, Any] = field(default_factory=dict)
     engine_compile_opts: dict[str, Any] = field(default_factory=dict)
-    gae_compile_opts: dict[str, Any] = field(default_factory=dict)
-    ppo_compile_opts: dict[str, Any] = field(default_factory=dict)
