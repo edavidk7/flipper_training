@@ -150,8 +150,12 @@ def download_config_and_paths(reader: WandbRunReader | LocalRunReader, weight_st
     if not isinstance(run_omegaconf, DictConfig):
         raise ValueError("Config must be a DictConfig")
     if weight_step is not None:
-        run_omegaconf["policy_weights_path"] = reader.get_weights_path(f"policy_step_{weight_step}")
-        run_omegaconf["vecnorm_weights_path"] = reader.get_weights_path(f"vecnorm_step_{weight_step}")
+        run_omegaconf["policy_weights_path"] = reader.get_weights_path(
+            f"policy_step_{weight_step}" if weight_step.isdigit() else f"policy_{weight_step}"
+        )
+        run_omegaconf["vecnorm_weights_path"] = reader.get_weights_path(
+            f"vecnorm_step_{weight_step}" if weight_step.isdigit() else f"vecnorm_{weight_step}"
+        )
     return run_omegaconf
 
 
