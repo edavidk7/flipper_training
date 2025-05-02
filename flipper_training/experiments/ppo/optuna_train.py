@@ -5,7 +5,6 @@ from dataclasses import dataclass
 from optuna.storages import RDBStorage
 from optuna.study import MaxTrialsCallback
 import multiprocessing
-import optunahub
 from copy import deepcopy
 from omegaconf import OmegaConf
 import argparse
@@ -57,7 +56,7 @@ def objective(trial, base_config, keys, types, values, metrics_to_optimize, trai
         metrics = trainer(updated_config)  # Returns a dict like {"eval/mean_reward": value}
     except Exception as e:
         traceback.print_exception(e)
-        raise FailedTrialException(f"Trial failed with exception: {e}") from params
+        raise FailedTrialException(f"Trial failed with exception: {e}") from e
     return tuple(metrics[metric] for metric in metrics_to_optimize)
 
 
@@ -73,6 +72,7 @@ def run_trial(gpu, base_config, keys, types, values, study_name, storage, total_
         lambda trial: objective(trial, cfg, keys, types, values, metrics_to_optimize, trainer=train_ppo),
         callbacks=[callback],
         catch=[FailedTrialException],
+        gc_after_trial=True,
     )
 
 
@@ -101,7 +101,6 @@ def main():
         storage=storage,
         directions=optuna_config.directions,
         load_if_exists=True,
-        sampler=optunahub.load_module("samplers/auto_sampler").AutoSampler(),  # Automatically selects an algorithm internally
     )
 
     # Assign GPUs to workers

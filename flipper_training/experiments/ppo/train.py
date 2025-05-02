@@ -141,6 +141,8 @@ def train_ppo(
         **train_config.scheduler_opts,
     )
     # Loop
+    if "cuda" in str(device):
+        torch.cuda.empty_cache()
     pbar = tqdm(total=train_config.total_frames, desc="Training", unit="frames")
     for i, tensordict_data in enumerate(collector):
         # collected (B, T, *specs) where B is the batch size and T the number of steps

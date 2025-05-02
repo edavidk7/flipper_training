@@ -1,15 +1,13 @@
-study_name: "optuna_test9"
-num_trials: 180
+study_name: "optuna_test10"
+num_trials: 200
 use_gpus:
   - "0"
   # - "1"
 workers_per_gpu: 1
 metrics_to_optimize:
   - "eval/pct_succeeded" # Maximize
-  - "eval/pct_failed" # Minimize
 directions:
   - "maximize"
-  - "minimize"
 optuna_keys:
   - "policy_opts.actor_optimizer_opts.lr"
   - "policy_opts.value_optimizer_opts.lr"
@@ -17,7 +15,9 @@ optuna_keys:
   - "reward_opts.failed_reward"
   - "reward_opts.potential_coef"
   - "reward_opts.step_penalty"
+  - "scheduler_opts.end_factor"
 optuna_types:
+  - "float"
   - "float"
   - "float"
   - "float"
@@ -31,6 +31,7 @@ optuna_values:
   - [-10.0, -1.0]
   - [20.0, 50.0]
   - [-0.5, -0.1]
+  - [0.1, 1.0]
 train_config_overrides:
   use_wandb: false
   eval_repeats_after_training: 20
