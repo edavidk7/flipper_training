@@ -75,6 +75,8 @@ class PPOExperimentConfig:
     vecnorm_on_reward: bool
     scheduler: "Type[LRScheduler]"
     scheduler_opts: dict[str, Any]
+    gae_compile_opts: str | None = None
+    ppo_compile_opts: str | None = None
     policy_weights_path: str | None = None
     vecnorm_weights_path: str | None = None
     extra_env_transforms: list[EnvTransformConfig] = field(default_factory=list)
