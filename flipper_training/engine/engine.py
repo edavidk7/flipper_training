@@ -4,7 +4,7 @@ import torch
 
 from flipper_training.configs.engine_config import PhysicsEngineConfig
 from flipper_training.configs.robot_config import RobotModelConfig
-from flipper_training.configs.world_config import TerrainConfig
+from flipper_training.configs.terrain_config import TerrainConfig
 from flipper_training.engine.engine_state import PhysicsState, PhysicsStateDer
 from flipper_training.utils.environment import interpolate_grid, surface_normals_from_grads
 from flipper_training.utils.geometry import normalized, q_to_R, rot_Y, rotate_vector_by_quaternion
@@ -24,18 +24,18 @@ class DPhysicsEngine(torch.nn.Module):
         )
         self._I_3x3 = torch.eye(3, device=self.device, requires_grad=False).view(1, 1, 1, 3, 3)
 
-    def forward(self, state: PhysicsState, controls: torch.Tensor, world_config: TerrainConfig) -> tuple[PhysicsState, PhysicsStateDer]:
+    def forward(self, state: PhysicsState, controls: torch.Tensor, terrain_config: TerrainConfig) -> tuple[PhysicsState, PhysicsStateDer]:
         """
         Forward pass of the physics engine.
         """
-        state_der = self.forward_kinematics(state, controls, world_config)
+        state_der = self.forward_kinematics(state, controls, terrain_config)
         return self.update_state(state, state_der), state_der
 
-    def forward_kinematics(self, state: PhysicsState, controls: torch.Tensor, world_config: TerrainConfig) -> PhysicsStateDer:
+    def forward_kinematics(self, state: PhysicsState, controls: torch.Tensor, terrain_config: TerrainConfig) -> PhysicsStateDer:
         robot_points, global_thrust_vectors, global_cogs, inertia = self.assemble_and_transform_robot(state, controls)
 
         # find the contact points
-        in_contact, dh_points, n = self.find_contact_points(robot_points, world_config)
+        in_contact, dh_points, n = self.find_contact_points(robot_points, terrain_config)
 
         # Compute current point velocities based on CoG motion and rotation
         cog_corrected_points = robot_points - global_cogs  # shape (B, n_pts, 3)
@@ -46,11 +46,11 @@ class DPhysicsEngine(torch.nn.Module):
             xd_points,
             in_contact,
             n,
-            world_config,
+            terrain_config,
         )
         # friction forces
-        k_friction_lon = world_config.k_friction_lon
-        k_friction_lat = world_config.k_friction_lat
+        k_friction_lon = terrain_config.k_friction_lon
+        k_friction_lat = terrain_config.k_friction_lat
         F_friction = self.calculate_friction(
             state.q,
             F_spring,
@@ -91,16 +91,16 @@ class DPhysicsEngine(torch.nn.Module):
         xd_points: torch.Tensor,
         in_contact: torch.Tensor,
         n: torch.Tensor,
-        world_config: TerrainConfig,
+        terrain_config: TerrainConfig,
     ) -> torch.Tensor:
         """
         Calculate the spring force acting on the robot points.
         """
         num_contacts = in_contact.sum(dim=1, keepdim=True).clamp_min(1)  # shape (B, 1, 1)
-        k_damping = self.config.damping_alpha * 2 * (self.robot_model.total_mass * world_config.k_stiffness / num_contacts) ** 0.5
+        k_damping = self.config.damping_alpha * 2 * (self.robot_model.total_mass * terrain_config.k_stiffness / num_contacts) ** 0.5
         # F_s = -k * dh - b * v_n, multiply by -n to get the force vector
         xd_points_n = (xd_points * n).sum(dim=-1, keepdim=True)  # normal component of the velocity
-        F_spring = -torch.mul((world_config.k_stiffness * dh_points + k_damping * xd_points_n), n)
+        F_spring = -torch.mul((terrain_config.k_stiffness * dh_points + k_damping * xd_points_n), n)
         return F_spring * in_contact / num_contacts  # shape (B, n_pts, 3), the spring force acting on the robot points
 
     def compute_joint_angular_velocities(self, controls: torch.Tensor) -> torch.Tensor:
@@ -174,21 +174,21 @@ class DPhysicsEngine(torch.nn.Module):
     def find_contact_points(
         self,
         robot_points: torch.Tensor,
-        world_config: TerrainConfig,
+        terrain_config: TerrainConfig,
     ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """
         Find the contact points on the robot.
 
         Args:
             robot_points: The robot points in GLOBAL coordinates.
-            world_config: The world configuration.
+            terrain_config: The world configuration.
 
         Returns:
             in_contact: A boolean tensor of shape (B, n_pts, 1) indicating whether the points are in contact with the terrain.
             dh_points: The penetration depth of the points. Shape (B, n_pts, 1).
         """
-        z_points = interpolate_grid(world_config.z_grid, robot_points[..., :2], world_config.max_coord)
-        n = surface_normals_from_grads(world_config.z_grid_grad, robot_points[..., :2], world_config.max_coord)
+        z_points = interpolate_grid(terrain_config.z_grid, robot_points[..., :2], terrain_config.max_coord)
+        n = surface_normals_from_grads(terrain_config.z_grid_grad, robot_points[..., :2], terrain_config.max_coord)
         dh_points = (robot_points[..., 2:3] - z_points) * n[..., 2:3]  # penetration depth as a signed distance from the tangent plane
         in_contact = 0.5 * (1 + torch.tanh((-dh_points / self.config.soft_contact_sigma * (3**0.5))))  # shape (B, n_pts, 1)
         return in_contact, dh_points * in_contact, n

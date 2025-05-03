@@ -4,7 +4,9 @@ import torch
 from collections import defaultdict
 from torchrl.envs.utils import check_env_specs
 
-from flipper_training.configs import PhysicsEngineConfig, RobotModelConfig, TerrainConfig
+from flipper_training.configs.terrain_config import TerrainConfig
+from flipper_training.configs.engine_config import PhysicsEngineConfig
+from flipper_training.configs.robot_config import RobotModelConfig
 from flipper_training.environment.env import Env
 from flipper_training.utils.torch_utils import seed_all, set_device
 from argparse import ArgumentParser
@@ -43,7 +45,7 @@ EVAL_LOG_OPT = {
 def prepare_configs(rng: torch.Generator, cfg: "PPOExperimentConfig") -> Tuple[TerrainConfig, PhysicsEngineConfig, RobotModelConfig, torch.device]:
     heightmap_gen = cfg.heightmap_gen(**cfg.heightmap_gen_opts if cfg.heightmap_gen_opts else {})
     x, y, z, extras = heightmap_gen(cfg.grid_res, cfg.max_coord, cfg.num_robots, rng)
-    world_config = TerrainConfig(
+    terrain_config = TerrainConfig(
         x_grid=x,
         y_grid=y,
         z_grid=z,
@@ -56,15 +58,15 @@ def prepare_configs(rng: torch.Generator, cfg: "PPOExperimentConfig") -> Tuple[T
     physics_config = PhysicsEngineConfig(num_robots=cfg.num_robots, **cfg.engine_opts)
     device = set_device(cfg.device)
     robot_model.to(device)
-    world_config.to(device)
+    terrain_config.to(device)
     physics_config.to(device)
-    return world_config, physics_config, robot_model, device
+    return terrain_config, physics_config, robot_model, device
 
 
 def prepare_env(train_config: "PPOExperimentConfig", mode: Literal["train", "eval"]) -> tuple["Env", torch.device, torch.Generator]:
     # Init configs and RL-related objects
     rng = seed_all(train_config.seed)
-    world_config, physics_config, robot_model, device = prepare_configs(rng, train_config)
+    terrain_config, physics_config, robot_model, device = prepare_configs(rng, train_config)
     # Create environment
     base_env = Env(
         objective_factory=train_config.objective.make_factory(
@@ -73,7 +75,7 @@ def prepare_env(train_config: "PPOExperimentConfig", mode: Literal["train", "eva
         ),
         reward_factory=train_config.reward.make_factory(**train_config.reward_opts),
         observation_factories=[o["cls"].make_factory(**o["opts"]) for o in train_config.observations],
-        terrain_config=world_config,
+        terrain_config=terrain_config,
         physics_config=physics_config,
         robot_model_config=robot_model,
         device=device,

@@ -1,6 +1,6 @@
 import torch
 from simview import SimViewTerrain, SimViewBody, BodyShapeType, OptionalBodyStateAttribute, SimViewBodyState
-from flipper_training.configs.world_config import TerrainConfig
+from flipper_training.configs.terrain_config import TerrainConfig
 from flipper_training.configs.robot_config import RobotModelConfig
 from flipper_training.engine.engine_state import PhysicsState, PhysicsStateDer
 from flipper_training.utils.geometry import compose_quaternion_affine, euler_to_quaternion

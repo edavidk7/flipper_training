@@ -109,11 +109,23 @@ class FixedStartGoalNavigation(BaseObjective):
     @override
     def check_terminated_wrong(self, prev_state: PhysicsState, state: PhysicsState, goal: PhysicsState) -> torch.BoolTensor:
         rolls, pitches, _ = quaternion_to_euler(state.q)
-        return (
+        ang_mask = (
             (pitches.abs() > self.max_feasible_pitch)
             | (rolls.abs() > self.max_feasible_roll)
             | (state.x.abs() > self.terrain_config.max_coord).any(dim=-1)
         )
+        if "step_indices" in self.terrain_config.grid_extras:
+            ti = self.terrain_config.grid_extras["step_indices"]  # (B, H, W)
+            B_range = torch.arange(self.physics_config.num_robots, device=self.device)
+            prev_xy = prev_state.x[..., :2]  # (B,2)
+            curr_xy = state.x[..., :2]  # (B,2)
+            prev_ij = self.terrain_config.xy2ij(prev_xy)  # (B,2)
+            curr_ij = self.terrain_config.xy2ij(curr_xy)  # (B,2)
+            prev_idx = ti[B_range, *prev_ij.unbind(1)]  # (B,)
+            curr_idx = ti[B_range, *curr_ij.unbind(1)]  # (B,)
+            jump_fail = (curr_idx - prev_idx).abs() > 1
+            ang_mask |= jump_fail
+        return ang_mask
 
     def start_goal_to_simview(self, start: PhysicsState, goal: PhysicsState):
         try:

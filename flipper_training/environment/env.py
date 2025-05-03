@@ -6,7 +6,9 @@ from tensordict import TensorDict, assert_allclose_td
 from torchrl.data import Bounded, Composite, Unbounded, Binary
 from torchrl.envs import EnvBase, make_composite_from_td
 
-from flipper_training.configs import PhysicsEngineConfig, RobotModelConfig, TerrainConfig
+from flipper_training.configs.terrain_config import TerrainConfig
+from flipper_training.configs.engine_config import PhysicsEngineConfig
+from flipper_training.configs.robot_config import RobotModelConfig
 from flipper_training.engine.engine import DPhysicsEngine
 from flipper_training.engine.engine_state import PhysicsState, PhysicsStateDer
 from flipper_training.utils.logutils import get_terminal_logger

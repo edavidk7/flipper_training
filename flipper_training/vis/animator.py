@@ -6,7 +6,7 @@ import mayavi.mlab as mlab
 
 
 def animate_trajectory(
-    world_config: TerrainConfig,
+    terrain_config: TerrainConfig,
     engine_config: PhysicsEngineConfig,
     states: Iterable[PhysicsState],
     aux_info: Iterable[AuxEngineInfo],
@@ -27,7 +27,7 @@ def animate_trajectory(
     - show_friction_forces: bool, default True
 
     Args:
-        world_config (WorldConfig): World configuration.
+        terrain_config (WorldConfig): World configuration.
         engine_config (PhysicsEngineConfig): Physics engine configuration.
         states (Iterable[PhysicsState]): Simulation states.
         aux_info (Iterable[AuxEngineInfo]): Auxiliary information for simulation states.
@@ -61,9 +61,9 @@ def animate_trajectory(
     # static terrain
     if show_terrain:
         mlab.mesh(
-            world_config.x_grid[robot_index],
-            world_config.y_grid[robot_index],
-            world_config.z_grid[robot_index],
+            terrain_config.x_grid[robot_index],
+            terrain_config.y_grid[robot_index],
+            terrain_config.z_grid[robot_index],
             colormap="terrain",
             opacity=0.8,
         )

@@ -1,5 +1,5 @@
 import gc
-from typing import TYPE_CHECKING, Literal, Tuple
+from typing import TYPE_CHECKING, Tuple
 
 import torch
 from pathlib import Path
@@ -43,7 +43,7 @@ EVAL_LOG_OPT = {
 def prepare_configs(rng: torch.Generator, cfg: "MPPIExperimentConfig") -> Tuple[TerrainConfig, PhysicsEngineConfig, RobotModelConfig, torch.device]:
     heightmap_gen = cfg.heightmap_gen(**cfg.heightmap_gen_opts if cfg.heightmap_gen_opts else {})
     x, y, z, extras = heightmap_gen(cfg.grid_res, cfg.max_coord, cfg.num_candidates, rng)
-    world_config = TerrainConfig(
+    terrain_config = TerrainConfig(
         x_grid=x,
         y_grid=y,
         z_grid=z,
@@ -56,20 +56,20 @@ def prepare_configs(rng: torch.Generator, cfg: "MPPIExperimentConfig") -> Tuple[
     physics_config = PhysicsEngineConfig(num_robots=cfg.num_candidates, **cfg.engine_opts)
     device = set_device(cfg.device)
     robot_model.to(device)
-    world_config.to(device)
+    terrain_config.to(device)
     physics_config.to(device)
-    return world_config, physics_config, robot_model, device
+    return terrain_config, physics_config, robot_model, device
 
 
 def prepare_env(train_config: "MPPIExperimentConfig") -> tuple["Env", torch.device, torch.Generator]:
     # Init configs and RL-related objects
     rng = seed_all(train_config.seed)
-    world_config, physics_config, robot_model, device = prepare_configs(rng, train_config)
+    terrain_config, physics_config, robot_model, device = prepare_configs(rng, train_config)
     training_objective = train_config.objective(
         device=device,
         physics_config=physics_config,
         robot_model=robot_model,
-        world_config=world_config,
+        terrain_config=terrain_config,
         rng=rng,
         **train_config.objective_opts,
     )
@@ -78,7 +78,7 @@ def prepare_env(train_config: "MPPIExperimentConfig") -> tuple["Env", torch.devi
         objective_factory=training_objective,
         reward_factory=train_config.reward(**train_config.reward_opts),
         observation_factories=[],
-        terrain_config=world_config,
+        terrain_config=terrain_config,
         physics_config=physics_config,
         robot_model_config=robot_model,
         device=device,

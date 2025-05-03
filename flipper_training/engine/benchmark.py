@@ -52,18 +52,18 @@ def main(args):
         x_grid = x_grid.to(device)
         y_grid = y_grid.to(device)
         z_grid = torch.zeros_like(x_grid)
-        world_config = TerrainConfig(x_grid, y_grid, z_grid, grid_res, max_coord)
+        terrain_config = TerrainConfig(x_grid, y_grid, z_grid, grid_res, max_coord)
         physics_engine_config = PhysicsEngineConfig(B)
         state = PhysicsState.dummy(batch_size=B, robot_model=robot_model).to(device)
         engine = DPhysicsEngine(physics_engine_config, robot_model, device)
         controls = torch.zeros((B, 2 * robot_model.num_joints), device=device)
         if args.compile:
             engine = torch.compile(engine, options=compile_opts)
-            _ = engine(deepcopy(state), controls, world_config)
+            _ = engine(deepcopy(state), controls, terrain_config)
             bar.set_description_str(f"Compiled engine for {B} robots")
         s = time.perf_counter_ns()
         for i in range(args.num_runs):
-            _ = engine(state, controls, world_config)
+            _ = engine(state, controls, terrain_config)
         e = time.perf_counter_ns()
         time_per_it_ms = (e - s) / (args.num_runs * 1e6)
         results[B] = time_per_it_ms

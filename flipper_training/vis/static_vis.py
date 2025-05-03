@@ -5,7 +5,7 @@ from typing import Iterable, Any
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 from matplotlib.collections import LineCollection
-from flipper_training.configs import TerrainConfig
+from flipper_training.configs.terrain_config import TerrainConfig
 from flipper_training.engine.engine_state import PhysicsState, PhysicsStateDer
 from flipper_training.utils.geometry import quaternion_to_yaw
 
@@ -14,7 +14,7 @@ START_COLOR = "blue"
 END_COLOR = "green"
 
 
-def plot_grids_xyz(x: torch.Tensor, y: torch.Tensor, z: torch.Tensor):
+def plot_grids_xyz(x: torch.Tensor, y: torch.Tensor, z: torch.Tensor, title: str = "") -> None:
     """
     Plot the x, y, z grids.
 
@@ -33,6 +33,7 @@ def plot_grids_xyz(x: torch.Tensor, y: torch.Tensor, z: torch.Tensor):
     ax[2].set_title("Z")
     for axis in ax:
         axis.set_aspect("equal")
+    fig.suptitle(title)
     plt.colorbar(x_im, ax=ax[0])
     plt.colorbar(y_im, ax=ax[1])
     plt.colorbar(z_im, ax=ax[2])
@@ -161,7 +162,7 @@ def plot_heightmap_3d(x: torch.Tensor, y: torch.Tensor, z: torch.Tensor, fig=Non
 
 
 def plot_birdview_trajectory(
-    world_config: TerrainConfig,
+    terrain_config: TerrainConfig,
     states: Iterable[PhysicsState],
     robot_idx: int = 0,
     iter_step: int = 30,
@@ -171,9 +172,9 @@ def plot_birdview_trajectory(
     plot the birdview trajectory of the robot.
     """
     # grids
-    x_grid_arr = world_config.x_grid[robot_idx].cpu().numpy()
-    y_grid_arr = world_config.y_grid[robot_idx].cpu().numpy()
-    z_grid_arr = world_config.z_grid[robot_idx].cpu().numpy()
+    x_grid_arr = terrain_config.x_grid[robot_idx].cpu().numpy()
+    y_grid_arr = terrain_config.y_grid[robot_idx].cpu().numpy()
+    z_grid_arr = terrain_config.z_grid[robot_idx].cpu().numpy()
 
     # vectorize states
     states_vec = vectorize_iter_of_states(states)
@@ -230,7 +231,7 @@ def plot_birdview_trajectory(
 
 
 def plot_3d_trajectory(
-    world_config: TerrainConfig,
+    terrain_config: TerrainConfig,
     states: Iterable[PhysicsState],
     auxs: Iterable[PhysicsStateDer],
     robot_idx: int = 0,
@@ -240,9 +241,9 @@ def plot_3d_trajectory(
     Plot the 3D trajectory of the robot interactively.
     """
     # Grids
-    x_grid_arr = world_config.x_grid[robot_idx].cpu().numpy()
-    y_grid_arr = world_config.y_grid[robot_idx].cpu().numpy()
-    z_grid_arr = world_config.z_grid[robot_idx].cpu().numpy()
+    x_grid_arr = terrain_config.x_grid[robot_idx].cpu().numpy()
+    y_grid_arr = terrain_config.y_grid[robot_idx].cpu().numpy()
+    z_grid_arr = terrain_config.z_grid[robot_idx].cpu().numpy()
     # Vectorize states
     states_vec = vectorize_iter_of_states(states)
     aux_vec = vectorize_iter_of_states(auxs)
@@ -293,7 +294,7 @@ def plot_3d_trajectory(
             zaxis_title="Height (Z)",
             camera_eye=dict(x=1.0, y=1.0, z=0.5),
             aspectmode="manual",
-            aspectratio=dict(x=1.0, y=1.0, z=max(abs(zs).max().item(), abs(pts_global[..., 2]).max()) / (2 * world_config.max_coord)),
+            aspectratio=dict(x=1.0, y=1.0, z=max(abs(zs).max().item(), abs(pts_global[..., 2]).max()) / (2 * terrain_config.max_coord)),
         ),
         width=1000,
         height=500,

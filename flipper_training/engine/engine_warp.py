@@ -504,14 +504,14 @@ class WarpPhysicsEngineTorch(torch.nn.Module):
             # This buffer holds xyzw for the kernel
             self.q_buffer_wp = wp.zeros(batch_size, dtype=wp.quatf, device=self.warp_device)
 
-    def forward(self, state: PhysicsState, controls: torch.Tensor, world_config: TerrainConfig) -> tuple[PhysicsState, PhysicsStateDer]:
+    def forward(self, state: PhysicsState, controls: torch.Tensor, terrain_config: TerrainConfig) -> tuple[PhysicsState, PhysicsStateDer]:
         """
         Performs one physics step using Warp with PyTorch zero-copy interop.
 
         Args:
             state (PhysicsState): Input state TensorClass on the correct device. Quaternions in [w, x, y, z].
             controls (torch.Tensor): Control inputs tensor on the correct device.
-            world_config (TerrainConfig): Contains terrain parameters and tensors (z_grid, z_grid_grad) on the correct device.
+            terrain_config (TerrainConfig): Contains terrain parameters and tensors (z_grid, z_grid_grad) on the correct device.
 
         Returns:
             tuple[PhysicsState, PhysicsStateDer]: Output state and derivatives as new TensorClass objects. Quaternions in [w, x, y, z].
@@ -522,24 +522,24 @@ class WarpPhysicsEngineTorch(torch.nn.Module):
         if state.device != self.torch_device or controls.device != self.torch_device:
             raise ValueError(f"Input tensors must be on device {self.torch_device}")
 
-        # --- Ensure world_config tensors are on the correct device ---
+        # --- Ensure terrain_config tensors are on the correct device ---
         # Example: Assuming z_grid and z_grid_grad are attributes
-        if not hasattr(world_config, "z_grid") or not hasattr(world_config, "z_grid_grad"):
-            raise AttributeError("world_config must have 'z_grid' and 'z_grid_grad' tensors")
-        if world_config.z_grid.device != self.torch_device or world_config.z_grid_grad.device != self.torch_device:
-            world_config.z_grid = world_config.z_grid.to(self.torch_device)
-            world_config.z_grid_grad = world_config.z_grid_grad.to(self.torch_device)
-            # Note: This modifies the input world_config if tensors were on wrong device.
+        if not hasattr(terrain_config, "z_grid") or not hasattr(terrain_config, "z_grid_grad"):
+            raise AttributeError("terrain_config must have 'z_grid' and 'z_grid_grad' tensors")
+        if terrain_config.z_grid.device != self.torch_device or terrain_config.z_grid_grad.device != self.torch_device:
+            terrain_config.z_grid = terrain_config.z_grid.to(self.torch_device)
+            terrain_config.z_grid_grad = terrain_config.z_grid_grad.to(self.torch_device)
+            # Note: This modifies the input terrain_config if tensors were on wrong device.
 
         # --- Create Warp Terrain Config Struct ---
         terrain_cfg_wp = TerrainConfigWarp()
-        terrain_cfg_wp.max_coord = world_config.max_coord
-        terrain_cfg_wp.k_stiffness = world_config.k_stiffness
-        terrain_cfg_wp.k_friction_lon = world_config.k_friction_lon
-        terrain_cfg_wp.k_friction_lat = world_config.k_friction_lat
-        terrain_cfg_wp.grid_dim_h = world_config.z_grid.shape[0]
-        terrain_cfg_wp.grid_dim_w = world_config.z_grid.shape[1]
-        # terrain_cfg_wp.grid_res = world_config.grid_res # Add if available
+        terrain_cfg_wp.max_coord = terrain_config.max_coord
+        terrain_cfg_wp.k_stiffness = terrain_config.k_stiffness
+        terrain_cfg_wp.k_friction_lon = terrain_config.k_friction_lon
+        terrain_cfg_wp.k_friction_lat = terrain_config.k_friction_lat
+        terrain_cfg_wp.grid_dim_h = terrain_config.z_grid.shape[0]
+        terrain_cfg_wp.grid_dim_w = terrain_config.z_grid.shape[1]
+        # terrain_cfg_wp.grid_res = terrain_config.grid_res # Add if available
 
         # --- Get Zero-Copy Warp Arrays from Input Tensors ---
         state_in_x_wp = wp.from_torch(state.x)
@@ -547,8 +547,8 @@ class WarpPhysicsEngineTorch(torch.nn.Module):
         state_in_omega_wp = wp.from_torch(state.omega)
         state_in_thetas_wp = wp.from_torch(state.thetas)
         controls_wp = wp.from_torch(controls)
-        z_grid_wp = wp.from_torch(world_config.z_grid)
-        z_grid_grad_wp = wp.from_torch(world_config.z_grid_grad)
+        z_grid_wp = wp.from_torch(terrain_config.z_grid)
+        z_grid_grad_wp = wp.from_torch(terrain_config.z_grid_grad)
 
         # Quaternion Swizzle (w,x,y,z) -> (x,y,z,w) for kernel input
         # Create a temporary buffer if needed
