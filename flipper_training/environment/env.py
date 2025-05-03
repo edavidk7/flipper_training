@@ -38,6 +38,7 @@ class Env(EnvBase):
         engine_compile_opts: dict | None = None,
         return_derivative: bool = False,
         engine_iters_per_step: int = 1,
+        generator: torch.Generator | None = None,
         **kwargs,
     ):
         super().__init__(device=device, **kwargs)
@@ -48,6 +49,7 @@ class Env(EnvBase):
         self.logger = get_terminal_logger("environment")
         self.return_derivative = return_derivative
         self.engine_iters_per_step = engine_iters_per_step
+        self.generator = generator
         # Physics configs
         self.phys_cfg = physics_config.to(device)
         self.robot_cfg = robot_model_config.to(device)

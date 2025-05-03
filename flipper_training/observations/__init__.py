@@ -26,7 +26,7 @@ class ObservationEncoder(torch.nn.Module):
         self.output_dim = output_dim
 
 
-@dataclass
+@dataclass(kw_only=True)
 class Observation(ABC):
     """
     Abstract class for observation generators.
@@ -37,6 +37,8 @@ class Observation(ABC):
 
     env: "Env"
     encoder_opts: dict
+    apply_noise: bool = False
+    noise_scale: float | torch.Tensor | None = None
     supports_vecnorm: ClassVar[bool] = NotImplemented
 
     @property

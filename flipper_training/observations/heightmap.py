@@ -70,6 +70,8 @@ class Heightmap(Observation):
     supports_vecnorm = False
 
     def __post_init__(self):
+        if self.apply_noise and not isinstance(self.noise_scale, float):
+            raise ValueError("Noise scale must be specified if apply_noise is True and must be a float.")
         self._initialize_perception_grid()
 
     def _initialize_perception_grid(self) -> None:
@@ -106,6 +108,10 @@ class Heightmap(Observation):
 
         # Reshape and make height relative to robot's Z coordinate
         hm = z_coords.reshape(B, 1, self.percep_shape[0], self.percep_shape[1]) - curr_state.x[..., 2].reshape(-1, 1, 1, 1)
+        # Apply noise if specified
+        if self.apply_noise:
+            noise = torch.randn_like(hm) * self.noise_scale
+            hm.add_(noise)
         hm.clamp_(self.interval[0], self.interval[1])
         # Normalize to interval if specified
         if self.normalize_to_interval:

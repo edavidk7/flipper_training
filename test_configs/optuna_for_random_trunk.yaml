@@ -1,9 +1,6 @@
 study_name: "optuna_test10"
 num_trials: 200
-use_gpus:
-  - "0"
-  # - "1"
-workers_per_gpu: 1
+gpu: 0
 metrics_to_optimize:
   - "eval/pct_succeeded" # Maximize
 directions:
@@ -35,4 +32,3 @@ optuna_values:
 train_config_overrides:
   use_wandb: false
   eval_repeats_after_training: 20
-delay: 60

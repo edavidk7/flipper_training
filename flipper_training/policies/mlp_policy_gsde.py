@@ -1,13 +1,16 @@
 import torch
-import torch.nn as nn
+from torch import distributions as d, nn
 from copy import deepcopy
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from flipper_training.environment.env import Env
 from tensordict.nn import TensorDictModule, TensorDictSequential
-from torchrl.modules import NormalParamExtractor, ProbabilisticActor, TanhNormal, ValueOperator, ActorCriticWrapper, ActorValueOperator
+from torchrl.modules import NormalParamExtractor, ProbabilisticActor, ValueOperator, ActorCriticWrapper, ActorValueOperator
+from torchrl.envs.transforms import Transform
+from torchrl.modules import TanhNormal
 from flipper_training.utils.logutils import get_terminal_logger
 from rich.console import Console
 from rich.table import Table
+from stable_baselines3.common.distributions import StateDependentNoiseDistribution
 from . import PolicyConfig, EncoderCombiner, MLP
 
 __all__ = ["MLPPolicyConfig"]
@@ -26,7 +29,6 @@ class MLPPolicyConfig(PolicyConfig):
     actor_optimizer_opts: dict
     value_optimizer_opts: dict
     apply_baselines_init: bool = False
-    extra_distribution_kwargs: dict = field(default_factory=dict)
 
     def __post_init__(self):
         self.logger = get_terminal_logger("MLPPolicyConfig")
@@ -121,8 +123,7 @@ class MLPPolicyConfig(PolicyConfig):
             distribution_kwargs={
                 "low": action_spec.space.low[0],  # pass only the values without a batch dimension
                 "high": action_spec.space.high[0],  # pass only the values without a batch dimension
-            }
-            | self.extra_distribution_kwargs,
+            },
             return_log_prob=True,
         )
         if "in_features" in self.value_mlp_opts or "out_features" in self.value_mlp_opts:

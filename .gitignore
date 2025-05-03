@@ -512,3 +512,6 @@ runs
 wandb
 optuna_db.yaml
 gpu_debugging
+*.err
+*.out
+*.log

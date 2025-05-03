@@ -1,12 +1,12 @@
-name: random_trunk_for_hparam_calibration
-comment: "Random trunk, random start and goal"
+name: random_trunk_from_optuna_with_noise
+comment: "Random trunk, random start and goal with hyperparams found by Optuna, added noise to observations"
 seed: 42
 use_wandb: true
 eval_repeats_after_training: 1
 use_tensorboard: false
 device: cuda
 training_dtype: ${dtype:float32}
-total_frames: ${mul:5242880,3}
+total_frames: ${mul:5242880,5}
 engine_iters_per_env_step: 4
 num_robots: 256
 time_steps_per_batch: 128
@@ -15,11 +15,10 @@ frames_per_sub_batch: 4096
 eval_and_save_every: 10
 max_eval_steps: 500
 optimizer: ${cls:torch.optim.AdamW}
-scheduler: ${cls:torch.optim.lr_scheduler.LinearLR}
+scheduler: ${cls:flipper_training.utils.schedulers.LinearDecayThenConstantLR}
 scheduler_opts:
-  start_factor: 1.0
-  end_factor: 0.4535114992940322
-  total_iters: ${intdiv:${total_frames},${mul:${time_steps_per_batch},${num_robots}}}
+  end_factor: 0.1
+  end_step: 320
 max_grad_norm: 0.5
 grid_res: 0.05
 max_coord: 3.2
@@ -61,13 +60,18 @@ vecnorm_on_reward: true
 observations:
   - cls: ${cls:flipper_training.observations.robot_state.LocalStateVector}
     opts:
+      apply_noise: true
+      noise_scale: 1e-5
       encoder_opts:
         num_hidden: 2
         hidden_dim: 64
         output_dim: 64
         layernorm: true
+
   - cls: ${cls:flipper_training.observations.heightmap.Heightmap}
     opts:
+      apply_noise: true
+      noise_scale: 1e-5
       percep_shape: [64, 64]
       percep_extent: [1.0, 1.0, -1.0, -1.0]
       interval: [-1.0, 1.0]
@@ -107,11 +111,11 @@ objective_opts:
   cache_size: 20000
 reward: ${cls:flipper_training.rl_rewards.rewards.PotentialGoal}
 reward_opts:
-  goal_reached_reward: 1.8642568421577188
-  failed_reward: -4.535488781346464
-  potential_coef: 32.50188621319393
+  goal_reached_reward: 1.4217673139870233
+  failed_reward: -2.9976229128461362
+  potential_coef: 32.677525431775386
   gamma: ${gae_opts.gamma}
-  step_penalty: -0.19819251050669812
+  step_penalty: -0.1021033818597713
 policy_config: ${cls:flipper_training.policies.mlp_policy.MLPPolicyConfig}
 policy_opts:
   share_encoder: false
@@ -125,8 +129,8 @@ policy_opts:
     hidden_dim: 64
     layernorm: true
   actor_optimizer_opts:
-    lr: 0.00031921632112058427
+    lr: 0.0001218186725626369
     weight_decay: 1e-4
   value_optimizer_opts:
-    lr: 0.0011671002597131838
+    lr: 0.0001965933133838132
     weight_decay: 1e-4

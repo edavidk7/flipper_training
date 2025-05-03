@@ -31,6 +31,13 @@ class LocalStateVector(Observation):
     supports_vecnorm = True
 
     def __post_init__(self):
+        if self.apply_noise:
+            if not isinstance(self.noise_scale, (float, torch.Tensor)):
+                raise ValueError("Noise scale must be specified if apply_noise is True and must be a float or tensor.")
+            if isinstance(self.noise_scale, float):
+                self.noise_scale = torch.tensor([self.noise_scale], dtype=self.env.out_dtype, device=self.env.device)
+            if self.noise_scale.shape[0] not in (1, self.dim):
+                raise ValueError(f"Noise scale tensor must have shape (1,) or ({self.dim},) but got {self.noise_scale.shape}.")
         self.max_dist = self.env.terrain_cfg.max_coord * 2**1.5
         self.theta_range = self.env.robot_cfg.joint_limits[1] - self.env.robot_cfg.joint_limits[0]
 
@@ -52,7 +59,7 @@ class LocalStateVector(Observation):
         rolls, pitches, _ = quaternion_to_euler(curr_state.q)
         rolls.div_(torch.pi)
         pitches.div_(torch.pi)
-        return torch.cat(
+        obs = torch.cat(
             [
                 rolls.unsqueeze(1),
                 pitches.unsqueeze(1),
@@ -63,22 +70,32 @@ class LocalStateVector(Observation):
             ],
             dim=1,
         ).to(self.env.out_dtype)
+        if self.apply_noise:
+            noise = torch.randn_like(obs) * self.noise_scale.view(1, -1)
+            obs.add_(noise)
+        return obs
 
-    def get_spec(self) -> Unbounded:
+    @property
+    def dim(self) -> int:
+        """
+        The dimension of the observation vector.
+        """
         dim = 3  # velocity vector
         dim += 2  # roll and pitch angles
         dim += 3  # angular velocity vector
         dim += self.env.robot_cfg.num_driving_parts  # joint angles
         dim += 3  # goal vector
+        return dim
+
+    def get_spec(self) -> Unbounded:
         return Unbounded(
-            shape=(self.env.n_robots, dim),
+            shape=(self.env.n_robots, self.dim),
             device=self.env.device,
             dtype=self.env.out_dtype,
         )
 
     def get_encoder(self) -> LocalStateVectorEncoder:
-        in_dim = self.get_spec().shape[-1]
         return LocalStateVectorEncoder(
-            input_dim=in_dim,
+            input_dim=self.dim,
             **self.encoder_opts,
         )

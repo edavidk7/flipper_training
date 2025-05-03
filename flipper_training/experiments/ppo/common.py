@@ -9,7 +9,7 @@ from flipper_training.environment.env import Env
 from flipper_training.utils.torch_utils import seed_all, set_device
 from argparse import ArgumentParser
 from pathlib import Path
-from config import PPOExperimentConfig
+from flipper_training.experiments.ppo.config import PPOExperimentConfig
 from omegaconf import DictConfig, OmegaConf
 from flipper_training.utils.logutils import LocalRunReader, WandbRunReader
 
@@ -83,6 +83,7 @@ def prepare_env(train_config: "PPOExperimentConfig", mode: Literal["train", "eva
         out_dtype=train_config.training_dtype,
         return_derivative=mode == "eval",  # needed for evaluation
         engine_iters_per_step=train_config.engine_iters_per_env_step,
+        generator=rng,
     )
     check_env_specs(base_env)
     return base_env, device, rng
@@ -139,8 +140,9 @@ def make_transformed_env(env: "Env", train_config: "PPOExperimentConfig", policy
         in_keys=vecnorm_keys,
         **train_config.vecnorm_opts,
     )
-    transforms = [t["cls"](**(t["opts"] or {})) for t in train_config.extra_env_transforms] + policy_transforms
-    transforms.append(StepCounter())
+    transforms = [StepCounter()]
+    transforms += [t["cls"](**(t["opts"] or {})) for t in train_config.extra_env_transforms]
+    transforms += policy_transforms
     transforms.append(vecnorm)
     return TransformedEnv(env, Compose(*transforms)), vecnorm
 
