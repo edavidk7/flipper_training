@@ -27,6 +27,7 @@ class MLPPolicyConfig(PolicyConfig):
     value_optimizer_opts: dict
     apply_baselines_init: bool = False
     extra_distribution_kwargs: dict = field(default_factory=dict)
+    distribution_class: type = TanhNormal
 
     def __post_init__(self):
         self.logger = get_terminal_logger("MLPPolicyConfig")
@@ -117,7 +118,7 @@ class MLPPolicyConfig(PolicyConfig):
             module=TensorDictSequential([actor_encoder_module, actor_module]),
             spec=action_spec,
             in_keys=["loc", "scale"],
-            distribution_class=TanhNormal,
+            distribution_class=self.distribution_class,
             distribution_kwargs={
                 "low": action_spec.space.low[0],  # pass only the values without a batch dimension
                 "high": action_spec.space.high[0],  # pass only the values without a batch dimension

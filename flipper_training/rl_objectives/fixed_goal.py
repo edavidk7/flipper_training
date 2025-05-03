@@ -114,7 +114,7 @@ class FixedStartGoalNavigation(BaseObjective):
             | (rolls.abs() > self.max_feasible_roll)
             | (state.x.abs() > self.terrain_config.max_coord).any(dim=-1)
         )
-        if "step_indices" in self.terrain_config.grid_extras:
+        if self.terrain_config.grid_extras and ("step_indices" in self.terrain_config.grid_extras):
             ti = self.terrain_config.grid_extras["step_indices"]  # (B, H, W)
             B_range = torch.arange(self.physics_config.num_robots, device=self.device)
             prev_xy = prev_state.x[..., :2]  # (B,2)

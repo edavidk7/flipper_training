@@ -1,19 +1,17 @@
 import torch
-from torch import distributions as d, nn
+from torch import nn
 from copy import deepcopy
 from dataclasses import dataclass
 from flipper_training.environment.env import Env
 from tensordict.nn import TensorDictModule, TensorDictSequential
 from torchrl.modules import NormalParamExtractor, ProbabilisticActor, ValueOperator, ActorCriticWrapper, ActorValueOperator
-from torchrl.envs.transforms import Transform
 from torchrl.modules import TanhNormal
 from flipper_training.utils.logutils import get_terminal_logger
 from rich.console import Console
 from rich.table import Table
-from stable_baselines3.common.distributions import StateDependentNoiseDistribution
 from . import PolicyConfig, EncoderCombiner, MLP
 
-__all__ = ["MLPPolicyConfig"]
+__all__ = ["MLPPolicyWithgSDEConfig"]
 
 
 def count_parameters(module: nn.Module) -> int:
@@ -22,12 +20,13 @@ def count_parameters(module: nn.Module) -> int:
 
 
 @dataclass
-class MLPPolicyConfig(PolicyConfig):
+class MLPPolicyWithgSDEConfig(PolicyConfig):
     share_encoder: bool
     actor_mlp_opts: dict
     value_mlp_opts: dict
     actor_optimizer_opts: dict
     value_optimizer_opts: dict
+    resample_noise_every: int = 4
     apply_baselines_init: bool = False
 
     def __post_init__(self):
@@ -92,7 +91,7 @@ class MLPPolicyConfig(PolicyConfig):
                 self.logger.warning(f"Unexpected keys: {missing_unexpected.unexpected_keys}")
 
         # Log parameter counts before returning
-        MLPPolicyConfig._log_parameter_counts(actor_value_wrapper, self.share_encoder)
+        MLPPolicyWithgSDEConfig._log_parameter_counts(actor_value_wrapper, self.share_encoder)
 
         return actor_value_wrapper, optim_groups, []
 
@@ -250,7 +249,7 @@ class MLPPolicyConfig(PolicyConfig):
                     nn.init.constant_(m.bias, 0)
             elif isinstance(m, nn.Linear):
                 output_dim = m.weight.shape[0]
-                if output_dim == action_size * 2:
+                if output_dim == action_size:
                     # Initialize the output layer of the policy network
                     nn.init.normal_(m.weight, 0, 0.01)
                 elif output_dim == 1:
