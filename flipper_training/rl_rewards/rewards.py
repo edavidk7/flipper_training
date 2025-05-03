@@ -213,3 +213,65 @@ class PotentialGoalWithConditionalVelocityBonusAndJointCommandBonus(Reward):
         reward[success] += self.goal_reached_reward
         reward[fail] += self.failed_reward
         return reward.to(self.env.out_dtype)
+
+
+@dataclass
+class PotentialGoalWithJointVelVariancePenalty(Reward):
+    goal_reached_reward: float
+    failed_reward: float
+    gamma: float
+    step_penalty: float
+    potential_coef: float
+    joint_vel_variance_coef: float
+
+    def __call__(
+        self,
+        prev_state: PhysicsState,
+        action: torch.Tensor,
+        prev_state_der: PhysicsStateDer,
+        curr_state: PhysicsState,
+        success: torch.BoolTensor,
+        fail: torch.BoolTensor,
+        start_state: PhysicsState,
+        goal_state: PhysicsState,
+    ) -> torch.Tensor:
+        curr_dist = (goal_state.x - curr_state.x).norm(dim=-1, keepdim=True)
+        prev_dist = (goal_state.x - prev_state.x).norm(dim=-1, keepdim=True)
+        neg_goal_dist_curr = -curr_dist  # phi(s')
+        neg_goal_dist_prev = -prev_dist  # phi(s)
+        reward = self.potential_coef * (self.gamma * neg_goal_dist_curr - neg_goal_dist_prev) + self.step_penalty
+        joint_vel_variances = action[..., action.shape[1] // 2 :].abs().var(dim=-1, keepdim=True)
+        reward -= self.joint_vel_variance_coef * joint_vel_variances
+        reward[success] += self.goal_reached_reward
+        reward[fail] += self.failed_reward
+        return reward.to(self.env.out_dtype)
+
+
+@dataclass
+class PotentialGoalWithFinishVelocityPenalty(Reward):
+    goal_reached_reward: float
+    failed_reward: float
+    gamma: float
+    step_penalty: float
+    potential_coef: float
+    finish_velocity_coef: float
+
+    def __call__(
+        self,
+        prev_state: PhysicsState,
+        action: torch.Tensor,
+        prev_state_der: PhysicsStateDer,
+        curr_state: PhysicsState,
+        success: torch.BoolTensor,
+        fail: torch.BoolTensor,
+        start_state: PhysicsState,
+        goal_state: PhysicsState,
+    ) -> torch.Tensor:
+        curr_dist = (goal_state.x - curr_state.x).norm(dim=-1, keepdim=True)
+        prev_dist = (goal_state.x - prev_state.x).norm(dim=-1, keepdim=True)
+        neg_goal_dist_curr = -curr_dist  # phi(s')
+        neg_goal_dist_prev = -prev_dist  # phi(s)
+        reward = self.potential_coef * (self.gamma * neg_goal_dist_curr - neg_goal_dist_prev) + self.step_penalty
+        reward[success] += self.goal_reached_reward - self.finish_velocity_coef * curr_state.xd[success].norm(dim=-1, keepdim=True)
+        reward[fail] += self.failed_reward
+        return reward.to(self.env.out_dtype)

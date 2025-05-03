@@ -9,6 +9,7 @@ import argparse
 import os
 from flipper_training import ROOT
 from flipper_training.utils.logutils import get_terminal_logger
+from flipper_training.experiments.ppo.train import PPOTrainer
 
 
 DB_SECRET = OmegaConf.load(ROOT / "optuna_db.yaml")
@@ -47,12 +48,13 @@ class FailedTrialException(Exception):
     pass
 
 
-def objective(trial, base_config, keys, types, values, metrics_to_optimize, trainer):
+def objective(trial, base_config, keys, types, values, metrics_to_optimize):
     params = define_search_space(trial, keys, types, values)
     dotlist = [f"{k}={v}" for k, v in params.items()]
     updated_config = OmegaConf.merge(base_config, OmegaConf.from_dotlist(dotlist))
     try:
-        metrics = trainer(updated_config)  # Returns a dict like {"eval/mean_reward": value}
+        trainer = PPOTrainer(updated_config)  # Returns a dict like {"eval/mean_reward": value}
+        metrics = trainer.train()
     except Exception as e:
         traceback.print_exception(e)
         raise FailedTrialException(f"Trial failed with exception: {e}") from e
@@ -72,7 +74,6 @@ def perform_study(optuna_config: OptunaConfig, train_config):
         sampler=optuna.samplers.TPESampler(n_startup_trials=10, multivariate=True),
     )
     os.environ["CUDA_VISIBLE_DEVICES"] = str(optuna_config.gpu)
-    from flipper_training.experiments.ppo.train import train_ppo
 
     train_config["device"] = "cuda:0"
     callback = MaxTrialsCallback(optuna_config.num_trials)
@@ -84,7 +85,6 @@ def perform_study(optuna_config: OptunaConfig, train_config):
             optuna_config.optuna_types,
             optuna_config.optuna_values,
             optuna_config.metrics_to_optimize,
-            train_ppo,
         ),
         callbacks=[callback],
         catch=[FailedTrialException],

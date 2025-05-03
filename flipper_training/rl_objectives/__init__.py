@@ -89,6 +89,18 @@ class BaseObjective(ABC):
         - Tensor containing a boolean indicating whether each
         """
 
+    def state_dict(self):
+        """
+        Returns the state dictionary of the objective. Useful for saving curriculum progress.
+        """
+        return {}
+
+    def load_state_dict(self, state_dict):
+        """
+        Loads the state dictionary of the objective. Useful for loading curriculum progress.
+        """
+        return None
+
     @abstractmethod
     def check_terminated_wrong(self, prev_state: "PhysicsState", state: "PhysicsState", goal: "PhysicsState") -> torch.BoolTensor:
         """

@@ -32,6 +32,14 @@ class StairCrossing(BaseObjective):
             raise ValueError("World configuration must contain 'step_indices' in grid_extras for StairCrossing.")
         self._init_cache()
 
+    def state_dict(self):
+        return {
+            "cache_cursor": self._cache_cursor,
+        }
+
+    def load_state_dict(self, state_dict):
+        self._cache_cursor = state_dict["cache_cursor"]
+
     def _get_suitable_core_mask(self, step_indices: torch.Tensor) -> torch.BoolTensor:
         """Identifies cells sufficiently far from the non-stair area (-1 index)."""
         grid_res = self.terrain_config.grid_res

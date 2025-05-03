@@ -76,6 +76,25 @@ class Env(EnvBase):
         self.reset()
         self._print_summary()
 
+    def state_dict(self, *args, **kwargs):
+        state_dict = super().state_dict(*args, **kwargs)
+        state_dict["step_count"] = self.step_count
+        state_dict["step_limits"] = self.step_limits
+        state_dict["start"] = self.start
+        state_dict["goal"] = self.goal
+        state_dict["objective"] = self.objective.state_dict()
+        state_dict["reward"] = self.reward.state_dict()
+        return state_dict
+
+    def load_state_dict(self, state_dict: dict, *args, **kwargs):
+        self.step_count = state_dict["step_count"]
+        self.step_limits = state_dict["step_limits"]
+        self.start = state_dict["start"]
+        self.goal = state_dict["goal"]
+        self.objective.load_state_dict(state_dict["objective"])
+        self.reward.load_state_dict(state_dict["reward"])
+        return super().load_state_dict(state_dict, *args, **kwargs)
+
     def _print_summary(self) -> None:
         t = Table(title="Environment Summary")
         t.add_column("Key", justify="right", style="cyan", no_wrap=True)

@@ -31,6 +31,14 @@ class TrunkCrossing(BaseObjective):
             raise ValueError("World configuration must contain the trunk sides in the grid extras for start/goal positions.")
         self._init_cache()
 
+    def state_dict(self):
+        return {
+            "cache_cursor": self._cache_cursor,
+        }
+
+    def load_state_dict(self, state_dict):
+        self._cache_cursor = state_dict["cache_cursor"]
+
     def _init_cache(self) -> None:
         B = self.physics_config.num_robots
         total_needed_per_robot = self.cache_size  # Number of cache entries per robot

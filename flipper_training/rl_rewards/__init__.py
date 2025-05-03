@@ -58,6 +58,18 @@ class Reward(ABC):
         """
         return None
 
+    def state_dict(self) -> dict:
+        """
+        Returns the state dictionary of the reward function. Useful for saving curriculum progress.
+        """
+        return {}
+
+    def load_state_dict(self, state_dict: dict):
+        """
+        Loads the state dictionary of the reward function. Useful for loading curriculum progress.
+        """
+        return None
+
     @property
     def name(self) -> str:
         """

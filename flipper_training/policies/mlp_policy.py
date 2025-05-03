@@ -172,7 +172,8 @@ class MLPPolicyConfig(PolicyConfig):
             distribution_kwargs={
                 "low": action_spec.space.low[0],  # pass only the values without a batch dimension
                 "high": action_spec.space.high[0],  # pass only the values without a batch dimension
-            },
+            }
+            | self.extra_distribution_kwargs,
             return_log_prob=True,
         )
         value_operator = ValueOperator(

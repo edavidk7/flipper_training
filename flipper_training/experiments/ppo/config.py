@@ -79,6 +79,7 @@ class PPOExperimentConfig:
     ppo_compile_opts: str | None = None
     policy_weights_path: str | None = None
     vecnorm_weights_path: str | None = None
+    clip_grad_norm_p: str | int = 2
     extra_env_transforms: list[EnvTransformConfig] = field(default_factory=list)
     optimizer_opts: dict[str, Any] = field(default_factory=dict)
     heightmap_gen_opts: dict[str, Any] = field(default_factory=dict)
