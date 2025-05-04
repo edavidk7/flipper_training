@@ -44,19 +44,6 @@ def train_step_to_log(rollout_td: "TensorDict", loss_td: "TensorDict", grad_norm
     }
 
 
-# def get_eval_rollout_results(env, actor_operator, max_steps) -> dict[str, int | float]:
-#     env.eval()
-#     actor_operator.eval()
-#     with (
-#         set_exploration_type(ExplorationType.DETERMINISTIC),
-#         torch.inference_mode(),
-#     ):
-#         eval_rollout = env.rollout(max_steps, actor_operator, break_when_all_done=True, auto_reset=True)
-#     results = log_from_eval_rollout(eval_rollout)
-#     del eval_rollout
-#     return results
-
-
 class PPOTrainer:
     def __init__(self, config: "DictConfig"):
         self.config = PPOExperimentConfig(**config)
@@ -231,109 +218,6 @@ class PPOTrainer:
         print(f"\nFinal evaluation results ({self.config.eval_repeats_after_training} samples):")
         print("\n".join(make_formatted_str_lines(avg_eval_log, EVAL_LOG_OPT)))
         return avg_eval_log
-
-
-# def train_ppo(
-#     config: "DictConfig",
-# ):
-#     global RUN_LOGGER
-#     train_config = PPOExperimentConfig(**config)
-#     # Logging
-#     RUN_LOGGER = RunLogger(
-#         train_config=config,
-#         category="ppo",
-#         use_wandb=train_config.use_wandb,
-#         use_tensorboard=train_config.use_tensorboard,
-#         step_metric_name="collected_frames",
-#     )
-#     print(OmegaConf.to_yaml(config, sort_keys=True))
-
-#     # RL
-#     env, device, rng = prepare_env(train_config, mode="train")
-#     policy_config = train_config.policy_config(**train_config.policy_opts)
-#     actor_value_wrapper, optim_groups, policy_transforms = policy_config.create(
-#         env=env,
-#         weights_path=train_config.policy_weights_path,
-#         device=device,
-#     )
-#     actor_operator = actor_value_wrapper.get_policy_operator()
-#     value_operator = actor_value_wrapper.get_value_operator()
-#     env, vecnorm = make_transformed_env(env, train_config, policy_transforms)
-#     if train_config.vecnorm_weights_path is not None:
-#         vecnorm.load_state_dict(torch.load(train_config.vecnorm_weights_path, map_location=device), strict=False)
-#     # Collector
-#     collector, replay_buffer = prepare_data_collection(env, actor_operator, train_config, rng)
-#     # PPO setup
-#     advantage_module = GAE(
-#         **train_config.gae_opts, value_network=value_operator, time_dim=1, device=device, differentiable=False
-#     )  # here we still expect (B, T, ...) collected data
-#     advantage_module = advantage_module.to(train_config.training_dtype)
-#     loss_module = ClipPPOLoss(actor_operator, value_operator, **train_config.ppo_opts)
-#     loss_module = loss_module.to(train_config.training_dtype)
-#     # Optim
-#     optim = train_config.optimizer(
-#         optim_groups,
-#         **(train_config.optimizer_opts or {}),
-#     )
-#     scheduler = train_config.scheduler(
-#         optim,
-#         **train_config.scheduler_opts,
-#     )
-#     # Loop
-#     if "cuda" in str(device):
-#         torch.cuda.empty_cache()
-#     pbar = tqdm(total=train_config.total_frames, desc="Training", unit="frames")
-#     for i, tensordict_data in enumerate(collector):
-#         # collected (B, T, *specs) where B is the batch size and T the number of steps
-#         tensordict_data.pop(Env.STATE_KEY)  # we don't need this
-#         tensordict_data.pop(("next", Env.STATE_KEY))  # we don't need this
-#         actor_operator.train()
-#         value_operator.train()
-#         env.train()
-#         # Optimization
-#         for _ in range(train_config.epochs_per_batch):
-#             advantage_module(tensordict_data)
-#             replay_buffer.extend(tensordict_data.reshape(-1))  # we can now safely flatten the data
-#             for _ in range(iteration_size // train_config.frames_per_sub_batch):
-#                 sub_batch = replay_buffer.sample()
-#                 loss_vals = loss_module(sub_batch)
-#                 loss_value = loss_vals["loss_objective"] + loss_vals["loss_critic"] + loss_vals["loss_entropy"]
-#                 loss_value.backward()
-#                 grad_norm = torch.nn.utils.clip_grad_norm_(loss_module.parameters(), train_config.max_grad_norm, error_if_nonfinite=True)
-#                 optim.step()
-#                 optim.zero_grad()
-#         scheduler.step()
-
-#         log = train_step_to_log(tensordict_data, loss_vals, grad_norm, optim)
-#         total_collected_frames = (i + 1) * iteration_size
-
-#         if i % train_config.eval_and_save_every == 0:
-#             eval_log = get_eval_rollout_results(env, actor_operator, train_config.max_eval_steps)
-#             log.update(eval_log)
-#             RUN_LOGGER.save_weights(actor_value_wrapper.state_dict(), f"policy_step_{total_collected_frames}")
-#             RUN_LOGGER.save_weights(vecnorm.state_dict(), f"vecnorm_step_{total_collected_frames}")
-
-#         RUN_LOGGER.log_data(log, total_collected_frames)
-#         pbar.update(iteration_size)
-#         scheduler.step()
-#     # end of training
-#     pbar.close()
-#     TERM_LOGGER.info(f"Training finished, evaluating the final policy for {train_config.eval_repeats_after_training} samples.")
-#     avg_eval_log = get_eval_rollout_results(env, actor_operator, train_config.max_eval_steps)
-#     for _ in range(train_config.eval_repeats_after_training - 1):
-#         for k, v in get_eval_rollout_results(env, actor_operator, train_config.max_eval_steps).items():
-#             avg_eval_log[k] += v
-#     for k in avg_eval_log.keys():
-#         avg_eval_log[k] /= train_config.eval_repeats_after_training  # average over the number of evaluations
-#     log.update(avg_eval_log)
-#     RUN_LOGGER.save_weights(actor_value_wrapper.state_dict(), "policy_final")
-#     RUN_LOGGER.save_weights(vecnorm.state_dict(), "vecnorm_final")
-#     RUN_LOGGER.save_weights(actor_value_wrapper.state_dict(), f"policy_step_{train_config.total_frames}")
-#     RUN_LOGGER.save_weights(vecnorm.state_dict(), f"vecnorm_step_{train_config.total_frames}")
-#     RUN_LOGGER.log_data(log, train_config.total_frames)
-#     print(f"\nFinal evaluation results ({train_config.eval_repeats_after_training} samples):")
-#     print("\n".join(make_formatted_str_lines(avg_eval_log, EVAL_LOG_OPT)))
-#     return avg_eval_log
 
 
 if __name__ == "__main__":

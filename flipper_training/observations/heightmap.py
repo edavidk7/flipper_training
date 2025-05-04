@@ -13,7 +13,11 @@ from . import Observation, ObservationEncoder
 
 class HeightmapEncoder(ObservationEncoder):
     def __init__(
-        self, img_shape: tuple[int, int], output_dim: int, activate_output: bool = False, use_groupnorm: bool = True, groups_in_norm: int = 8
+        self,
+        img_shape: tuple[int, int],
+        output_dim: int,
+        activate_output: bool = False,
+        **kwargs,
     ):
         super(HeightmapEncoder, self).__init__(output_dim)
         self.img_shape = img_shape  # Keep for reference if needed, but not used in layer defs anymore
@@ -23,17 +27,14 @@ class HeightmapEncoder(ObservationEncoder):
             # Layer 1: Similar to the original stem but using 3x3 kernel
             # Input: (B, 1, H, W)
             nn.Conv2d(1, 16, kernel_size=3, stride=2, padding=1),
-            nn.GroupNorm(max(1, 16 // groups_in_norm), 16) if use_groupnorm else nn.Identity(),
             nn.ReLU(inplace=True),
             # Output: (B, 16, H/2, W/2)
             # Layer 2: Downsample, increase channels
             nn.Conv2d(16, 32, kernel_size=3, stride=2, padding=1),
-            nn.GroupNorm(max(1, 32 // groups_in_norm), 32) if use_groupnorm else nn.Identity(),
             nn.ReLU(inplace=True),
             # Output: (B, 32, H/4, W/4)
             # Layer 3: Downsample, increase channels
             nn.Conv2d(32, 32, kernel_size=3, stride=2, padding=1),
-            nn.GroupNorm(max(1, 32 // groups_in_norm), 32) if use_groupnorm else nn.Identity(),
             nn.ReLU(inplace=True),
             # Output: (B, 32, H/8, W/8)
             nn.AdaptiveAvgPool2d((2, 2)),  # Pool to 2x2 spatial dimensions

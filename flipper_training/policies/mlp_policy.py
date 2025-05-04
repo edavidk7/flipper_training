@@ -4,7 +4,15 @@ from copy import deepcopy
 from dataclasses import dataclass, field
 from flipper_training.environment.env import Env
 from tensordict.nn import TensorDictModule, TensorDictSequential
-from torchrl.modules import NormalParamExtractor, ProbabilisticActor, TanhNormal, ValueOperator, ActorCriticWrapper, ActorValueOperator
+from torchrl.modules import (
+    NormalParamExtractor,
+    ProbabilisticActor,
+    TanhNormal,
+    ValueOperator,
+    ActorCriticWrapper,
+    ActorValueOperator,
+    TruncatedNormal,
+)
 from flipper_training.utils.logutils import get_terminal_logger
 from rich.console import Console
 from rich.table import Table
@@ -122,8 +130,8 @@ class MLPPolicyConfig(PolicyConfig):
             distribution_kwargs={
                 "low": action_spec.space.low[0],  # pass only the values without a batch dimension
                 "high": action_spec.space.high[0],  # pass only the values without a batch dimension
-            }
-            | self.extra_distribution_kwargs,
+                **self.extra_distribution_kwargs,
+            },
             return_log_prob=True,
         )
         if "in_features" in self.value_mlp_opts or "out_features" in self.value_mlp_opts:
@@ -173,8 +181,8 @@ class MLPPolicyConfig(PolicyConfig):
             distribution_kwargs={
                 "low": action_spec.space.low[0],  # pass only the values without a batch dimension
                 "high": action_spec.space.high[0],  # pass only the values without a batch dimension
-            }
-            | self.extra_distribution_kwargs,
+                **self.extra_distribution_kwargs,
+            },
             return_log_prob=True,
         )
         value_operator = ValueOperator(

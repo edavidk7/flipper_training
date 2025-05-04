@@ -67,7 +67,7 @@ def perform_study(optuna_config: OptunaConfig, train_config):
         f"postgresql+psycopg2://{DB_SECRET['db_user']}:{DB_SECRET['db_password']}@{DB_SECRET['db_host']}:{DB_SECRET['db_port']}/{DB_SECRET['db_name']}?sslmode=require"
     )
     study = optuna.create_study(
-        study_name=f"{optuna_config.study_name}_{train_config['name']}",
+        study_name=optuna_config.study_name,
         storage=storage,
         directions=optuna_config.directions,
         load_if_exists=True,
