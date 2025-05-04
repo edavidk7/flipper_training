@@ -1,5 +1,6 @@
 from abc import ABC
 import torch
+from tensordict import TensorDict
 
 
 class BaseConfig(ABC):
@@ -20,5 +21,19 @@ class BaseConfig(ABC):
         for attr, val in self.__dict__.items():
             if isinstance(val, torch.Tensor):
                 setattr(self, attr, val.to(device))
+            elif isinstance(val, TensorDict):
+                val.to(device)
+            elif isinstance(val, list):
+                for i, item in enumerate(val):
+                    if isinstance(item, torch.Tensor):
+                        val[i] = item.to(device)
+                    elif isinstance(item, TensorDict):
+                        item.to(device)
+            elif isinstance(val, dict):
+                for key, item in val.items():
+                    if isinstance(item, torch.Tensor):
+                        val[key] = item.to(device)
+                    elif isinstance(item, TensorDict):
+                        item.to(device)
 
         return self

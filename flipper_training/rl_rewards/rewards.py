@@ -275,3 +275,90 @@ class PotentialGoalWithFinishVelocityPenalty(Reward):
         reward[success] += self.goal_reached_reward - self.finish_velocity_coef * curr_state.xd[success].norm(dim=-1, keepdim=True)
         reward[fail] += self.failed_reward
         return reward.to(self.env.out_dtype)
+
+
+@dataclass
+class PotentialGoalWithStepAscentBonus(Reward):
+    goal_reached_reward: float
+    failed_reward: float
+    gamma: float
+    step_penalty: float
+    potential_coef: float
+    step_bonus_coef: float
+
+    def __post_init__(self):
+        self.terrain_cfg = self.env.terrain_cfg
+        if not self.terrain_cfg.grid_extras or "step_indices" not in self.terrain_cfg.grid_extras:
+            raise ValueError("step_indices must be provided in the terrain_cfg.grid_extras for PotentialGoalWithStepAscentBonus.")
+        self.B_range = torch.arange(self.env.phys_cfg.num_robots, device=self.env.device)
+
+    def __call__(
+        self,
+        prev_state: PhysicsState,
+        action: torch.Tensor,
+        prev_state_der: PhysicsStateDer,
+        curr_state: PhysicsState,
+        success: torch.BoolTensor,
+        fail: torch.BoolTensor,
+        start_state: PhysicsState,
+        goal_state: PhysicsState,
+    ) -> torch.Tensor:
+        curr_dist = (goal_state.x - curr_state.x).norm(dim=-1, keepdim=True)
+        prev_dist = (goal_state.x - prev_state.x).norm(dim=-1, keepdim=True)
+        neg_goal_dist_curr = -curr_dist  # phi(s')
+        neg_goal_dist_prev = -prev_dist  # phi(s)
+        reward = self.potential_coef * (self.gamma * neg_goal_dist_curr - neg_goal_dist_prev) + self.step_penalty
+        prev_xy = prev_state.x[..., :2]  # (B,2)
+        curr_xy = curr_state.x[..., :2]  # (B,2)
+        prev_ij = self.terrain_cfg.xy2ij(prev_xy)  # (B,2)
+        curr_ij = self.terrain_cfg.xy2ij(curr_xy)  # (B,2)
+        ti = self.terrain_cfg.grid_extras["step_indices"]  # (B,2)
+        prev_idx = ti[self.B_range, *prev_ij.unbind(1)]  # (B,)
+        curr_idx = ti[self.B_range, *curr_ij.unbind(1)]  # (B,)
+        is_closer_mask = (curr_dist < prev_dist).float()  # (B,)
+        reward += (
+            self.step_bonus_coef * (curr_idx != prev_idx).float().unsqueeze(-1) * is_closer_mask
+        )  # (B,1) # For the robots that got closer and changed step
+        reward += self.goal_reached_reward * success.float().unsqueeze(-1)  # (B,1)
+        reward += self.failed_reward * fail.float().unsqueeze(-1)  # (B,1)
+        return reward.to(self.env.out_dtype)
+
+
+@dataclass
+class PotentialGoalWithPenaltiesConfigurable(Reward):
+    goal_reached_reward: float
+    failed_reward: float
+    gamma: float
+    step_penalty: float
+    potential_coef: float
+    joint_vel_variance_coef: float | None = None
+    joint_angle_variance_coef: float | None = None
+    track_vel_variance_coef: float | None = None
+
+    def __call__(
+        self,
+        prev_state: PhysicsState,
+        action: torch.Tensor,
+        prev_state_der: PhysicsStateDer,
+        curr_state: PhysicsState,
+        success: torch.BoolTensor,
+        fail: torch.BoolTensor,
+        start_state: PhysicsState,
+        goal_state: PhysicsState,
+    ) -> torch.Tensor:
+        curr_dist = (goal_state.x - curr_state.x).norm(dim=-1, keepdim=True)
+        prev_dist = (goal_state.x - prev_state.x).norm(dim=-1, keepdim=True)
+        neg_goal_dist_curr = -curr_dist  # phi(s')
+        neg_goal_dist_prev = -prev_dist  # phi(s)
+        reward = self.potential_coef * (self.gamma * neg_goal_dist_curr - neg_goal_dist_prev) + self.step_penalty
+        if self.joint_vel_variance_coef is not None:
+            joint_vel_variances = action[..., action.shape[1] // 2 :].abs().var(dim=-1, keepdim=True)
+            reward -= self.joint_vel_variance_coef * joint_vel_variances
+        if self.joint_angle_variance_coef is not None:
+            reward -= self.joint_angle_variance_coef * curr_state.thetas.abs().var(dim=-1, keepdim=True)
+        if self.track_vel_variance_coef is not None:
+            track_vel_variances = action[..., : action.shape[1] // 2].abs().var(dim=-1, keepdim=True)
+            reward -= self.track_vel_variance_coef * track_vel_variances
+        reward[success] += self.goal_reached_reward
+        reward[fail] += self.failed_reward
+        return reward.to(self.env.out_dtype)
