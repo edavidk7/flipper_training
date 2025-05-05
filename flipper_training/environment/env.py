@@ -12,6 +12,7 @@ from flipper_training.configs.robot_config import RobotModelConfig
 from flipper_training.engine.engine import DPhysicsEngine
 from flipper_training.engine.engine_state import PhysicsState, PhysicsStateDer
 from flipper_training.utils.logutils import get_terminal_logger
+from flipper_training.vis.static_vis import plot_heightmap_3d
 from rich.console import Console
 from rich.table import Table
 
@@ -171,6 +172,16 @@ class Env(EnvBase):
             device=self.device,
             dtype=torch.float32,
         )
+
+    def visualize(self):
+        for i in range(self.n_robots):
+            plot_heightmap_3d(
+                self.terrain_cfg.x_grid[i],
+                self.terrain_cfg.y_grid[i],
+                self.terrain_cfg.z_grid[i],
+                start=self.start.x[i],
+                end=self.goal.x[i],
+            ).show()
 
     def _make_observation_spec(self) -> Composite:
         obs_specs = {o.name: o.get_spec() for o in self.observations}

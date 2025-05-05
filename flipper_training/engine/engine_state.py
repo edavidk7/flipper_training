@@ -66,6 +66,7 @@ class PhysicsStateDer(TensorClass):
         f_spring (torch.Tensor): Spring forces. Shape (num_robots, 3).
         f_friction (torch.Tensor): Friction forces. Shape (num_robots, 3).
         in_contact (torch.Tensor): Contact status. Shape (num_robots, num_pts).
+        robot_points (torch.Tensor): Collision points of the robot in the world frame. Shape (num_robots, num_pts, 3).
         thrust_vectors (torch.Tensor): Thrust vectors. Shape (num_robots, num_pts, 3).
         torque (torch.Tensor): Torque generated on the robot's CoG. Shape (num_robots, 3).
 
@@ -78,6 +79,7 @@ class PhysicsStateDer(TensorClass):
     f_friction: torch.Tensor
     in_contact: torch.Tensor
     thrust_vectors: torch.Tensor
+    robot_points: torch.Tensor
     torque: torch.Tensor
 
     @staticmethod
@@ -102,6 +104,7 @@ class PhysicsStateDer(TensorClass):
             f_spring=torch.zeros(batch_size, robot_model.n_pts, 3),
             f_friction=torch.zeros(batch_size, robot_model.n_pts, 3),
             in_contact=torch.zeros(batch_size, robot_model.n_pts, 1),
+            robot_points=torch.zeros(batch_size, robot_model.n_pts, 3),
             thrust_vectors=torch.zeros(batch_size, robot_model.n_pts, 3),
             torque=torch.zeros(batch_size, 3),
             batch_size=[batch_size],

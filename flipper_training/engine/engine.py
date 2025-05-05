@@ -80,6 +80,7 @@ class DPhysicsEngine(torch.nn.Module):
             f_friction=F_friction,
             in_contact=in_contact,
             torque=torque,
+            robot_points=robot_points,
             thrust_vectors=global_thrust_vectors,
             batch_size=[self.config.num_robots],
         )

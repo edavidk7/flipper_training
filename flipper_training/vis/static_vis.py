@@ -157,6 +157,7 @@ def plot_heightmap_3d(x: torch.Tensor, y: torch.Tensor, z: torch.Tensor, fig=Non
             aspectmode="manual",
             aspectratio=dict(x=1.0, y=1.0, z=max_z / (2 * x.max().item())),
         ),
+        margin=dict(l=20, r=20, t=20, b=20),
     )
     return fig
 
@@ -166,7 +167,7 @@ def plot_birdview_trajectory(
     states: Iterable[PhysicsState],
     robot_idx: int = 0,
     iter_step: int = 30,
-    fig_opts: dict[str, Any] = {},
+    fig_opts: dict[str, Any] = {},  # noqa
 ) -> plt.Axes:
     """
     plot the birdview trajectory of the robot.
@@ -186,7 +187,7 @@ def plot_birdview_trajectory(
     cax = fig.add_subplot(gs[1])  # colorbar axis
 
     # surface
-    cf = ax.contourf(x_grid_arr, y_grid_arr, z_grid_arr, cmap="gray", levels=20)
+    ax.contourf(x_grid_arr, y_grid_arr, z_grid_arr, cmap="gray", levels=20)
     ax.set_xlabel("x")
     ax.set_ylabel("y")
     ax.set_title("Birdview of trajectory")

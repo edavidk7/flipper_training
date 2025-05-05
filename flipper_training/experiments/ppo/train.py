@@ -1,4 +1,3 @@
-import flipper_training
 from typing import TYPE_CHECKING
 import torch
 import traceback
@@ -19,6 +18,7 @@ from torchrl.objectives.value import GAE
 from tqdm import tqdm
 from flipper_training.environment.env import Env
 from flipper_training.utils.logutils import RunLogger, get_terminal_logger
+from torchrl.modules import ActorValueOperator
 
 if TYPE_CHECKING:
     from omegaconf import DictConfig
@@ -89,7 +89,11 @@ class PPOTrainer:
         )
         self.advantage_module = GAE(**self.config.gae_opts, value_network=self.value_operator, time_dim=1, device=self.device, differentiable=False)
         self.advantage_module = self.advantage_module.to(self.config.training_dtype)
-        self.loss_module = ClipPPOLoss(self.actor_operator, self.value_operator, **self.config.ppo_opts)
+        self.loss_module = ClipPPOLoss(
+            self.actor_operator,
+            self.actor_value_wrapper.get_value_head() if isinstance(self.actor_value_wrapper, ActorValueOperator) else self.actor_value_wrapper,
+            **self.config.ppo_opts,
+        )
         self.loss_module = self.loss_module.to(self.config.training_dtype)
         self.optim = self.config.optimizer(
             self.optim_groups,
