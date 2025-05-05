@@ -116,6 +116,9 @@ class Env(EnvBase):
     def effective_dt(self) -> float:
         return self.engine_iters_per_step * self.phys_cfg.dt
 
+    def _set_differentiable(self, differentiable: bool) -> None:
+        self.differentiable = differentiable
+
     def _compile_engine(
         self,
         correctness_iters: int = 100,

@@ -83,8 +83,7 @@ def normalized(x, eps=1e-8):
     - Normalized tensor.
     """
     norm = torch.norm(x, dim=-1, keepdim=True)
-    norm.clamp_(min=eps)
-    return x / norm
+    return x / norm.clamp(min=eps)
 
 
 def unit_quaternion(batch_size: int = 1, device: str | torch.device = "cpu"):

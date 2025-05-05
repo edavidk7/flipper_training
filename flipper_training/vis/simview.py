@@ -74,7 +74,7 @@ def physics_state_to_simview_body_states(
     """
     # Split contacts
     driving_part_contacts, body_contacts = torch.split(
-        physics_state_der.in_contact.squeeze().bool(), robot_config.num_driving_parts * robot_config.points_per_driving_part, dim=1
+        physics_state_der.in_contact.squeeze(-1).bool(), robot_config.num_driving_parts * robot_config.points_per_driving_part, dim=1
     )
     # Body state
     t_body = physics_state.x
