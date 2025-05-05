@@ -1,6 +1,7 @@
-name: random_trunk_with_noise_no_groupnorm
-comment: Random trunk, random start and goal with hyperparams found by Optuna, added
-  noise to observations, no groupnorm
+name: random_trunk_with_noise_sota_no_groupnorm
+comment:
+  Random trunk, random start and goal with hyperparams found by Optuna, added
+  noise to observations, no groupnorm, SOTA params
 seed: 42
 use_wandb: true
 eval_repeats_after_training: 1
@@ -60,33 +61,33 @@ vecnorm_opts:
   eps: 0.0001
 vecnorm_on_reward: true
 observations:
-- cls: ${cls:flipper_training.observations.robot_state.LocalStateVector}
-  opts:
-    apply_noise: true
-    noise_scale: 1.0e-05
-    encoder_opts:
-      num_hidden: 2
-      hidden_dim: 64
-      output_dim: 64
-      layernorm: true
-- cls: ${cls:flipper_training.observations.heightmap.Heightmap}
-  opts:
-    apply_noise: true
-    noise_scale: 1.0e-05
-    percep_shape:
-    - 64
-    - 64
-    percep_extent:
-    - 1.0
-    - 1.0
-    - -1.0
-    - -1.0
-    interval:
-    - -1.0
-    - 1.0
-    normalize_to_interval: false
-    encoder_opts:
-      output_dim: 64
+  - cls: ${cls:flipper_training.observations.robot_state.LocalStateVector}
+    opts:
+      apply_noise: true
+      noise_scale: 1.0e-05
+      encoder_opts:
+        num_hidden: 2
+        hidden_dim: 64
+        output_dim: 64
+        layernorm: true
+  - cls: ${cls:flipper_training.observations.heightmap.Heightmap}
+    opts:
+      apply_noise: true
+      noise_scale: 1.0e-05
+      percep_shape:
+        - 64
+        - 64
+      percep_extent:
+        - 1.0
+        - 1.0
+        - -1.0
+        - -1.0
+      interval:
+        - -1.0
+        - 1.0
+      normalize_to_interval: false
+      encoder_opts:
+        output_dim: 64
 gae_opts:
   gamma: 0.999
   lmbda: 0.95

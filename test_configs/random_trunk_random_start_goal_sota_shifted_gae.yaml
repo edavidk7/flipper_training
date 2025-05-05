@@ -1,7 +1,7 @@
-name: random_trunk_with_noise_no_groupnorm
+name: random_trunk_with_noise_sota_params_shifted_gae
 comment:
   Random trunk, random start and goal with hyperparams found by Optuna, added
-  noise to observations, no groupnorm
+  noise to observations, SOTA params, shifted GAE
 seed: 42
 use_wandb: true
 eval_repeats_after_training: 1

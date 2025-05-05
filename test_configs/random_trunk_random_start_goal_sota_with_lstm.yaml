@@ -1,7 +1,7 @@
-name: random_trunk_with_noise_no_groupnorm
+name: random_trunk_with_noise_sota_lstm_network
 comment:
   Random trunk, random start and goal with hyperparams found by Optuna, added
-  noise to observations, no groupnorm
+  noise to observations, SOTA params, LSTM network
 seed: 42
 use_wandb: true
 eval_repeats_after_training: 1
@@ -129,7 +129,7 @@ reward_opts:
   step_penalty: -0.24508094900269353
 policy_config: ${cls:flipper_training.policies.lstm_policy.LSTMPolicyConfig}
 policy_opts:
-  share_encoder: false
+  share_encoder: true
   apply_baselines_init: true
   actor_mlp_opts:
     num_hidden: 1

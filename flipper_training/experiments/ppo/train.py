@@ -91,7 +91,7 @@ class PPOTrainer:
         self.advantage_module = self.advantage_module.to(self.config.training_dtype)
         self.loss_module = ClipPPOLoss(
             self.actor_operator,
-            self.actor_value_wrapper.get_value_head() if isinstance(self.actor_value_wrapper, ActorValueOperator) else self.actor_value_wrapper,
+            self.actor_value_wrapper.get_value_head() if isinstance(self.actor_value_wrapper, ActorValueOperator) else self.value_operator,
             **self.config.ppo_opts,
         )
         self.loss_module = self.loss_module.to(self.config.training_dtype)

@@ -11,7 +11,6 @@ from torchrl.modules import (
     ValueOperator,
     ActorCriticWrapper,
     ActorValueOperator,
-    TruncatedNormal,
 )
 from flipper_training.utils.logutils import get_terminal_logger
 from rich.console import Console
@@ -215,10 +214,9 @@ class MLPPolicyConfig(PolicyConfig):
 
         if share_encoder:
             # ActorValueOperator structure
-            encoder_params = count_parameters(actor_value_wrapper.get_common_operator())
-            # policy_operator and value_operator are just the heads in this case
-            actor_head_params = actor_params
-            value_head_params = value_params
+            encoder_params = count_parameters(actor_value_wrapper.module[0])
+            actor_head_params = count_parameters(actor_value_wrapper.module[1])
+            value_head_params = count_parameters(actor_value_wrapper.module[2])
             table.add_row("Shared Encoder", f"{encoder_params:,}")
             table.add_row("Actor Head", f"{actor_head_params:,}")
             table.add_row("Value Head", f"{value_head_params:,}")

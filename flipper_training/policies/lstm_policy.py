@@ -116,7 +116,6 @@ class LSTMPolicyConfig(PolicyConfig):
             out_key="y_actor_lstm",
             default_recurrent_mode=True,
             **self.lstm_opts,
-            python_based=True,
         )
         actor_module = TensorDictModule(
             module=nn.Sequential(
@@ -156,7 +155,6 @@ class LSTMPolicyConfig(PolicyConfig):
             out_key="y_value_lstm",
             default_recurrent_mode=True,
             **self.lstm_opts,
-            python_based=True,
         )
         value_module = TensorDictModule(
             MLP(in_dim=combined_encoder.output_dim, out_dim=1, **self.value_mlp_opts),
@@ -216,7 +214,6 @@ class LSTMPolicyConfig(PolicyConfig):
             out_key="y_shared_lstm",
             default_recurrent_mode=True,
             **self.lstm_opts,
-            python_based=True,
         )
         common_module = TensorDictSequential([encoder_module, lstm_module])
         return ActorValueOperator(
@@ -237,31 +234,32 @@ class LSTMPolicyConfig(PolicyConfig):
         actor_params = count_parameters(actor_value_wrapper.get_policy_operator())
         value_params = count_parameters(actor_value_wrapper.get_value_operator())
 
-        lstm_params = sum(count_parameters(m) for m in actor_value_wrapper.modules() if isinstance(m, LSTMModule))
-
         if share_encoder:
             # ActorValueOperator structure
-            encoder_params = count_parameters(actor_value_wrapper.get_common_operator())
-            # policy_operator and value_operator are just the heads in this case
-            actor_head_params = actor_params
-            value_head_params = value_params
+            encoder_params = count_parameters(actor_value_wrapper.module[0].module[0])
+            lstm_params = count_parameters(actor_value_wrapper.module[0].module[1])
+            actor_head_params = count_parameters(actor_value_wrapper.module[1])
+            value_head_params = count_parameters(actor_value_wrapper.module[2])
             table.add_row("Shared Encoder", f"{encoder_params:,}")
+            table.add_row("Shared LSTM Module", f"{lstm_params:,}")
             table.add_row("Actor Head", f"{actor_head_params:,}")
             table.add_row("Value Head", f"{value_head_params:,}")
-            table.add_row("LSTM Modules", f"{lstm_params:,}")
         else:
             # ActorCriticWrapper structure
             policy_operator = actor_value_wrapper.get_policy_operator()
             value_operator = actor_value_wrapper.get_value_operator()
             actor_encoder_params = count_parameters(policy_operator.module[0].module[0])
-            actor_head_params = count_parameters(policy_operator.module[0].module[1])
+            actor_lstm_params = count_parameters(policy_operator.module[0].module[1])
+            actor_head_params = count_parameters(policy_operator.module[0].module[2])
             value_encoder_params = count_parameters(value_operator[0])
+            value_lstm_params = count_parameters(value_operator[1].module[0])
             value_head_params = count_parameters(value_operator[1])
             table.add_row("Actor Encoder", f"{actor_encoder_params:,}")
+            table.add_row("Actor LSTM Module", f"{actor_lstm_params:,}")
             table.add_row("Actor Head", f"{actor_head_params:,}")
             table.add_row("Value Encoder", f"{value_encoder_params:,}")
             table.add_row("Value Head", f"{value_head_params:,}")
-            table.add_row("LSTM Modules", f"{lstm_params:,}")
+            table.add_row("Value LSTM Module", f"{value_lstm_params:,}")
 
         table.add_row("---", "---")
         table.add_row("Total Actor", f"{actor_params:,}")
