@@ -93,7 +93,7 @@ gae_opts:
   lmbda: 0.95
   average_gae: false
   skip_existing: false
-  shifted: true
+  shifted: true # needed for LSTM
 ppo_opts:
   clip_epsilon: 0.2
   entropy_bonus: true
