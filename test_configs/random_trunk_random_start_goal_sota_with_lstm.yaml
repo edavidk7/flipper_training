@@ -119,11 +119,11 @@ objective_opts:
   start_position_orientation: towards_goal
   init_joint_angles: random
   resample_random_joint_angles_on_reset: true
-  cache_size: 20000
+  cache_size: 40000
 reward: ${cls:flipper_training.rl_rewards.rewards.PotentialGoal}
 reward_opts:
-  goal_reached_reward: 7.00220498001836
-  failed_reward: -4.185834036649192
+  goal_reached_reward: 7
+  failed_reward: -7
   potential_coef: 42.65164641109597
   gamma: ${gae_opts.gamma}
   step_penalty: -0.24508094900269353
@@ -132,16 +132,16 @@ policy_opts:
   share_encoder: true
   apply_baselines_init: true
   actor_mlp_opts:
-    num_hidden: 1
+    num_hidden: 2
     hidden_dim: 64
     layernorm: false
   value_mlp_opts:
-    num_hidden: 1
+    num_hidden: 2
     hidden_dim: 64
     layernorm: true
   actor_optimizer_opts:
-    lr: 0.00016031009263681187
+    lr: 0.0003
     weight_decay: 0.0001
   value_optimizer_opts:
-    lr: 0.002027103877870638
+    lr: 0.002
     weight_decay: 0.0001
