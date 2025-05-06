@@ -27,8 +27,9 @@ class RandomNavigationObjective(BaseObjective):
     iteration_limit_factor: float
     max_feasible_roll: float
     max_feasible_pitch: float
-    start_position_orientation: Literal["random", "towards_goal"]
     cache_size: int
+    start_position_orientation: Literal["random", "towards_goal"]
+    init_joint_angles: torch.Tensor | Literal["max", "min", "random"] = "random"
     _cache_cursor: int = 0
 
     def __post_init__(self) -> None:
@@ -94,18 +95,43 @@ class RandomNavigationObjective(BaseObjective):
             "goal": goal_pos_cache,
             "ori": self._get_initial_orientation_quat(start_pos_cache, goal_pos_cache),
             "step_limits": self._compute_step_limits(start_pos_cache, goal_pos_cache),
+            "joint_angles": torch.stack([self._get_initial_joint_angles() for _ in range(self.cache_size)], dim=0),
         }
         self._cache_cursor = 0
 
+    def _get_initial_joint_angles(self) -> torch.Tensor:
+        high = self.robot_model.joint_limits[None, 1].cpu()
+        low = self.robot_model.joint_limits[None, 0].cpu()
+        match self.init_joint_angles:
+            case "max":
+                return high.repeat(self.physics_config.num_robots, 1)
+            case "min":
+                return low.repeat(self.physics_config.num_robots, 1)
+            case "random":
+                ang = torch.rand((self.physics_config.num_robots, self.robot_model.num_driving_parts), generator=self.rng) * (high - low) + low
+                return ang.clamp(min=low, max=high)
+            case torch.Tensor():
+                if self.init_joint_angles.numel() != self.robot_model.num_driving_parts:
+                    raise ValueError(f"Invalid shape for init_joint_angles: {self.init_joint_angles.shape}")
+                ang = self.init_joint_angles.repeat(self.physics_config.num_robots, 1)
+                return ang.clamp(min=low, max=high)
+            case _:
+                raise ValueError("Invalid value for init_joint_angles.")
+
     def _construct_full_start_goal_states(
-        self, start_pos: torch.Tensor, goal_pos: torch.Tensor, oris: torch.Tensor
+        self, start_pos: torch.Tensor, goal_pos: torch.Tensor, oris: torch.Tensor, thetas: torch.Tensor
     ) -> tuple[PhysicsState, PhysicsState]:
         """
         Constructs the full start and goal states for the robots in the
         environment by adding the initial orientation and drop height.
         """
         start_state = PhysicsState.dummy(
-            robot_model=self.robot_model, batch_size=start_pos.shape[0], device=self.device, x=start_pos.to(self.device), q=oris
+            robot_model=self.robot_model,
+            batch_size=start_pos.shape[0],
+            device=self.device,
+            x=start_pos.to(self.device),
+            q=oris,
+            thetas=thetas.to(self.device),
         )
         goal_state = PhysicsState.dummy(
             robot_model=self.robot_model, batch_size=goal_pos.shape[0], device=self.device, x=goal_pos.to(self.device), q=oris
@@ -153,6 +179,7 @@ class RandomNavigationObjective(BaseObjective):
                 self.cache["start"][self._cache_cursor],
                 self.cache["goal"][self._cache_cursor],
                 self.cache["ori"][self._cache_cursor],
+                self.cache["joint_angles"][self._cache_cursor],
             )
             step_limits = self.cache["step_limits"][self._cache_cursor].to(self.device)
             self._cache_cursor += 1

@@ -18,10 +18,12 @@ class MultiGaussianHeightmapGenerator(BaseHeightmapGenerator):
     min_std_fraction: float = 0.05
     max_std_fraction: float = 0.3
     min_sigma_ratio: float = 0.3
+    top_height_percentile_cutoff: float | None = None  # Heights above this percentile are exluded from the suitability mask
 
     def _generate_heightmap(self, x, y, max_coord, rng):
         B = x.shape[0]
         z = torch.zeros_like(x)
+        suitable_mask = torch.ones_like(x, dtype=torch.bool, device=x.device)
         for i in range(B):
             # Generate random number of gaussians
             num_gaussians = int(torch.randint(self.min_gaussians, self.max_gaussians + 1, (1,), generator=rng).item())
@@ -44,7 +46,7 @@ class MultiGaussianHeightmapGenerator(BaseHeightmapGenerator):
                 torch.rand((num_gaussians,), generator=rng).to(x.device) * (self.max_height_fraction - self.min_height_fraction)
                 + self.min_height_fraction
             )
-            z[i] = torch.sum(
+            z_i = torch.sum(
                 heights.view(-1, 1, 1)
                 * torch.exp(
                     -(
@@ -54,4 +56,11 @@ class MultiGaussianHeightmapGenerator(BaseHeightmapGenerator):
                 ),
                 dim=0,
             )
-        return z, {"suitable_mask": torch.ones_like(x, dtype=torch.bool, device=x.device)}
+            if self.top_height_percentile_cutoff is not None:
+                # Set the suitable mask to False where the height is above the percentile
+                # Get the top height percentile cutoff
+                percentile_height = torch.quantile(z_i, self.top_height_percentile_cutoff)
+                violation_mask = z_i > percentile_height
+                suitable_mask[i] = ~violation_mask
+            z[i] = z_i
+        return z, {"suitable_mask": suitable_mask}

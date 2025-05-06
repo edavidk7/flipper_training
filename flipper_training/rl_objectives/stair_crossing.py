@@ -8,6 +8,7 @@ from flipper_training.engine.engine_state import PhysicsState
 from flipper_training.rl_objectives import BaseObjective
 from flipper_training.utils.geometry import euler_to_quaternion, quaternion_to_euler
 import torch.nn.functional as F
+from flipper_training.utils.logutils import get_terminal_logger
 
 
 @dataclass
@@ -22,7 +23,7 @@ class StairCrossing(BaseObjective):
     init_joint_angles: torch.Tensor | Literal["max", "min", "random"]
     cache_size: int
     sampling_mode: Literal["lowest_highest", "any"] = "lowest_highest"
-    min_dist_from_edge: float = 0.3  # Minimum distance from the edge of the stairs area
+    min_dist_from_edge: float = 0.3  # Minimum distance of the x,y position of start/goal from the edge of the step
     resample_random_joint_angles_on_reset: bool = False
     _cache_cursor: int = 0
 
@@ -30,6 +31,7 @@ class StairCrossing(BaseObjective):
         super().__post_init__()
         if self.terrain_config.grid_extras is None or "step_indices" not in self.terrain_config.grid_extras:
             raise ValueError("World configuration must contain 'step_indices' in grid_extras for StairCrossing.")
+        self.term_logger = get_terminal_logger("stair_crossing")
         self._init_cache()
 
     def state_dict(self):
@@ -41,28 +43,47 @@ class StairCrossing(BaseObjective):
         self._cache_cursor = state_dict["cache_cursor"]
 
     def _get_suitable_core_mask(self, step_indices: torch.Tensor) -> torch.BoolTensor:
-        """Identifies cells sufficiently far from the non-stair area (-1 index)."""
+        """
+        Identify core cells of each step plateau by excluding any cell adjacent
+        to a different index or outside (-1), and then erode by the configured
+        min_dist_from_edge (in meters) using grid_res to compute radius.
+        """
+        si = step_indices  # (B, H, W)
+        valid = si != -1
+        # number of cells to erode based on configured distance
         grid_res = self.terrain_config.grid_res
-        # use math.ceil on floats
-        radius_cells = int(math.ceil(self.min_dist_from_edge / grid_res))
-        if radius_cells == 0:
-            return step_indices != -1
+        radius = int(math.ceil(self.min_dist_from_edge / grid_res))
 
-        # mark original outside cells
-        is_outside_mask = (step_indices == -1).float().unsqueeze(1)  # (B,1,H,W)
-        kernel_size = 2 * radius_cells + 1
+        # first pass: remove immediate edges (4-connected neighbors)
+        pad_si = F.pad(si, (1, 1, 1, 1), mode="constant", value=-1)
+        up = pad_si[:, :-2, 1:-1]
+        down = pad_si[:, 2:, 1:-1]
+        left = pad_si[:, 1:-1, :-2]
+        right = pad_si[:, 1:-1, 2:]
+        core = valid & (up == si) & (down == si) & (left == si) & (right == si)
 
-        # pad with 1.0 to treat beyond-boundary as outside
-        padded = F.pad(
-            is_outside_mask,
-            (radius_cells, radius_cells, radius_cells, radius_cells),
-            mode="constant",
-            value=1.0,
-        )
-        # dilate outside region
-        dilated = F.max_pool2d(padded, kernel_size=kernel_size, stride=1, padding=0)
-        suitable_core_mask = (dilated.squeeze(1) == 0) & (step_indices != -1)
-        return suitable_core_mask
+        # iterative erosion for additional radius
+        if radius > 1:
+            for i in range(step_indices.shape[0]):
+                neigh = core[i]
+                for _ in range(radius - 1):
+                    pad_c = F.pad(neigh.float(), (1, 1, 1, 1), mode="constant", value=0).bool()
+                    upc = pad_c[:-2, 1:-1]
+                    downc = pad_c[2:, 1:-1]
+                    leftc = pad_c[1:-1, :-2]
+                    rightc = pad_c[1:-1, 2:]
+                    neigh_next = neigh & upc & downc & leftc & rightc
+                    if not neigh_next.any():
+                        self.term_logger.warning(
+                            f"Warning: No suitable core cells found after erosion for min_dist_from_edge={self.min_dist_from_edge} for robot {i}."
+                            " Try reducing the distance or increasing grid size."
+                        )
+                        # if no core cells are found, fall back to the original core
+                        break
+                    neigh = neigh_next
+
+                core[i] = neigh
+        return core
 
     def _init_cache(self) -> None:
         B = self.physics_config.num_robots
@@ -70,7 +91,21 @@ class StairCrossing(BaseObjective):
 
         step_indices = self.terrain_config.grid_extras["step_indices"].cpu()  # (B, H, W)
         suitable_core_mask = self._get_suitable_core_mask(step_indices)
+        # import matplotlib.pyplot as plt
+        # from flipper_training.vis.static_vis import plot_grids_xyz
 
+        # for b in range(B):
+        #     plt.imshow(suitable_core_mask[b].cpu().numpy())
+        #     plt.title(f"Robot {b} suitable core mask")
+        #     plt.colorbar()
+        #     plt.show()
+        #     plot_grids_xyz(
+        #         self.terrain_config.x_grid[b].cpu(),
+        #         self.terrain_config.y_grid[b].cpu(),
+        #         self.terrain_config.z_grid[b].cpu(),
+        #         title=f"Robot {b} terrain",
+        #     )
+        #     plt.show()
         # Initialize cache tensors
         start_pos_cache = torch.empty((self.cache_size, B, 3), dtype=torch.float32)
         goal_pos_cache = torch.empty((self.cache_size, B, 3), dtype=torch.float32)
@@ -78,6 +113,7 @@ class StairCrossing(BaseObjective):
         for b in trange(B, desc="Initializing start/goal position cache (Stairs)"):
             indices_b = step_indices[b]
             core_mask_b = suitable_core_mask[b]
+
             valid_core_indices_b = torch.nonzero(core_mask_b, as_tuple=False)  # (N_valid, 2) [i, j]
 
             if valid_core_indices_b.shape[0] == 0:
