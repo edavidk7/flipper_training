@@ -179,11 +179,14 @@ class BarrierCrossingWithLatentControl(BaseObjective):
 
     @override
     def reset(self, reset_mask, training):
+        self.last_reset_mask = reset_mask
+
+    def _reset_latent_params(self, latent_params: torch.Tensor):
         current_latent_params = getattr(self.env, "latent_control_params", None)
         if current_latent_params is None:
             self.env.latent_control_params = self.cache["latent_params"][self._cache_cursor].to(self.env.device)
         else:
-            current_latent_params[reset_mask] = self.cache["latent_params"][self._cache_cursor].to(self.env.device)[reset_mask]
+            current_latent_params[self.last_reset_mask] = self.cache["latent_params"][self._cache_cursor].to(self.env.device)[self.last_reset_mask]
             self.env.latent_control_params = current_latent_params
 
     @override
@@ -196,6 +199,7 @@ class BarrierCrossingWithLatentControl(BaseObjective):
                 self.cache["joint_angles"][self._cache_cursor],
             )
             step_limits = self.cache["step_limits"][self._cache_cursor].to(self.device)
+            self._reset_latent_params(self.cache["latent_params"][self._cache_cursor])
             self._cache_cursor += 1
             return start_state, goal_state, step_limits
         else:
