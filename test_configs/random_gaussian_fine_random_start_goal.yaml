@@ -1,12 +1,12 @@
-name: random_fine_gaussian_terrain_with_random_start_goal
-comment: "Random fine gaussian terrain with random start and goal"
+name: random_fine_gaussian_terrain_with_random_start_goal_stabilization
+comment: "Random fine gaussian terrain with random start and goal, parameters derived from the best Optuna run for enforcing control smoothness"
 seed: 42
 use_wandb: true
 eval_repeats_after_training: 1
 use_tensorboard: false
 device: cuda
 training_dtype: ${dtype:float32}
-total_frames: ${mul:5242880,5}
+total_frames: ${mul:5242880,4}
 engine_iters_per_env_step: 4
 num_robots: 256
 time_steps_per_batch: 128
@@ -18,7 +18,7 @@ optimizer: ${cls:torch.optim.AdamW}
 scheduler: ${cls:torch.optim.lr_scheduler.LinearLR}
 scheduler_opts:
   start_factor: 1.0
-  end_factor: 0.2345794068901917
+  end_factor: 0.28703006303809225
   total_iters: ${intdiv:${total_frames},${mul:${time_steps_per_batch},${num_robots}}}
 max_grad_norm: 0.5
 grid_res: 0.05
@@ -117,13 +117,20 @@ objective_opts:
   higher_allowed: 0.5
   cache_size: 30000
   init_joint_angles: random
-reward: ${cls:flipper_training.rl_rewards.rewards.PotentialGoal}
+reward: ${cls:flipper_training.rl_rewards.rewards.PotentialGoalWithPenaltiesConfigurable}
 reward_opts:
-  goal_reached_reward: 7.00220498001836
-  failed_reward: -7.00220498001836
-  potential_coef: 42.65164641109597
+  goal_reached_reward: 7.963765459661249
+  failed_reward: -7.737836592755915
+  potential_coef: 38.23252716396916
   gamma: ${gae_opts.gamma}
-  step_penalty: -0.24508094900269353
+  step_penalty: -0.37878885469543
+  joint_vel_variance_coef: 0.12175687152820583
+  joint_angle_variance_coef: 0.08011397434183266
+  track_vel_variance_coef: 0.2876607076073408
+  roll_coef: 0.1
+  roll_rate_coef: 0.1
+  pitch_coef: 0.1
+  pitch_rate_coef: 0.1
 policy_config: ${cls:flipper_training.policies.mlp_policy.MLPPolicyConfig}
 policy_opts:
   share_encoder: false
@@ -137,10 +144,10 @@ policy_opts:
     hidden_dim: 64
     layernorm: true
   actor_optimizer_opts:
-    lr: 0.00016031009263681187
+    lr: 0.0004824297168107223
     weight_decay: 0.0001
   value_optimizer_opts:
-    lr: 0.002027103877870638
+    lr: 0.0023065521662259366
     weight_decay: 0.0001
-policy_weights_path: runs/ppo/random_trunk_with_control_smoothness_penalties_2025-05-04_20-33-47/weights/policy_final.pth
-vecnorm_weights_path: runs/ppo/random_trunk_with_control_smoothness_penalties_2025-05-04_20-33-47/weights/vecnorm_final.pth
+policy_weights_path: runs/ppo/random_trunk_with_control_smoothness_penalties_2025-05-04_21-29-49/weights/policy_final.pth
+vecnorm_weights_path: runs/ppo/random_trunk_with_control_smoothness_penalties_2025-05-04_21-29-49/weights/vecnorm_final.pth

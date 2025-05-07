@@ -66,7 +66,7 @@ class BarrierCrossing(BaseObjective):
             #     cmap="tab10",
             # )
             # plt.show()
-            mask = self.terrain_config.grid_extras["suitable_mask"][b]
+            mask = self.terrain_config.grid_extras["suitable_mask"][b].cpu()
             left_idx = torch.nonzero(mask == BarrierZones.LEFT, as_tuple=False).cpu()
             right_idx = torch.nonzero(mask == BarrierZones.RIGHT, as_tuple=False).cpu()
             collected = 0

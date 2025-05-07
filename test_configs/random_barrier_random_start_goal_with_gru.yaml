@@ -1,7 +1,5 @@
-name: random_trunk_with_noise_sota_no_groupnorm
-comment:
-  Random trunk, random start and goal with hyperparams found by Optuna, added
-  noise to observations, no groupnorm, SOTA params
+name: random_barrier_with_gru
+comment: Random barrier, random start and goal, GRU network
 seed: 42
 use_wandb: true
 eval_repeats_after_training: 1
@@ -15,7 +13,7 @@ time_steps_per_batch: 128
 epochs_per_batch: 5
 frames_per_sub_batch: 4096
 eval_and_save_every: 10
-max_eval_steps: 500
+max_eval_steps: 1200
 optimizer: ${cls:torch.optim.AdamW}
 scheduler: ${cls:torch.optim.lr_scheduler.LinearLR}
 scheduler_opts:
@@ -32,10 +30,9 @@ heightmap_gen_opts:
   min_thickness: 0.8
   max_thickness: 1.2
   max_dist_from_origin: 0.5
-  deadzone: 0.2
+  deadzone: 0.3
   min_height: 0.15
-  max_height: 0.5
-  exp: 8
+  max_height: 0.7
 world_opts:
   k_stiffness: 35000
   k_friction_lon: 0.8
@@ -95,6 +92,7 @@ gae_opts:
   lmbda: 0.95
   average_gae: false
   skip_existing: false
+  shifted: true # needed for LSTM
 ppo_opts:
   clip_epsilon: 0.2
   entropy_bonus: true
@@ -109,9 +107,9 @@ data_collector_opts:
   exploration_type: RANDOM
 objective: ${cls:flipper_training.rl_objectives.barrier_crossing.BarrierCrossing}
 objective_opts:
-  min_dist_to_goal: 2.0
-  max_dist_to_goal: 4.0
-  iteration_limit_factor: 5
+  min_dist_to_goal: 3.0
+  max_dist_to_goal: 5.0
+  iteration_limit_factor: 6
   max_feasible_pitch: 1.5
   max_feasible_roll: 1.5
   start_z_offset: 0.2
@@ -121,7 +119,7 @@ objective_opts:
   init_joint_angles: random
   resample_random_joint_angles_on_reset: true
   enforce_path_through_barrier: true
-  cache_size: 20000
+  cache_size: 30000
 reward: ${cls:flipper_training.rl_rewards.rewards.PotentialGoal}
 reward_opts:
   goal_reached_reward: 7.00220498001836
@@ -147,5 +145,5 @@ policy_opts:
   value_optimizer_opts:
     lr: 0.002027103877870638
     weight_decay: 0.0001
-policy_weights_path: runs/ppo/random_trunk_with_noise_sota_gru_network_2025-05-06_00-10-04/wandb_weights/policy_final.pth
-vecnorm_weights_path: runs/ppo/random_trunk_with_noise_sota_gru_network_2025-05-06_00-10-04/wandb_weights/vecnorm_final.pth
+policy_weights_path: runs/ppo/random_trunk_with_control_smoothness_penalties_gru_2025-05-06_15-31-03/weights/policy_final.pth
+vecnorm_weights_path: runs/ppo/random_trunk_with_control_smoothness_penalties_gru_2025-05-06_15-31-03/weights/vecnorm_final.pth

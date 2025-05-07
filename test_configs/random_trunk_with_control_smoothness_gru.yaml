@@ -1,10 +1,12 @@
-name: random_coarse_gaussian_terrain_with_random_start_goal_stabilization
-comment: "Random coarse gaussian terrain with random start and goal, parameters derived from the best Optuna run for enforcing control smoothness"
+name: random_trunk_with_control_smoothness_penalties_gru
+comment:
+  Random trunk, random start and goal with hyperparams found by Optuna, added
+  noise to observations, penalties for joint and track velocity variance, pretrained GRU policy
 seed: 42
 use_wandb: true
-eval_repeats_after_training: 1
+eval_repeats_after_training: 20
 use_tensorboard: false
-device: cuda
+device: cuda:0
 training_dtype: ${dtype:float32}
 total_frames: ${mul:5242880,4}
 engine_iters_per_env_step: 4
@@ -23,20 +25,19 @@ scheduler_opts:
 max_grad_norm: 0.5
 grid_res: 0.05
 max_coord: 3.2
-heightmap_gen: ${ cls:flipper_training.heightmaps.multi_gaussian.MultiGaussianHeightmapGenerator}
+heightmap_gen: ${ cls:flipper_training.heightmaps.trunks.TrunkHeightmapGenerator}
 heightmap_gen_opts:
-  min_gaussians: 100
-  max_gaussians: 200
-  min_height_fraction: 0.1
-  max_height_fraction: 0.2
-  min_std_fraction: 0.1
-  max_std_fraction: 0.18
-  min_sigma_ratio: 0.6
-  top_height_percentile_cutoff: 0.7
+  min_trunk_height: 0.15
+  max_trunk_height: 0.35
+  max_dist_from_origin: 0.5
+  trunk_deadzone_width: 0.5
+  max_trunk_width: 1.5
+  min_trunk_width: 0.6
+  exp: 10
 world_opts:
   k_stiffness: 35000
-  k_friction_lon: 1.0
-  k_friction_lat: 0.8
+  k_friction_lon: 0.8
+  k_friction_lat: 0.5
 engine_opts:
   damping_alpha: 5.0
   dt: 0.007
@@ -92,6 +93,7 @@ gae_opts:
   lmbda: 0.95
   average_gae: false
   skip_existing: false
+  shifted: true # needed for LSTM
 ppo_opts:
   clip_epsilon: 0.2
   entropy_bonus: true
@@ -104,20 +106,20 @@ data_collector_opts:
   compile_policy: false
   split_trajs: false
   exploration_type: RANDOM
-objective: ${cls:flipper_training.rl_objectives.random_nav.RandomNavigationObjective}
+objective: ${cls:flipper_training.rl_objectives.trunk_crossing.TrunkCrossing}
 objective_opts:
-  goal_reached_threshold: 0.3
-  start_z_offset: 0.1
-  goal_z_offset: 0.05
-  iteration_limit_factor: 5
   min_dist_to_goal: 2.0
   max_dist_to_goal: 4.0
+  iteration_limit_factor: 5
   max_feasible_pitch: 1.5
   max_feasible_roll: 1.5
+  start_z_offset: 0.2
+  goal_z_offset: 0.05
+  goal_reached_threshold: 0.2
   start_position_orientation: towards_goal
-  higher_allowed: 0.3
-  cache_size: 30000
   init_joint_angles: random
+  resample_random_joint_angles_on_reset: true
+  cache_size: 20000
 reward: ${cls:flipper_training.rl_rewards.rewards.PotentialGoalWithPenaltiesConfigurable}
 reward_opts:
   goal_reached_reward: 7.963765459661249
@@ -128,11 +130,7 @@ reward_opts:
   joint_vel_variance_coef: 0.12175687152820583
   joint_angle_variance_coef: 0.08011397434183266
   track_vel_variance_coef: 0.2876607076073408
-  roll_coef: 0.1
-  roll_rate_coef: 0.1
-  pitch_coef: 0.1
-  pitch_rate_coef: 0.1
-policy_config: ${cls:flipper_training.policies.mlp_policy.MLPPolicyConfig}
+policy_config: ${cls:flipper_training.policies.gru_policy.GRUPolicyConfig}
 policy_opts:
   share_encoder: false
   apply_baselines_init: true
@@ -150,5 +148,5 @@ policy_opts:
   value_optimizer_opts:
     lr: 0.0023065521662259366
     weight_decay: 0.0001
-policy_weights_path: runs/ppo/random_trunk_with_control_smoothness_penalties_2025-05-04_21-29-49/weights/policy_final.pth
-vecnorm_weights_path: runs/ppo/random_trunk_with_control_smoothness_penalties_2025-05-04_21-29-49/weights/vecnorm_final.pth
+policy_weights_path: runs/ppo/random_trunk_with_noise_sota_gru_network_2025-05-06_00-10-04/weights/policy_final.pth
+vecnorm_weights_path: runs/ppo/random_trunk_with_noise_sota_gru_network_2025-05-06_00-10-04/weights/vecnorm_final.pth

@@ -1,10 +1,10 @@
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
 
 import torch
 
 from flipper_training.engine.engine_state import PhysicsState, PhysicsStateDer
 from flipper_training.rl_rewards import Reward
+from flipper_training.utils.geometry import quaternion_to_roll, quaternion_to_pitch
 
 __all__ = [
     "RollPitchGoal",
@@ -13,6 +13,14 @@ __all__ = [
     "PotentialGoalWithConditionalVelocityBonus",
     "PotentialGoalWithConditionalVelocityBonusAndJointCommandBonus",
     "GoalDistance",
+    "PotentialGoalWithJointVelVariancePenalty",
+    "PotentialGoalWithFinishVelocityPenalty",
+    "PotentialGoalWithStepAscentBonus",
+    "PotentialGoalWithPenaltiesConfigurable",
+    "PotentialGoalWithJointVelVariancePenalty",
+    "PotentialGoalWithFinishVelocityPenalty",
+    "PotentialGoalWithStepAscentBonus",
+    "PotentialGoalWithPenaltiesConfigurable",
 ]
 
 
@@ -334,6 +342,10 @@ class PotentialGoalWithPenaltiesConfigurable(Reward):
     joint_vel_variance_coef: float | None = None
     joint_angle_variance_coef: float | None = None
     track_vel_variance_coef: float | None = None
+    roll_coef: float | None = None
+    roll_rate_coef: float | None = None
+    pitch_coef: float | None = None
+    pitch_rate_coef: float | None = None
 
     def __call__(
         self,
@@ -359,6 +371,16 @@ class PotentialGoalWithPenaltiesConfigurable(Reward):
         if self.track_vel_variance_coef is not None:
             track_vel_variances = action[..., : action.shape[1] // 2].abs().var(dim=-1, keepdim=True)
             reward -= self.track_vel_variance_coef * track_vel_variances
+        if self.roll_coef is not None:
+            reward -= self.roll_coef * quaternion_to_roll(curr_state.q).abs().unsqueeze(-1) / torch.pi
+        if self.roll_rate_coef is not None:
+            roll_rate = curr_state.omega[..., 0, None] / torch.pi
+            reward -= self.roll_rate_coef * roll_rate.abs()
+        if self.pitch_coef is not None:
+            reward -= self.pitch_coef * quaternion_to_pitch(curr_state.q).abs().unsqueeze(-1) / torch.pi
+        if self.pitch_rate_coef is not None:
+            pitch_rate = curr_state.omega[..., 1, None] / torch.pi
+            reward -= self.pitch_rate_coef * pitch_rate.abs()
         reward[success] += self.goal_reached_reward
         reward[fail] += self.failed_reward
         return reward.to(self.env.out_dtype)
