@@ -33,7 +33,7 @@ heightmap_gen_opts:
   max_std_fraction: 0.08
   min_sigma_ratio: 0.6
 world_opts:
-  k_stiffness: 35000
+  k_stiffness: 30000
   k_friction_lon: 1.0
   k_friction_lat: 0.8
 engine_opts:
@@ -107,10 +107,10 @@ objective: ${cls:flipper_training.rl_objectives.random_nav.RandomNavigationObjec
 objective_opts:
   goal_reached_threshold: 0.2
   start_z_offset: 0.3
-  goal_z_offset: 0.1
+  goal_z_offset: 0.2
   iteration_limit_factor: 5
   min_dist_to_goal: 2.0
-  max_dist_to_goal: 4.0
+  max_dist_to_goal: 5.0
   max_feasible_pitch: 1.5
   max_feasible_roll: 1.5
   start_position_orientation: towards_goal

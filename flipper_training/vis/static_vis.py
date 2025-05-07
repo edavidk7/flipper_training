@@ -100,7 +100,15 @@ def plot_heightmap_3d(x: torch.Tensor, y: torch.Tensor, z: torch.Tensor, fig=Non
     x = x.detach().cpu()
     y = y.detach().cpu()
     z = z.detach().cpu()
-    fig = go.Figure(data=[go.Surface(z=z.cpu().numpy(), x=x.cpu().numpy(), y=y.cpu().numpy())]) if fig is None else fig
+    fig = (
+        go.Figure(
+            data=[
+                go.Surface(z=z.cpu().numpy(), x=x.cpu().numpy(), y=y.cpu().numpy(), colorscale=kwargs.get("colorscale", "viridis"), showscale=False)
+            ]
+        )
+        if fig is None
+        else fig
+    )
     max_z = z.abs().max().item()
     if "start" in kwargs:
         start = kwargs["start"].detach().cpu()
@@ -119,8 +127,8 @@ def plot_heightmap_3d(x: torch.Tensor, y: torch.Tensor, z: torch.Tensor, fig=Non
         )
         max_z = max(max_z, start[2].abs().item())
 
-    if "end" in kwargs:
-        end = kwargs["end"].detach().cpu()
+    if "goal" in kwargs:
+        end = kwargs["goal"].detach().cpu()
         fig.add_trace(
             go.Scatter3d(
                 x=[end[0].item()],
@@ -129,21 +137,21 @@ def plot_heightmap_3d(x: torch.Tensor, y: torch.Tensor, z: torch.Tensor, fig=Non
                 mode="markers+text",
                 marker=dict(size=5, color=END_COLOR),
                 textfont=dict(color="gray"),
-                text=["End"],
+                text=["Goal"],
                 textposition="top center",
                 showlegend=False,
             )
         )
         max_z = max(max_z, end[2].abs().item())
-    if "robot_points" in kwargs:
-        robot_points = kwargs["robot_points"].detach().cpu()
+    if (robot_points := kwargs.get("robot_points")) is not None:
+        robot_points = robot_points.detach().cpu()
         fig.add_trace(
             go.Scatter3d(
                 x=robot_points[:, 0].cpu().numpy(),
                 y=robot_points[:, 1].cpu().numpy(),
                 z=robot_points[:, 2].cpu().numpy(),
                 mode="markers",
-                marker=dict(size=2, color="black"),
+                marker=dict(size=2, color="gray"),
                 showlegend=False,
             )
         )
@@ -153,6 +161,9 @@ def plot_heightmap_3d(x: torch.Tensor, y: torch.Tensor, z: torch.Tensor, fig=Non
             xaxis_title="X",
             yaxis_title="Y",
             zaxis_title="Height (Z)",
+            xaxis=dict(showgrid=False, zeroline=False, showticklabels=False, showbackground=False),
+            yaxis=dict(showgrid=False, zeroline=False, showticklabels=False, showbackground=False),
+            zaxis=dict(showgrid=False, zeroline=False, showticklabels=False, showbackground=False),
             camera_eye=dict(x=1.0, y=1.0, z=0.5),
             aspectmode="manual",
             aspectratio=dict(x=1.0, y=1.0, z=max_z / (2 * x.max().item())),

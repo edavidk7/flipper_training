@@ -176,15 +176,23 @@ class Env(EnvBase):
             dtype=torch.float32,
         )
 
-    def visualize(self):
+    def visualize(self, robot_points: torch.Tensor | None = None, return_figures: bool = False) -> None | list:
+        figures = []
         for i in range(self.n_robots):
-            plot_heightmap_3d(
+            f = plot_heightmap_3d(
                 self.terrain_cfg.x_grid[i],
                 self.terrain_cfg.y_grid[i],
                 self.terrain_cfg.z_grid[i],
                 start=self.start.x[i],
-                end=self.goal.x[i],
-            ).show()
+                goal=self.goal.x[i],
+                robot_points=robot_points[i] if robot_points is not None else None,
+            )
+            if return_figures:
+                figures.append(f)
+            else:
+                f.show()
+        if return_figures:
+            return figures
 
     def _make_observation_spec(self) -> Composite:
         obs_specs = {o.name: o.get_spec() for o in self.observations}
