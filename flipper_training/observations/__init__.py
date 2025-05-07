@@ -36,7 +36,7 @@ class Observation(ABC):
     """
 
     env: "Env"
-    encoder_opts: dict
+    encoder_opts: dict | None = None
     apply_noise: bool = False
     noise_scale: float | torch.Tensor | None = None
     supports_vecnorm: ClassVar[bool] = NotImplemented

@@ -6,14 +6,14 @@ eval_repeats_after_training: 1
 use_tensorboard: false
 device: cuda
 training_dtype: ${dtype:float32}
-total_frames: ${mul:5242880,2}
+total_frames: ${mul:5242880,5}
 engine_iters_per_env_step: 4
 num_robots: 256
 time_steps_per_batch: 128
 epochs_per_batch: 5
 frames_per_sub_batch: 4096
 eval_and_save_every: 10
-max_eval_steps: 1000
+max_eval_steps: 500
 optimizer: ${cls:torch.optim.AdamW}
 scheduler: ${cls:torch.optim.lr_scheduler.LinearLR}
 scheduler_opts:
@@ -28,7 +28,7 @@ heightmap_gen_opts:
   min_steps: 3
   max_steps: 8
   min_step_height: 0.15
-  max_step_height: 0.3
+  max_step_height: 0.4
   exponent: null
 world_opts:
   k_stiffness: 35000
@@ -105,12 +105,12 @@ objective: ${cls:flipper_training.rl_objectives.stair_crossing.StairCrossing}
 objective_opts:
   goal_reached_threshold: 0.2
   start_z_offset: 0.3
-  goal_z_offset: 0.05
+  goal_z_offset: 0.1
   iteration_limit_factor: 8
   max_feasible_pitch: 1.5
   max_feasible_roll: 1.5
   start_position_orientation: towards_goal
-  cache_size: 30000
+  cache_size: 40000
   sampling_mode: any
   min_dist_from_edge: 0.5
   init_joint_angles: random
@@ -141,5 +141,3 @@ policy_opts:
   value_optimizer_opts:
     lr: 0.002027103877870638
     weight_decay: 0.0001
-policy_weights_path: runs/ppo/random_trunk_with_control_smoothness_penalties_2025-05-04_20-33-47/weights/policy_final.pth
-vecnorm_weights_path: runs/ppo/random_trunk_with_control_smoothness_penalties_2025-05-04_20-33-47/weights/vecnorm_final.pth

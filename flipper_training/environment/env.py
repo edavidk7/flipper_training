@@ -60,9 +60,9 @@ class Env(EnvBase):
         # Engine
         self.engine = DPhysicsEngine(physics_config, robot_model_config, device)
         # RL components
-        self.observations = [o(self) for o in observation_factories]
         self.objective = objective_factory(self)
         self.reward = reward_factory(self)
+        self.observations = [o(self) for o in observation_factories]
         # RL State variables
         self.step_count = torch.zeros((self.n_robots,), device=self.device, dtype=torch.int32)
         self.step_limits = torch.zeros((self.n_robots,), device=self.device, dtype=torch.int32)

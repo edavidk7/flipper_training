@@ -4,7 +4,7 @@ import torch
 
 from flipper_training.engine.engine_state import PhysicsState, PhysicsStateDer
 from flipper_training.rl_rewards import Reward
-from flipper_training.utils.geometry import quaternion_to_roll, quaternion_to_pitch
+from flipper_training.utils.geometry import quaternion_to_roll, quaternion_to_pitch, quaternion_to_yaw, normalized
 
 __all__ = [
     "RollPitchGoal",
@@ -387,14 +387,13 @@ class PotentialGoalWithPenaltiesConfigurable(Reward):
 
 
 @dataclass
-class PotentialGoalWithLeftRightLatentPreference(Reward):
+class PotentialGoalWithSideLatentPreference(Reward):
     goal_reached_reward: float
     failed_reward: float
     gamma: float
     step_penalty: float
     potential_coef: float
-    left_latent_coef: float
-    right_latent_coef: float
+    side_bonus_coef: float
 
     def __call__(
         self,
@@ -407,11 +406,23 @@ class PotentialGoalWithLeftRightLatentPreference(Reward):
         start_state: PhysicsState,
         goal_state: PhysicsState,
     ) -> torch.Tensor:
+        latent_control_params = getattr(self.env, "latent_control_params", None)
+        if latent_control_params is None:
+            raise ValueError("latent_control_params must be provided in the environment for PotentialGoalWithSideLatentPreference.")
         curr_dist = (goal_state.x - curr_state.x).norm(dim=-1, keepdim=True)
         prev_dist = (goal_state.x - prev_state.x).norm(dim=-1, keepdim=True)
         neg_goal_dist_curr = -curr_dist  # phi(s')
         neg_goal_dist_prev = -prev_dist  # phi(s)
         reward = self.potential_coef * (self.gamma * neg_goal_dist_curr - neg_goal_dist_prev) + self.step_penalty
+        vector_to_goal_planar = goal_state.x[:, :2] - curr_state.x[:, :2]
+        robot_yaws = quaternion_to_yaw(curr_state.q)
+        robot__direction_planar = torch.stack([torch.cos(robot_yaws), torch.sin(robot_yaws)], dim=-1)
+        dots = (normalized(vector_to_goal_planar) * normalized(robot__direction_planar)).sum(
+            dim=-1, keepdim=True
+        )  # dot product between the robot's heading and the direct line to the goal
+        dots *= latent_control_params  # this shifts the sign to the side we want to prefer
+        is_closer_mask = (curr_dist < prev_dist).float()
+        reward += self.side_bonus_coef * dots * is_closer_mask
         reward[success] += self.goal_reached_reward
         reward[fail] += self.failed_reward
         return reward.to(self.env.out_dtype)

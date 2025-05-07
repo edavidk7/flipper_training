@@ -166,9 +166,10 @@ class RandomNavigationWithLatentControl(BaseObjective):
     def reset(self, reset_mask, training):
         current_latent_params = getattr(self.env, "latent_control_params", None)
         if current_latent_params is None:
-            raise ValueError("Latent control parameters not found in the environment. Make sure to set them before calling this observation.")
-        current_latent_params[reset_mask] = self.cache["latent_params"][self._cache_cursor][reset_mask]
-        self.env.latent_control_params = current_latent_params
+            self.env.latent_control_params = self.cache["latent_params"][self._cache_cursor].to(self.env.device)
+        else:
+            current_latent_params[reset_mask] = self.cache["latent_params"][self._cache_cursor].to(self.env.device)[reset_mask]
+            self.env.latent_control_params = current_latent_params
 
     @override
     def generate_start_goal_states(self) -> tuple[PhysicsState, PhysicsState, torch.IntTensor | torch.LongTensor]:

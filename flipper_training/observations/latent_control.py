@@ -3,7 +3,6 @@ from dataclasses import dataclass
 import torch
 from torchrl.data import Unbounded
 from flipper_training.engine.engine_state import PhysicsState, PhysicsStateDer
-from flipper_training.rl_objectives.random_nav_latent import RandomNavigationWithLatentControl
 from . import Observation, ObservationEncoder
 
 
@@ -18,10 +17,6 @@ class IdentityEncoder(ObservationEncoder):
 @dataclass
 class LatentControlParameter(Observation):
     supports_vecnorm = False
-
-    def __post_init__(self):
-        if not isinstance(self.env.objective, RandomNavigationWithLatentControl):
-            raise ValueError("LatentControlParameter observation only works with RandomNavigationWithLatentControl")
 
     def __call__(
         self,

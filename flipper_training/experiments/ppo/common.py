@@ -74,7 +74,7 @@ def prepare_env(train_config: "PPOExperimentConfig", mode: Literal["train", "eva
             rng=rng,
         ),
         reward_factory=train_config.reward.make_factory(**train_config.reward_opts),
-        observation_factories=[o["cls"].make_factory(**o["opts"]) for o in train_config.observations],
+        observation_factories=[o["cls"].make_factory(**(o.get("opts", None) or {})) for o in train_config.observations],
         terrain_config=terrain_config,
         physics_config=physics_config,
         robot_model_config=robot_model,
