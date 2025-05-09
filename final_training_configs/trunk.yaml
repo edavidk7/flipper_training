@@ -1,9 +1,8 @@
-name: random_trunk_with_noise_sota_no_groupnorm
+name: final_trunk_thesis_training_${seed}
 seed: 42
 device: cuda
 reward: ${cls:flipper_training.rl_rewards.rewards.PotentialGoal}
-comment: Random trunk, random start and goal with hyperparams found by Optuna, added
-  noise to observations, no groupnorm, SOTA params
+comment: "Final trunk training for thesis checking with different seeds"
 gae_opts:
   gamma: 0.999
   lmbda: 0.95
@@ -55,33 +54,33 @@ reward_opts:
   potential_coef: 42.65164641109597
   goal_reached_reward: 7.00220498001836
 observations:
-- cls: ${cls:flipper_training.observations.robot_state.LocalStateVector}
-  opts:
-    apply_noise: true
-    noise_scale: 1.0e-05
-    encoder_opts:
-      layernorm: true
-      hidden_dim: 64
-      num_hidden: 2
-      output_dim: 64
-- cls: ${cls:flipper_training.observations.heightmap.Heightmap}
-  opts:
-    interval:
-    - -1
-    - 1
-    apply_noise: true
-    noise_scale: 1.0e-05
-    encoder_opts:
-      output_dim: 64
-    percep_shape:
-    - 64
-    - 64
-    percep_extent:
-    - 1
-    - 1
-    - -1
-    - -1
-    normalize_to_interval: false
+  - cls: ${cls:flipper_training.observations.robot_state.LocalStateVector}
+    opts:
+      apply_noise: true
+      noise_scale: 1.0e-05
+      encoder_opts:
+        layernorm: true
+        hidden_dim: 64
+        num_hidden: 2
+        output_dim: 64
+  - cls: ${cls:flipper_training.observations.heightmap.Heightmap}
+    opts:
+      interval:
+        - -1
+        - 1
+      apply_noise: true
+      noise_scale: 1.0e-05
+      encoder_opts:
+        output_dim: 64
+      percep_shape:
+        - 64
+        - 64
+      percep_extent:
+        - 1
+        - 1
+        - -1
+        - -1
+      normalize_to_interval: false
 total_frames: ${mul:5242880,5}
 vecnorm_opts:
   eps: 0.0001

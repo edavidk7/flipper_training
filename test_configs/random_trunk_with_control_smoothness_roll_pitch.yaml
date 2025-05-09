@@ -1,7 +1,7 @@
-name: random_trunk_with_control_smoothness_penalties_gru
+name: random_trunk_with_control_smoothness_roll_pitch
 comment:
   Random trunk, random start and goal with hyperparams found by Optuna, added
-  noise to observations, penalties for joint and track velocity variance, GRU policy
+  noise to observations, penalties for joint and track velocity variance, penalties for roll, rollrate, pitch, pitchrate
 seed: 42
 use_wandb: true
 eval_repeats_after_training: 20
@@ -93,7 +93,6 @@ gae_opts:
   lmbda: 0.95
   average_gae: false
   skip_existing: false
-  shifted: true
 ppo_opts:
   clip_epsilon: 0.2
   entropy_bonus: true
@@ -130,7 +129,11 @@ reward_opts:
   joint_vel_variance_coef: 0.38542283615506356
   joint_angle_variance_coef: 0.46823465177871115
   track_vel_variance_coef: 0.10043191959777673
-policy_config: ${cls:flipper_training.policies.gru_policy.GRUPolicyConfig}
+  roll_coef: 0.2
+  roll_rate_coef: 0.2
+  pitch_coef: 0.2
+  pitch_rate_coef: 0.2
+policy_config: ${cls:flipper_training.policies.mlp_policy.MLPPolicyConfig}
 policy_opts:
   share_encoder: false
   apply_baselines_init: true
@@ -143,10 +146,10 @@ policy_opts:
     hidden_dim: 64
     layernorm: true
   actor_optimizer_opts:
-    lr: 0.0002
+    lr: 0.00042132325653928697
     weight_decay: 0.0001
   value_optimizer_opts:
     lr: 0.002159040781862437
     weight_decay: 0.0001
-policy_weights_path: runs/ppo/random_trunk_with_noise_sota_gru_network_2025-05-06_00-10-04/weights/policy_final.pth
-vecnorm_weights_path: runs/ppo/random_trunk_with_noise_sota_gru_network_2025-05-06_00-10-04/weights/vecnorm_final.pth
+policy_weights_path: runs/ppo/random_trunk_with_control_smoothness_penalties_2025-05-08_17-01-54/weights/policy_final.pth
+vecnorm_weights_path: runs/ppo/random_trunk_with_control_smoothness_penalties_2025-05-08_17-01-54/weights/vecnorm_final.pth

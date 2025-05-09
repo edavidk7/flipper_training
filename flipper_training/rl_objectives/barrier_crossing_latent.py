@@ -188,6 +188,7 @@ class BarrierCrossingWithLatentControl(BaseObjective):
         else:
             current_latent_params[self.last_reset_mask] = self.cache["latent_params"][self._cache_cursor].to(self.env.device)[self.last_reset_mask]
             self.env.latent_control_params = current_latent_params
+        self.env.latent_control_params[:] = 1.0
 
     @override
     def generate_start_goal_states(self) -> tuple[PhysicsState, PhysicsState, torch.IntTensor]:
