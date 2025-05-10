@@ -1,6 +1,5 @@
 name: random_barrier_random_start_goal
-comment:
-  Random barrier, random start and goal 
+comment: Random barrier, random start and goal
 seed: 42
 use_wandb: true
 eval_repeats_after_training: 1
@@ -9,12 +8,12 @@ device: cuda
 training_dtype: ${dtype:float32}
 total_frames: ${mul:5242880,5}
 engine_iters_per_env_step: 4
-num_robots: 256
+num_robots: 16
 time_steps_per_batch: 128
 epochs_per_batch: 5
 frames_per_sub_batch: 4096
 eval_and_save_every: 10
-max_eval_steps: 500
+max_eval_steps: 1000
 optimizer: ${cls:torch.optim.AdamW}
 scheduler: ${cls:torch.optim.lr_scheduler.LinearLR}
 scheduler_opts:
@@ -24,17 +23,34 @@ scheduler_opts:
 max_grad_norm: 0.5
 grid_res: 0.05
 max_coord: 3.2
+# start important
 heightmap_gen: ${ cls:flipper_training.heightmaps.barrier.BarrierHeightmapGenerator}
 heightmap_gen_opts:
-  min_length: 0.5
-  max_length: 2.5
-  min_thickness: 0.8
+  min_length: 2.5
+  max_length: 4.5
+  min_thickness: 0.5
   max_thickness: 1.2
   max_dist_from_origin: 0.5
   deadzone: 0.2
   min_height: 0.15
-  max_height: 0.5
+  max_height: 0.6
   exp: 8
+objective: ${cls:flipper_training.rl_objectives.barrier_crossing.BarrierCrossing}
+objective_opts:
+  min_dist_to_goal: 2.0
+  max_dist_to_goal: 5.0
+  iteration_limit_factor: 8
+  max_feasible_pitch: 1.5
+  max_feasible_roll: 1.5
+  start_z_offset: 0.2
+  goal_z_offset: 0.05
+  goal_reached_threshold: 0.2
+  start_position_orientation: towards_goal
+  init_joint_angles: random
+  resample_random_joint_angles_on_reset: true
+  enforce_path_through_barrier: true
+  cache_size: 10
+# end important
 world_opts:
   k_stiffness: 35000
   k_friction_lon: 0.8
@@ -106,21 +122,6 @@ data_collector_opts:
   compile_policy: false
   split_trajs: false
   exploration_type: RANDOM
-objective: ${cls:flipper_training.rl_objectives.barrier_crossing.BarrierCrossing}
-objective_opts:
-  min_dist_to_goal: 2.0
-  max_dist_to_goal: 4.0
-  iteration_limit_factor: 5
-  max_feasible_pitch: 1.5
-  max_feasible_roll: 1.5
-  start_z_offset: 0.2
-  goal_z_offset: 0.05
-  goal_reached_threshold: 0.2
-  start_position_orientation: towards_goal
-  init_joint_angles: random
-  resample_random_joint_angles_on_reset: true
-  enforce_path_through_barrier: true
-  cache_size: 20000
 reward: ${cls:flipper_training.rl_rewards.rewards.PotentialGoal}
 reward_opts:
   goal_reached_reward: 7.00220498001836
