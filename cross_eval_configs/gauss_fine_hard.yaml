@@ -1,16 +1,14 @@
-name: final_stairs_pretrained_extra_reward_thesis_${seed}
-comment:
-  Random stairs, starting from pretrained trunk model, last multi seed run for thesis, extra reward for step ascent
-  the trunk crossing task
+name: random_fine_gaussian_terrain_with_random_start_goal_stabilization
+comment: "Random fine gaussian terrain with random start and goal, parameters derived from the best Optuna run for enforcing control smoothness"
 seed: 42
 use_wandb: true
-eval_repeats_after_training: 20
+eval_repeats_after_training: 1
 use_tensorboard: false
-device: cuda:0
+device: cuda
 training_dtype: ${dtype:float32}
-total_frames: ${mul:5242880,5}
+total_frames: ${mul:5242880,4}
 engine_iters_per_env_step: 4
-num_robots: 256
+num_robots: 16
 time_steps_per_batch: 128
 epochs_per_batch: 5
 frames_per_sub_batch: 4096
@@ -20,22 +18,40 @@ optimizer: ${cls:torch.optim.AdamW}
 scheduler: ${cls:torch.optim.lr_scheduler.LinearLR}
 scheduler_opts:
   start_factor: 1.0
-  end_factor: 0.5618372186349603
+  end_factor: 0.28703006303809225
   total_iters: ${intdiv:${total_frames},${mul:${time_steps_per_batch},${num_robots}}}
 max_grad_norm: 0.5
 grid_res: 0.05
 max_coord: 3.2
-heightmap_gen: ${ cls:flipper_training.heightmaps.stairs.StairsHeightmapGenerator}
+# start important
+heightmap_gen: ${ cls:flipper_training.heightmaps.multi_gaussian.MultiGaussianHeightmapGenerator}
 heightmap_gen_opts:
-  min_steps: 3
-  max_steps: 8
-  min_step_height: 0.15
-  max_step_height: 0.4
-  exponent: null
+  min_gaussians: 400
+  max_gaussians: 600
+  min_height_fraction: 0.03
+  max_height_fraction: 0.25
+  min_std_fraction: 0.03
+  max_std_fraction: 0.08
+  min_sigma_ratio: 0.5
+objective: ${cls:flipper_training.rl_objectives.random_nav.RandomNavigationObjective}
+objective_opts:
+  goal_reached_threshold: 0.2
+  start_z_offset: 0.3
+  goal_z_offset: 0.2
+  iteration_limit_factor: 5
+  min_dist_to_goal: 2.0
+  max_dist_to_goal: 5.0
+  max_feasible_pitch: 1.5
+  max_feasible_roll: 1.5
+  start_position_orientation: towards_goal
+  higher_allowed: 0.5
+  cache_size: 10
+  init_joint_angles: random
+# end important
 world_opts:
-  k_stiffness: 35000
-  k_friction_lon: 0.8
-  k_friction_lat: 0.5
+  k_stiffness: 30000
+  k_friction_lon: 1.0
+  k_friction_lat: 0.8
 engine_opts:
   damping_alpha: 5.0
   dt: 0.007
@@ -103,28 +119,20 @@ data_collector_opts:
   compile_policy: false
   split_trajs: false
   exploration_type: RANDOM
-objective: ${cls:flipper_training.rl_objectives.stair_crossing.StairCrossing}
-objective_opts:
-  goal_reached_threshold: 0.2
-  start_z_offset: 0.3
-  goal_z_offset: 0.1
-  iteration_limit_factor: 8
-  max_feasible_pitch: 1.5
-  max_feasible_roll: 1.5
-  start_position_orientation: towards_goal
-  cache_size: 40000
-  sampling_mode: any
-  min_dist_from_edge: 0.5
-  init_joint_angles: random
-  resample_random_joint_angles_on_reset: true
-reward: ${cls:flipper_training.rl_rewards.rewards.PotentialGoalWithStepAscentBonus}
+reward: ${cls:flipper_training.rl_rewards.rewards.PotentialGoalWithPenaltiesConfigurable}
 reward_opts:
-  goal_reached_reward: 7.326022319628405
-  failed_reward: -8.086958618117405
-  potential_coef: 61.755824567422465
+  goal_reached_reward: 7.963765459661249
+  failed_reward: -7.737836592755915
+  potential_coef: 38.23252716396916
   gamma: ${gae_opts.gamma}
-  step_penalty: -0.3760019567268228
-  step_bonus_coef: 0.15275583154628047
+  step_penalty: -0.37878885469543
+  joint_vel_variance_coef: 0.12175687152820583
+  joint_angle_variance_coef: 0.08011397434183266
+  track_vel_variance_coef: 0.2876607076073408
+  roll_coef: 0.1
+  roll_rate_coef: 0.1
+  pitch_coef: 0.1
+  pitch_rate_coef: 0.1
 policy_config: ${cls:flipper_training.policies.mlp_policy.MLPPolicyConfig}
 policy_opts:
   share_encoder: false
@@ -138,10 +146,10 @@ policy_opts:
     hidden_dim: 64
     layernorm: true
   actor_optimizer_opts:
-    lr: 0.00014521174983010248
+    lr: 0.0004824297168107223
     weight_decay: 0.0001
   value_optimizer_opts:
-    lr: 0.0025380292738310236
+    lr: 0.0023065521662259366
     weight_decay: 0.0001
-policy_weights_path: runs/ppo/random_trunk_with_control_smoothness_roll_pitch_2025-05-08_18-23-45/weights/policy_final.pth
-vecnorm_weights_path: runs/ppo/random_trunk_with_control_smoothness_roll_pitch_2025-05-08_18-23-45/weights/vecnorm_final.pth
+policy_weights_path: runs/ppo/random_trunk_with_noise_sota_no_groupnorm_2025-05-08_15-49-19/weights/policy_final.pth
+vecnorm_weights_path: runs/ppo/random_trunk_with_noise_sota_no_groupnorm_2025-05-08_15-49-19/weights/vecnorm_final.pth

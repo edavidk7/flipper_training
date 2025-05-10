@@ -1,6 +1,5 @@
 name: random_barrier_random_start_goal
-comment:
-  Random barrier, random start and goal 
+comment: Random barrier, random start and goal
 seed: 42
 use_wandb: true
 eval_repeats_after_training: 1
@@ -27,13 +26,13 @@ max_coord: 3.2
 heightmap_gen: ${ cls:flipper_training.heightmaps.barrier.BarrierHeightmapGenerator}
 heightmap_gen_opts:
   min_length: 0.5
-  max_length: 2.5
+  max_length: 1.5
   min_thickness: 0.8
   max_thickness: 1.2
   max_dist_from_origin: 0.5
   deadzone: 0.2
   min_height: 0.15
-  max_height: 0.5
+  max_height: 0.6
   exp: 8
 world_opts:
   k_stiffness: 35000
@@ -119,8 +118,8 @@ objective_opts:
   start_position_orientation: towards_goal
   init_joint_angles: random
   resample_random_joint_angles_on_reset: true
-  enforce_path_through_barrier: true
-  cache_size: 20000
+  enforce_path_through_barrier: false
+  cache_size: 40000
 reward: ${cls:flipper_training.rl_rewards.rewards.PotentialGoal}
 reward_opts:
   goal_reached_reward: 7.00220498001836
@@ -146,5 +145,3 @@ policy_opts:
   value_optimizer_opts:
     lr: 0.002027103877870638
     weight_decay: 0.0001
-policy_weights_path: runs/ppo/random_trunk_with_control_smoothness_penalties_2025-05-04_20-33-47/weights/policy_final.pth
-vecnorm_weights_path: runs/ppo/random_trunk_with_control_smoothness_penalties_2025-05-04_20-33-47/weights/vecnorm_final.pth
