@@ -25,13 +25,15 @@ grid_res: 0.05
 max_coord: 3.2
 heightmap_gen: ${ cls:flipper_training.heightmaps.multi_gaussian.MultiGaussianHeightmapGenerator}
 heightmap_gen_opts:
-  min_gaussians: 400
-  max_gaussians: 600
+  min_gaussians: 300
+  max_gaussians: 400
   min_height_fraction: 0.03
   max_height_fraction: 0.18
   min_std_fraction: 0.03
-  max_std_fraction: 0.08
+  max_std_fraction: 0.1
   min_sigma_ratio: 0.6
+  add_random_noise: true
+  noise_std: 0.01
 world_opts:
   k_stiffness: 30000
   k_friction_lon: 1.0
@@ -105,17 +107,17 @@ data_collector_opts:
   exploration_type: RANDOM
 objective: ${cls:flipper_training.rl_objectives.random_nav.RandomNavigationObjective}
 objective_opts:
-  goal_reached_threshold: 0.2
+  goal_reached_threshold: 0.3
   start_z_offset: 0.3
-  goal_z_offset: 0.2
+  goal_z_offset: 0.15
   iteration_limit_factor: 5
   min_dist_to_goal: 2.0
-  max_dist_to_goal: 5.0
+  max_dist_to_goal: 4.0
   max_feasible_pitch: 1.5
   max_feasible_roll: 1.5
   start_position_orientation: towards_goal
   higher_allowed: 0.5
-  cache_size: 30000
+  cache_size: 40000
   init_joint_angles: random
 reward: ${cls:flipper_training.rl_rewards.rewards.PotentialGoalWithPenaltiesConfigurable}
 reward_opts:
@@ -149,5 +151,3 @@ policy_opts:
   value_optimizer_opts:
     lr: 0.0023065521662259366
     weight_decay: 0.0001
-policy_weights_path: runs/ppo/random_trunk_with_control_smoothness_penalties_2025-05-04_21-29-49/weights/policy_final.pth
-vecnorm_weights_path: runs/ppo/random_trunk_with_control_smoothness_penalties_2025-05-04_21-29-49/weights/vecnorm_final.pth

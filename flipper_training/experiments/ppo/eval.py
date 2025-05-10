@@ -3,8 +3,15 @@ import gc
 from typing import TYPE_CHECKING
 
 import torch
-from common import prepare_env, make_formatted_str_lines, log_from_eval_rollout, EVAL_LOG_OPT, make_transformed_env, parse_and_load_config
-from config import PPOExperimentConfig, hash_omegaconf, OmegaConf
+from flipper_training.experiments.ppo.common import (
+    prepare_env,
+    make_formatted_str_lines,
+    log_from_eval_rollout,
+    EVAL_LOG_OPT,
+    make_transformed_env,
+    parse_and_load_config,
+)
+from flipper_training.experiments.ppo.config import PPOExperimentConfig, hash_omegaconf, OmegaConf
 from pathlib import Path
 from simview import SimView
 from torchrl.envs.utils import ExplorationType, set_exploration_type
