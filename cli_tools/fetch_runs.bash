@@ -11,14 +11,16 @@ DESTINATION_BASE_PATH="runs/ppo"
 # List of folder names to rsync
 # Note: The bullet points (•) have been removed from the folder names.
 FOLDERS_TO_SYNC=(
-    final_stairs_from_scratch_thesis_42_2025-05-09_23-17-08
-    final_stairs_from_scratch_thesis_16_2025-05-09_23-16-51
-    final_stairs_from_scratch_thesis_32_2025-05-09_23-16-48
-    final_stairs_from_scratch_thesis_64_2025-05-09_23-16-44
-    final_stairs_from_scratch_thesis_420_2025-05-09_23-16-39
-    final_stairs_from_scratch_thesis_13_2025-05-09_23-16-35
-    final_stairs_from_scratch_thesis_26_2025-05-09_23-16-32
-    final_stairs_from_scratch_thesis_98_2025-05-09_23-16-16
+    final_barrier_thesis_666_2025-05-10_11-46-40
+    final_barrier_thesis_1_2025-05-10_11-46-28
+    final_barrier_thesis_98_2025-05-10_11-46-24
+    final_barrier_thesis_26_2025-05-10_11-46-15
+    final_barrier_thesis_13_2025-05-10_10-52-39
+    final_barrier_thesis_420_2025-05-10_10-52-28
+    final_barrier_thesis_64_2025-05-10_10-51-44
+    final_barrier_thesis_32_2025-05-10_10-50-02
+    final_barrier_thesis_16_2025-05-10_10-48-24
+    final_barrier_thesis_42_2025-05-10_10-46-54
 )
 
 # Rsync options
