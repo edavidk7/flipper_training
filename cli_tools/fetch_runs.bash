@@ -9,18 +9,18 @@ REMOTE_BASE_PATH="personal/flipper_training/runs/ppo"
 DESTINATION_BASE_PATH="runs/ppo"
 
 # List of folder names to rsync
-# Note: The bullet points (•) have been removed from the folder names.
+# Note: The bullet points have been removed from the folder names.
 FOLDERS_TO_SYNC=(
-    final_barrier_thesis_666_2025-05-10_11-46-40
-    final_barrier_thesis_1_2025-05-10_11-46-28
-    final_barrier_thesis_98_2025-05-10_11-46-24
-    final_barrier_thesis_26_2025-05-10_11-46-15
-    final_barrier_thesis_13_2025-05-10_10-52-39
-    final_barrier_thesis_420_2025-05-10_10-52-28
-    final_barrier_thesis_64_2025-05-10_10-51-44
-    final_barrier_thesis_32_2025-05-10_10-50-02
-    final_barrier_thesis_16_2025-05-10_10-48-24
-    final_barrier_thesis_42_2025-05-10_10-46-54
+    final_fine_gaussian_terrain_thesis_666_2025-05-12_13-46-49
+    final_fine_gaussian_terrain_thesis_98_2025-05-12_13-34-12
+    final_fine_gaussian_terrain_thesis_1_2025-05-12_13-33-38
+    final_fine_gaussian_terrain_thesis_26_2025-05-12_13-32-31
+    final_fine_gaussian_terrain_thesis_13_2025-05-12_13-30-14
+    final_fine_gaussian_terrain_thesis_420_2025-05-12_13-27-39
+    final_fine_gaussian_terrain_thesis_64_2025-05-12_13-27-20
+    final_fine_gaussian_terrain_thesis_16_2025-05-12_13-27-10
+    final_fine_gaussian_terrain_thesis_32_2025-05-12_13-27-10
+    final_fine_gaussian_terrain_thesis_42_2025-05-12_13-27-08
 )
 
 # Rsync options
