@@ -305,11 +305,7 @@ class StairCrossing(BaseObjective):
     def check_terminated_wrong(self, prev_state: PhysicsState, state: PhysicsState, goal: PhysicsState) -> torch.BoolTensor:
         # Identical to TrunkCrossing + step‐jump check
         rolls, pitches, _ = quaternion_to_euler(state.q)
-        old_fail = (
-            (pitches.abs() > self.max_feasible_pitch)
-            | (rolls.abs() > self.max_feasible_roll)
-            | (state.x.abs() > self.terrain_config.max_coord).any(dim=-1)
-        )
+        old_fail = (pitches.abs() > self.max_feasible_pitch) | (rolls.abs() > self.max_feasible_roll)
         # new: terminate if step index changed by >1
         ti = self.terrain_config.grid_extras["step_indices"]  # (B, H, W)
         B_range = torch.arange(self.physics_config.num_robots, device=self.device)

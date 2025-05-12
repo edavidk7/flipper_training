@@ -6,7 +6,7 @@ eval_repeats_after_training: 20
 use_tensorboard: false
 device: cuda:0
 training_dtype: ${dtype:float32}
-total_frames: ${mul:5242880,5}
+total_frames: ${mul:5242880,20}
 engine_iters_per_env_step: 4
 num_robots: 256
 time_steps_per_batch: 128
@@ -18,7 +18,7 @@ optimizer: ${cls:torch.optim.AdamW}
 scheduler: ${cls:torch.optim.lr_scheduler.LinearLR}
 scheduler_opts:
   start_factor: 1.0
-  end_factor: 0.7886930080275621
+  end_factor: 0.195
   total_iters: ${intdiv:${total_frames},${mul:${time_steps_per_batch},${num_robots}}}
 max_grad_norm: 0.5
 grid_res: 0.05

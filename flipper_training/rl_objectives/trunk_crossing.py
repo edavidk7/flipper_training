@@ -23,6 +23,7 @@ class TrunkCrossing(BaseObjective):
     init_joint_angles: torch.Tensor | Literal["max", "min", "random"]
     cache_size: int
     resample_random_joint_angles_on_reset: bool = False
+    map_exit_as_failure: bool = True
     _cache_cursor: int = 0
 
     def __post_init__(self) -> None:
@@ -211,11 +212,7 @@ class TrunkCrossing(BaseObjective):
 
     def check_terminated_wrong(self, prev_state: PhysicsState, state: PhysicsState, goal: PhysicsState) -> torch.BoolTensor:
         rolls, pitches, _ = quaternion_to_euler(state.q)
-        return (
-            (pitches.abs() > self.max_feasible_pitch)
-            | (rolls.abs() > self.max_feasible_roll)
-            | (state.x.abs() > self.terrain_config.max_coord).any(dim=-1)
-        )
+        return (pitches.abs() > self.max_feasible_pitch) | (rolls.abs() > self.max_feasible_roll)
 
     def _compute_step_limits(
         self,

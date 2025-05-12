@@ -225,11 +225,7 @@ class BarrierCrossingWithLatentControl(BaseObjective):
 
     def check_terminated_wrong(self, prev_state: PhysicsState, state: PhysicsState, goal: PhysicsState) -> torch.BoolTensor:
         rolls, pitches, _ = quaternion_to_euler(state.q)
-        return (
-            (pitches.abs() > self.max_feasible_pitch)
-            | (rolls.abs() > self.max_feasible_roll)
-            | (state.x.abs() > self.terrain_config.max_coord).any(dim=-1)
-        )
+        return (pitches.abs() > self.max_feasible_pitch) | (rolls.abs() > self.max_feasible_roll)
 
     def _compute_step_limits(
         self,
