@@ -30,6 +30,7 @@ class LocalStateVectorWithAction(Observation):
                 raise ValueError(f"Noise scale tensor must have shape (1,) or ({self.dim},) but got {self.noise_scale.shape}.")
         self.max_dist = self.env.terrain_cfg.max_coord * 2**1.5
         self.theta_range = self.env.robot_cfg.joint_limits[1] - self.env.robot_cfg.joint_limits[0]
+        self.joint_vel_range = self.env.robot_cfg.joint_max_pivot_vels[1] - self.env.robot_cfg.joint_max_pivot_vels[0]
 
     def __call__(
         self,
@@ -45,10 +46,12 @@ class LocalStateVectorWithAction(Observation):
         xd_local = rotate_vector_by_quaternion(curr_state.xd.unsqueeze(1), inv_q).squeeze(1)
         xd_local /= self.max_dist
         omega_local = rotate_vector_by_quaternion(curr_state.omega.unsqueeze(1), inv_q).squeeze(1) / torch.pi
-        thetas = (curr_state.thetas - self.env.robot_cfg.joint_limits[None, 0]) / self.theta_range.unsqueeze(0)  # (n_robots, num_driving_parts)
+        thetas = (curr_state.thetas - self.env.robot_cfg.joint_limits[None, 0]) / self.theta_range.unsqueeze(0) * 2 - 1  # scale to [-1, 1]
+        # (n_robots, num_driving_parts)
         rolls, pitches, _ = quaternion_to_euler(curr_state.q)
-        rolls.div_(torch.pi)
-        pitches.div_(torch.pi)
+        rolls.div_(torch.pi)  # scale to [-1, 1]
+        pitches.div_(torch.pi)  # scale to [-1, 1]
+        action_obs = action.clone()
         obs = torch.cat(
             [
                 rolls.unsqueeze(1),
@@ -57,7 +60,7 @@ class LocalStateVectorWithAction(Observation):
                 omega_local,
                 thetas,
                 goal_vecs_local,
-                action,
+                action_obs,
             ],
             dim=1,
         ).to(self.env.out_dtype)

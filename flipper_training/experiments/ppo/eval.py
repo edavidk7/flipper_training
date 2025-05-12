@@ -25,20 +25,18 @@ if TYPE_CHECKING:
     from tensordict import TensorDictBase
 
 
-def get_eval_rollout(
-    train_config: PPOExperimentConfig, policy_weights_path: str | Path | None, vecnorm_weights_path: str | Path | None
-) -> tuple["TransformedEnv", "TensorDictBase"]:
+def get_eval_rollout(train_config: PPOExperimentConfig) -> tuple["TransformedEnv", "TensorDictBase"]:
     env, device, rng = prepare_env(train_config, mode="eval")
     policy_config = train_config.policy_config(**train_config.policy_opts)
     actor_value_wrapper, optim_groups, policy_transforms = policy_config.create(
         env=env,
-        weights_path=policy_weights_path,
+        weights_path=train_config.policy_weights_path,
         device=device,
     )
     actor_operator = actor_value_wrapper.get_policy_operator()
     env, vecnorm = make_transformed_env(env, train_config, policy_transforms)
-    if vecnorm_weights_path is not None:
-        vecnorm.load_state_dict(torch.load(vecnorm_weights_path, map_location=device))
+    if train_config.vecnorm_weights_path is not None:
+        vecnorm.load_state_dict(torch.load(train_config.vecnorm_weights_path, map_location=device))
     actor_operator.eval()
     env.eval()
     with (
@@ -53,7 +51,7 @@ def eval_ppo(config: "DictConfig"):
     print(OmegaConf.to_yaml(config, sort_keys=True))
     train_config = PPOExperimentConfig(**config)
     # Compose the simview model
-    env, rollout = get_eval_rollout(train_config, train_config.policy_weights_path, train_config.vecnorm_weights_path)
+    env, rollout = get_eval_rollout(train_config)
     str_lines = make_formatted_str_lines(
         log_from_eval_rollout(rollout),
         EVAL_LOG_OPT,
