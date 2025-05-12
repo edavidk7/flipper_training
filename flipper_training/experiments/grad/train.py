@@ -101,10 +101,8 @@ class GradientTrainer:
         for i, tensordict_data in enumerate(self.collector):
             total_collected_frames = (i + 1) * iteration_size
             pbar.update(iteration_size)
-            # collected (B, T, *specs) where B is the batch size and T the number of steps
-            tensordict_data.pop(Env.STATE_KEY)  # we don't need this
-            tensordict_data.pop(("next", Env.STATE_KEY))  # we don't need this
-
+            loss = -tensordict_data["next", "reward"].mean()
+            loss.backward()
             grad_norm = torch.nn.utils.clip_grad_norm_(
                 self.actor_operator.parameters(),
                 self.config.max_grad_norm,

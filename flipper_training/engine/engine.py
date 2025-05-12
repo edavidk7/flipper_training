@@ -191,7 +191,7 @@ class DPhysicsEngine(torch.nn.Module):
         z_points = interpolate_grid(terrain_config.z_grid, robot_points[..., :2], terrain_config.max_coord)
         n = surface_normals_from_grads(terrain_config.z_grid_grad, robot_points[..., :2], terrain_config.max_coord)
         dh_points = (robot_points[..., 2:3] - z_points) * n[..., 2:3]  # penetration depth as a signed distance from the tangent plane
-        in_contact = 0.5 * (1 + torch.tanh((-dh_points / self.config.soft_contact_sigma * (3**0.5))))  # shape (B, n_pts, 1)
+        in_contact = torch.sigmoid(-dh_points / self.config.contact_temperature)  # shape (B, n_pts, 1)
         return in_contact, dh_points * in_contact, n
 
     def update_state(self, state: PhysicsState, dstate: PhysicsStateDer) -> PhysicsState:

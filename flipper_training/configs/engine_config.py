@@ -14,7 +14,7 @@ class PhysicsEngineConfig(BaseConfig):
         torque_limit (float): torque limit that can be generated on CoG. The physics engine clips it to this value. Default is 500.0 Nm.
         damping_alpha (float): damping coefficient modifier, should be between larger than 1.0. Applies damping alpha times higher
         than critical damping.
-        soft_contact_sigma (float): soft contact sigma. Default is 0.5. This is the width of the soft contact force function.
+        contact_temperature (float): temperature of the contact model.
     """
 
     num_robots: int
@@ -22,7 +22,7 @@ class PhysicsEngineConfig(BaseConfig):
     gravity: float = 9.81
     torque_limit: float = 200.0
     damping_alpha: float = 1.0
-    soft_contact_sigma: float = 0.01
+    contact_temperature: float = 0.01 / (2 * 3**0.5)
 
     def __post_init__(self):
         if self.num_robots <= 0:
