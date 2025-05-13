@@ -16,8 +16,8 @@ class MixedObjective(BaseObjective):
 
     def __post_init__(self) -> None:
         super().__post_init__()
-        if (self.env.terrain_cfg is None) or ("typelist" not in self.env.terrain_cfg.grid_extras):
-            raise ValueError("Terrain config must contain a typelist specifying origin of each heightmap.")
+        if (self.env.terrain_cfg is None) or ("indexlist" not in self.env.terrain_cfg.grid_extras):
+            raise ValueError("Terrain config must contain an indexlist specifying origin of each heightmap.")
         self.objectives = [cls(env=self.env, rng=self.rng, **opts) for cls, opts in zip(self.classes, self.opts)]
         self._init_cache()
 
@@ -138,7 +138,7 @@ class MixedObjective(BaseObjective):
         m = torch.zeros_like(state.x[:, 0], dtype=torch.bool)
         for i, objective in enumerate(self.objectives):
             m_i = self.env.terrain_cfg.grid_extras["indexlist"] == i
-            m |= objective.check_reached_goal(prev_state, state, goal) & m_i
+            m |= objective.check_terminated_wrong(prev_state, state, goal) & m_i
         return m
 
     def start_goal_to_simview(self, start: PhysicsState, goal: PhysicsState):
