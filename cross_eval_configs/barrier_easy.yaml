@@ -33,7 +33,7 @@ heightmap_gen_opts:
   max_dist_from_origin: 0.5
   deadzone: 0.2
   min_height: 0.1
-  max_height: 0.4
+  max_height: 0.35
   exp: 8
 objective: ${cls:flipper_training.rl_objectives.barrier_crossing.BarrierCrossing}
 objective_opts:
@@ -147,5 +147,5 @@ policy_opts:
   value_optimizer_opts:
     lr: 0.002027103877870638
     weight_decay: 0.0001
-policy_weights_path: runs/ppo/random_trunk_with_noise_sota_no_groupnorm_2025-05-08_15-49-19/weights/policy_final.pth
-vecnorm_weights_path: runs/ppo/random_trunk_with_noise_sota_no_groupnorm_2025-05-08_15-49-19/weights/vecnorm_final.pth
+policy_weights_path: runs/ppo/final_trunk_thesis_training_42_2025-05-09_21-01-13/weights/policy_final.pth
+vecnorm_weights_path: runs/ppo/final_trunk_thesis_training_42_2025-05-09_21-01-13/weights/vecnorm_final.pth

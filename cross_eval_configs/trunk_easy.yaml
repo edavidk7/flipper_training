@@ -29,7 +29,7 @@ max_coord: 3.2
 heightmap_gen: ${ cls:flipper_training.heightmaps.trunks.TrunkHeightmapGenerator}
 heightmap_gen_opts:
   min_trunk_height: 0.15
-  max_trunk_height: 0.30
+  max_trunk_height: 0.25
   max_dist_from_origin: 0.0
   trunk_deadzone_width: 0.5
   max_trunk_width: 1.0
@@ -149,5 +149,5 @@ policy_opts:
   value_optimizer_opts:
     lr: 0.002159040781862437
     weight_decay: 0.0001
-policy_weights_path: runs/ppo/random_trunk_with_noise_sota_no_groupnorm_2025-05-08_15-49-19/weights/policy_final.pth
-vecnorm_weights_path: runs/ppo/random_trunk_with_noise_sota_no_groupnorm_2025-05-08_15-49-19/weights/vecnorm_final.pth
+policy_weights_path: runs/ppo/final_trunk_thesis_training_42_2025-05-09_21-01-13/weights/policy_final.pth
+vecnorm_weights_path: runs/ppo/final_trunk_thesis_training_42_2025-05-09_21-01-13/weights/vecnorm_final.pth

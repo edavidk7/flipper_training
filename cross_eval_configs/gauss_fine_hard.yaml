@@ -46,7 +46,7 @@ objective_opts:
   start_position_orientation: towards_goal
   higher_allowed: 0.5
   cache_size: 10
-  init_joint_angles: random
+  init_joint_angles: ${tensor:[0.0,0.0,0.0,0.0]}
 # end important
 world_opts:
   k_stiffness: 30000
@@ -151,5 +151,5 @@ policy_opts:
   value_optimizer_opts:
     lr: 0.0023065521662259366
     weight_decay: 0.0001
-policy_weights_path: runs/ppo/random_trunk_with_noise_sota_no_groupnorm_2025-05-08_15-49-19/weights/policy_final.pth
-vecnorm_weights_path: runs/ppo/random_trunk_with_noise_sota_no_groupnorm_2025-05-08_15-49-19/weights/vecnorm_final.pth
+policy_weights_path: runs/ppo/final_trunk_thesis_training_42_2025-05-09_21-01-13/weights/policy_final.pth
+vecnorm_weights_path: runs/ppo/final_trunk_thesis_training_42_2025-05-09_21-01-13/weights/vecnorm_final.pth

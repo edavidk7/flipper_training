@@ -6,7 +6,7 @@ import torch
 from flipper_training.utils.environment import make_x_y_grids
 
 
-@dataclass
+@dataclass(kw_only=True)
 class BaseHeightmapGenerator(ABC):
     """
     Base class for heightmap generators.
