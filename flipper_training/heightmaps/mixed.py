@@ -2,6 +2,7 @@ from dataclasses import dataclass
 
 import torch
 from flipper_training.heightmaps import BaseHeightmapGenerator
+from flipper_training.utils.logutils import get_terminal_logger
 
 
 @dataclass
@@ -20,6 +21,7 @@ class MixedHeightmapGenerator(BaseHeightmapGenerator):
         if self.weights is None:
             self.weights = [1.0 / len(self.generators)] * len(self.generators)
         self.weights_tensor = torch.tensor(self.weights)
+        self.logger = get_terminal_logger(self.__class__.__name__)
 
     def _generate_heightmap(self, x, y, max_coord, rng=None):
         B, D, _ = x.shape
@@ -44,6 +46,9 @@ class MixedHeightmapGenerator(BaseHeightmapGenerator):
             for key, indexlist in collected.items():
                 combined_extras[key] = extra1[key]
                 for index in indexlist:
+                    self.logger.debug(
+                        f"Combining {key} from heightmap generator of type {type(self.generators[i])} at {i} and {type(self.generators[index])} at {index}"
+                    )
                     selection_mask = selected_idx == index
                     combined_extras[key][selection_mask] = extras[index][key][selection_mask]
                     extras[index].pop(key)  # remove the key from the extras dict

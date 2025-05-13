@@ -30,8 +30,8 @@ class BarrierCrossing(BaseObjective):
 
     def __post_init__(self) -> None:
         super().__post_init__()
-        if self.terrain_config.grid_extras is None or "suitable_mask" not in self.terrain_config.grid_extras:
-            raise ValueError("World configuration must contain the barrier suitable_mask in grid_extras.")
+        if self.terrain_config.grid_extras is None or "barrier_mask" not in self.terrain_config.grid_extras:
+            raise ValueError("World configuration must contain the barrier barrier_mask in grid_extras.")
         if self.cache_size > 0:
             self._init_cache()
         else:
@@ -44,7 +44,7 @@ class BarrierCrossing(BaseObjective):
         self._cache_cursor = state_dict["cache_cursor"]
 
     def _generate_cache_states(self, batch_index: int, count: int) -> tuple[torch.Tensor, torch.Tensor]:
-        mask = self.terrain_config.grid_extras["suitable_mask"][batch_index].cpu()
+        mask = self.terrain_config.grid_extras["barrier_mask"][batch_index].cpu()
         left_idx = torch.nonzero(mask == BarrierZones.LEFT, as_tuple=False).cpu()
         right_idx = torch.nonzero(mask == BarrierZones.RIGHT, as_tuple=False).cpu()
         start_pos = torch.empty((count, 3), dtype=torch.float32)
@@ -106,7 +106,7 @@ class BarrierCrossing(BaseObjective):
             # ax[1].contourf(
             #     self.terrain_config.x_grid[b].cpu(),
             #     self.terrain_config.y_grid[b].cpu(),
-            #     self.terrain_config.grid_extras["suitable_mask"][b].cpu(),
+            #     self.terrain_config.grid_extras["barrier_mask"][b].cpu(),
             #     levels=[-0.5, 0.5, 1.5, 2.5],
             #     cmap="tab10",
             # )

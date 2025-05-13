@@ -21,7 +21,7 @@ class BarrierZones(IntEnum):
 class BarrierHeightmapGenerator(BaseHeightmapGenerator):
     """
     Generates a flat barrier segment of given length and thickness, offset randomly.
-    Produces z=height inside barrier, 0 elsewhere, and a suitable_mask: 1 on one side, 2 on the other.
+    Produces z=height inside barrier, 0 elsewhere, and a barrier_mask: 1 on one side, 2 on the other.
     """
 
     min_length: float = 0.8
@@ -37,7 +37,7 @@ class BarrierHeightmapGenerator(BaseHeightmapGenerator):
     def _generate_heightmap(self, x, y, max_coord, rng=None):
         B, D, _ = x.shape
         z = torch.zeros_like(x)
-        suitable_mask = torch.zeros_like(x, dtype=torch.long)
+        barrier_mask = torch.zeros_like(x, dtype=torch.long)
         for i in range(B):
             # random obstacle parameters
             length = torch.rand((), generator=rng, device=x.device) * (self.max_length - self.min_length) + self.min_length
@@ -66,7 +66,7 @@ class BarrierHeightmapGenerator(BaseHeightmapGenerator):
                 z[i][mask_len] = prof[mask_len]
 
             # assign mask value 3 for barrier cells
-            suitable_mask[i][barrier] = BarrierZones.BARRIER
+            barrier_mask[i][barrier] = BarrierZones.BARRIER
 
             # deadzone
             dz = self.deadzone
@@ -77,9 +77,9 @@ class BarrierHeightmapGenerator(BaseHeightmapGenerator):
             else:
                 side1 = dist < -(ht + dz)
                 side2 = dist > (ht + dz)
-            suitable_mask[i][side1] = BarrierZones.LEFT
-            suitable_mask[i][side2] = BarrierZones.RIGHT
-        return z, {"suitable_mask": suitable_mask}
+            barrier_mask[i][side1] = BarrierZones.LEFT
+            barrier_mask[i][side2] = BarrierZones.RIGHT
+        return z, {"barrier_mask": barrier_mask}
 
 
 @dataclass
@@ -117,8 +117,8 @@ class FixedBarrierHeightmapGenerator(BaseHeightmapGenerator):
             z[mask_len] = prof[mask_len]
 
         # assign mask value 3 for barrier cells
-        suitable_mask = torch.zeros_like(x, dtype=torch.long)
-        suitable_mask[barrier] = BarrierZones.BARRIER
+        barrier_mask = torch.zeros_like(x, dtype=torch.long)
+        barrier_mask[barrier] = BarrierZones.BARRIER
 
         dz = self.deadzone
         # mask sides outside deadzone along the longer obstacle axis
@@ -128,9 +128,9 @@ class FixedBarrierHeightmapGenerator(BaseHeightmapGenerator):
         else:
             side1 = dist < -(ht + dz)
             side2 = dist > (ht + dz)
-        suitable_mask[side1] = BarrierZones.LEFT
-        suitable_mask[side2] = BarrierZones.RIGHT
-        return z, {"suitable_mask": suitable_mask}
+        barrier_mask[side1] = BarrierZones.LEFT
+        barrier_mask[side2] = BarrierZones.RIGHT
+        return z, {"barrier_mask": barrier_mask}
 
 
 if __name__ == "__main__":
@@ -162,12 +162,12 @@ if __name__ == "__main__":
         exp=4,
     )
     x_r, y_r, z_r, e_r = rand_gen(grid_res=resolution, max_coord=max_coord, num_robots=batch, rng=rng)
-    mask_r = e_r["suitable_mask"]
+    mask_r = e_r["barrier_mask"]
 
     # fixed barrier
     fix_gen = FixedBarrierHeightmapGenerator(angle=math.pi / 4, offset=0.0, length=1.5, thickness=0.3, deadzone=0.1, height=0.5)
     x_f, y_f, z_f, e_f = fix_gen(grid_res=resolution, max_coord=max_coord, num_robots=batch, rng=rng)
-    mask_f = e_f["suitable_mask"]
+    mask_f = e_f["barrier_mask"]
 
     # Plotly surfaces
     fig = make_subplots(rows=1, cols=2, specs=[[{"type": "surface"}, {"type": "surface"}]], subplot_titles=("Random Barrier", "Fixed Barrier"))
