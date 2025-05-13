@@ -9,6 +9,12 @@ from flipper_training.rl_objectives import BaseObjective
 from flipper_training.utils.geometry import euler_to_quaternion, quaternion_to_euler
 import torch.nn.functional as F
 from flipper_training.utils.logutils import get_terminal_logger
+from flipper_training.heightmaps.stairs import (
+    StairsHeightmapGenerator,
+    FixedBidirectionalStairsHeightmapGenerator,
+    BidirectionalStairsHeightmapGenerator,
+    FixedStairsHeightmapGenerator,
+)
 
 
 @dataclass
@@ -21,18 +27,27 @@ class StairCrossing(BaseObjective):
     max_feasible_roll: float
     start_position_orientation: Literal["random", "towards_goal"]
     init_joint_angles: torch.Tensor | Literal["max", "min", "random"]
-    cache_size: int
+    cache_size: int = 0
     sampling_mode: Literal["lowest_highest", "any"] = "lowest_highest"
     min_dist_from_edge: float = 0.3  # Minimum distance of the x,y position of start/goal from the edge of the step
     resample_random_joint_angles_on_reset: bool = False
     _cache_cursor: int = 0
+    supported_heightmap_generators = [
+        StairsHeightmapGenerator,
+        FixedBidirectionalStairsHeightmapGenerator,
+        BidirectionalStairsHeightmapGenerator,
+        FixedStairsHeightmapGenerator,
+    ]
 
     def __post_init__(self) -> None:
         super().__post_init__()
         if self.terrain_config.grid_extras is None or "step_indices" not in self.terrain_config.grid_extras:
             raise ValueError("World configuration must contain 'step_indices' in grid_extras for StairCrossing.")
         self.term_logger = get_terminal_logger("stair_crossing")
-        self._init_cache()
+        if self.cache_size > 0:
+            self._init_cache()
+        else:
+            logging.warning("Cache size is 0, objective cannot be called on its own")
 
     def state_dict(self):
         return {
@@ -183,21 +198,21 @@ class StairCrossing(BaseObjective):
             "goal": goal_pos_cache,
             "ori": self._get_initial_orientation_quat(start_pos_cache, goal_pos_cache),
             "step_limits": self._compute_step_limits(start_pos_cache, goal_pos_cache),
-            "joint_angles": torch.stack([self._get_initial_joint_angles() for _ in range(self.cache_size)], dim=0),
+            "joint_angles": torch.stack([self._get_initial_joint_angles(self.physics_config.num_robots) for _ in range(self.cache_size)], dim=0),
         }
         self._cache_cursor = 0
 
-    def _get_initial_joint_angles(self) -> torch.Tensor:
+    def _get_initial_joint_angles(self, count: int) -> torch.Tensor:
         # Identical to TrunkCrossing
         high = self.robot_model.joint_limits[None, 1].cpu()
         low = self.robot_model.joint_limits[None, 0].cpu()
         match self.init_joint_angles:
             case "max":
-                return high.repeat(self.physics_config.num_robots, 1)
+                return high.repeat(count, 1)
             case "min":
-                return low.repeat(self.physics_config.num_robots, 1)
+                return low.repeat(count, 1)
             case "random":
-                ang = torch.rand((self.physics_config.num_robots, self.robot_model.num_driving_parts), generator=self.rng) * (high - low) + low
+                ang = torch.rand((count, self.robot_model.num_driving_parts), generator=self.rng) * (high - low) + low
                 ang = ang.clamp(min=low, max=high)
                 return ang
             case torch.Tensor():
@@ -205,7 +220,7 @@ class StairCrossing(BaseObjective):
                     raise ValueError(
                         f"Invalid shape for init_joint_angles: {self.init_joint_angles.shape}. Expected {self.robot_model.num_driving_parts}."
                     )
-                ang = self.init_joint_angles.repeat(self.physics_config.num_robots, 1)
+                ang = self.init_joint_angles.repeat(count, 1)
                 ang = ang.clamp(min=low, max=high)
                 return ang
             case _:
@@ -272,18 +287,7 @@ class StairCrossing(BaseObjective):
     def check_terminated_wrong(self, prev_state: PhysicsState, state: PhysicsState, goal: PhysicsState) -> torch.BoolTensor:
         # Identical to TrunkCrossing + step‐jump check
         rolls, pitches, _ = quaternion_to_euler(state.q)
-        old_fail = (pitches.abs() > self.max_feasible_pitch) | (rolls.abs() > self.max_feasible_roll)
-        # new: terminate if step index changed by >1
-        ti = self.terrain_config.grid_extras["step_indices"]  # (B, H, W)
-        B_range = torch.arange(self.physics_config.num_robots, device=self.device)
-        prev_xy = prev_state.x[..., :2]  # (B,2)
-        curr_xy = state.x[..., :2]  # (B,2)
-        prev_ij = self.terrain_config.xy2ij(prev_xy)  # (B,2)
-        curr_ij = self.terrain_config.xy2ij(curr_xy)  # (B,2)
-        prev_idx = ti[B_range, *prev_ij.unbind(1)]  # (B,)
-        curr_idx = ti[B_range, *curr_ij.unbind(1)]  # (B,)
-        jump_fail = (curr_idx - prev_idx).abs() > 1
-        return old_fail | jump_fail
+        return (pitches.abs() > self.max_feasible_pitch) | (rolls.abs() > self.max_feasible_roll)
 
     def _compute_step_limits(
         self,

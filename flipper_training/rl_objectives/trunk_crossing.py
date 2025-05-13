@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from flipper_training.engine.engine_state import PhysicsState
 from flipper_training.rl_objectives import BaseObjective
 from flipper_training.utils.geometry import euler_to_quaternion, quaternion_to_euler
-from flipper_training.heightmaps.trunks import TrunkSide
+from flipper_training.heightmaps.trunks import TrunkSide, TrunkHeightmapGenerator, FixedTrunkHeightmapGenerator
 
 
 @dataclass
@@ -21,16 +21,20 @@ class TrunkCrossing(BaseObjective):
     max_feasible_roll: float
     start_position_orientation: Literal["random", "towards_goal"]
     init_joint_angles: torch.Tensor | Literal["max", "min", "random"]
-    cache_size: int
+    cache_size: int = 0
     resample_random_joint_angles_on_reset: bool = False
     map_exit_as_failure: bool = True
     _cache_cursor: int = 0
+    supported_heightmap_generators = [TrunkHeightmapGenerator, FixedTrunkHeightmapGenerator]
 
     def __post_init__(self) -> None:
         super().__post_init__()
         if self.terrain_config.grid_extras is None or "trunk_sides" not in self.terrain_config.grid_extras:
             raise ValueError("World configuration must contain the trunk sides in the grid extras for start/goal positions.")
-        self._init_cache()
+        if self.cache_size > 0:
+            self._init_cache()
+        else:
+            logging.warning("Cache size is 0, objective cannot be called on its own")
 
     def state_dict(self):
         return {
@@ -101,20 +105,20 @@ class TrunkCrossing(BaseObjective):
             "goal": goal_pos_cache,
             "ori": self._get_initial_orientation_quat(start_pos_cache, goal_pos_cache),
             "step_limits": self._compute_step_limits(start_pos_cache, goal_pos_cache),
-            "joint_angles": torch.stack([self._get_initial_joint_angles() for _ in range(self.cache_size)], dim=0),
+            "joint_angles": torch.stack([self._get_initial_joint_angles(self.physics_config.num_robots) for _ in range(self.cache_size)], dim=0),
         }
         self._cache_cursor = 0
 
-    def _get_initial_joint_angles(self) -> torch.Tensor:
+    def _get_initial_joint_angles(self, count: int) -> torch.Tensor:
         high = self.robot_model.joint_limits[None, 1].cpu()
         low = self.robot_model.joint_limits[None, 0].cpu()
         match self.init_joint_angles:
             case "max":
-                return high.repeat(self.physics_config.num_robots, 1)
+                return high.repeat(count, 1)
             case "min":
-                return low.repeat(self.physics_config.num_robots, 1)
+                return low.repeat(count, 1)
             case "random":
-                ang = torch.rand((self.physics_config.num_robots, self.robot_model.num_driving_parts), generator=self.rng) * (high - low) + low
+                ang = torch.rand((count, self.robot_model.num_driving_parts), generator=self.rng) * (high - low) + low
                 ang = ang.clamp(
                     min=low,
                     max=high,
@@ -125,7 +129,7 @@ class TrunkCrossing(BaseObjective):
                     raise ValueError(
                         f"Invalid shape for init_joint_angles: {self.init_joint_angles.shape}. Expected {self.robot_model.num_driving_parts}."
                     )
-                ang = self.init_joint_angles.repeat(self.physics_config.num_robots, 1)
+                ang = self.init_joint_angles.repeat(count, 1)
                 ang = ang.clamp(min=low, max=high)
                 return ang
             case _:

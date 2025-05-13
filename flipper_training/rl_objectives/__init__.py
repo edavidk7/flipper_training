@@ -1,7 +1,7 @@
 import torch
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Callable
+from typing import TYPE_CHECKING, Callable, ClassVar
 from functools import wraps
 
 if TYPE_CHECKING:
@@ -9,6 +9,7 @@ if TYPE_CHECKING:
     from flipper_training.engine.engine_state import PhysicsState
     from flipper_training.configs.terrain_config import TerrainConfig
     from flipper_training.configs.engine_config import PhysicsEngineConfig
+    from flipper_training.heightmaps import BaseHeightmapGenerator
 
     try:
         from simview import SimViewStaticObject
@@ -36,6 +37,7 @@ class BaseObjective(ABC):
     rng: torch.Generator
     terrain_config: "TerrainConfig | None" = None
     physics_config: "PhysicsEngineConfig | None" = None
+    supported_heightmap_generators: "ClassVar[list[type[BaseHeightmapGenerator]]] | None" = None  # None means all generators are supported
 
     def __post_init__(self):
         """

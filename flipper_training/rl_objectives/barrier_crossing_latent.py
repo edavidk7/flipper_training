@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from flipper_training.engine.engine_state import PhysicsState
 from flipper_training.rl_objectives import BaseObjective
 from flipper_training.utils.geometry import euler_to_quaternion, quaternion_to_euler
-from flipper_training.heightmaps.barrier import BarrierZones
+from flipper_training.heightmaps.barrier import BarrierZones, FixedBarrierHeightmapGenerator, BarrierHeightmapGenerator
 
 
 @dataclass
@@ -23,15 +23,19 @@ class BarrierCrossingWithLatentControl(BaseObjective):
     enforce_path_through_barrier: bool
     start_position_orientation: Literal["random", "towards_goal"]
     init_joint_angles: torch.Tensor | Literal["max", "min", "random"]
-    cache_size: int
+    cache_size: int = 0
     resample_random_joint_angles_on_reset: bool = False
     _cache_cursor: int = 0
+    supported_heightmap_generators = [BarrierHeightmapGenerator, FixedBarrierHeightmapGenerator]
 
     def __post_init__(self) -> None:
         super().__post_init__()
         if self.terrain_config.grid_extras is None or "suitable_mask" not in self.terrain_config.grid_extras:
             raise ValueError("World configuration must contain the barrier suitable_mask in grid_extras.")
-        self._init_cache()
+        if self.cache_size > 0:
+            self._init_cache()
+        else:
+            logging.warning("Cache size is 0, objective cannot be called on its own")
 
     def state_dict(self):
         return {"cache_cursor": self._cache_cursor}

@@ -32,17 +32,17 @@ class FixedStartGoalNavigation(BaseObjective):
             torch.zeros_like(diff_vecs[..., 0]),
             torch.atan2(diff_vecs[..., 1], diff_vecs[..., 0]),
         )
-        self.initial_joint_angles = self._get_initial_joint_angles()
+        self.initial_joint_angles = self._get_initial_joint_angles(self.physics_config.num_robots)
 
-    def _get_initial_joint_angles(self) -> torch.Tensor:
+    def _get_initial_joint_angles(sel, count: int) -> torch.Tensor:
         match self.init_joint_angles:
             case "max":
-                return self.robot_model.joint_limits[None, 1].to(self.device).repeat(self.physics_config.num_robots, 1)
+                return self.robot_model.joint_limits[None, 1].to(self.device).repeat(count, 1)
             case "min":
-                return self.robot_model.joint_limits[None, 0].to(self.device).repeat(self.physics_config.num_robots, 1)
+                return self.robot_model.joint_limits[None, 0].to(self.device).repeat(count, 1)
             case "random":
                 ang = (
-                    torch.rand((self.physics_config.num_robots, self.robot_model.num_driving_parts), device=self.device)
+                    torch.rand((count, self.robot_model.num_driving_parts), device=self.device)
                     * (self.robot_model.joint_limits[None, 1] - self.robot_model.joint_limits[None, 0])
                     + self.robot_model.joint_limits[None, 0]
                 )
@@ -56,7 +56,7 @@ class FixedStartGoalNavigation(BaseObjective):
                     raise ValueError(
                         f"Invalid shape for init_joint_angles: {self.init_joint_angles.shape}. Expected {self.robot_model.num_driving_parts}."
                     )
-                ang = self.init_joint_angles.to(self.device).repeat(self.physics_config.num_robots, 1)
+                ang = self.init_joint_angles.to(self.device).repeat(count, 1)
                 ang = ang.clamp(
                     min=self.robot_model.joint_limits[None, 0].to(self.device),
                     max=self.robot_model.joint_limits[None, 1].to(self.device),
@@ -109,19 +109,7 @@ class FixedStartGoalNavigation(BaseObjective):
     @override
     def check_terminated_wrong(self, prev_state: PhysicsState, state: PhysicsState, goal: PhysicsState) -> torch.BoolTensor:
         rolls, pitches, _ = quaternion_to_euler(state.q)
-        ang_mask = (pitches.abs() > self.max_feasible_pitch) | (rolls.abs() > self.max_feasible_roll)
-        if self.terrain_config.grid_extras and ("step_indices" in self.terrain_config.grid_extras):
-            ti = self.terrain_config.grid_extras["step_indices"]  # (B, H, W)
-            B_range = torch.arange(self.physics_config.num_robots, device=self.device)
-            prev_xy = prev_state.x[..., :2]  # (B,2)
-            curr_xy = state.x[..., :2]  # (B,2)
-            prev_ij = self.terrain_config.xy2ij(prev_xy)  # (B,2)
-            curr_ij = self.terrain_config.xy2ij(curr_xy)  # (B,2)
-            prev_idx = ti[B_range, *prev_ij.unbind(1)]  # (B,)
-            curr_idx = ti[B_range, *curr_ij.unbind(1)]  # (B,)
-            jump_fail = (curr_idx - prev_idx).abs() > 1
-            ang_mask |= jump_fail
-        return ang_mask
+        return (pitches.abs() > self.max_feasible_pitch) | (rolls.abs() > self.max_feasible_roll)
 
     def start_goal_to_simview(self, start: PhysicsState, goal: PhysicsState):
         try:

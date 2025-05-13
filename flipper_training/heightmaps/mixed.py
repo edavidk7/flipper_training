@@ -48,6 +48,7 @@ class MixedHeightmapGenerator(BaseHeightmapGenerator):
                     combined_extras[key][selection_mask] = extras[index][key][selection_mask]
                     extras[index].pop(key)  # remove the key from the extras dict
         combined_extras["typelist"] = [type(self.generators[i]) for i in selected_idx]
+        combined_extras["indexlist"] = selected_idx
         return z, combined_extras
 
 
