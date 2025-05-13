@@ -68,7 +68,6 @@ class StairsHeightmapGenerator(BaseHeightmapGenerator):
         B = x.shape[0]
         z = torch.zeros_like(x)
         step_indices = torch.zeros_like(x, dtype=torch.long)
-        suitable_mask = torch.ones_like(x, dtype=torch.bool)
 
         for i in range(B):
             angle = torch.rand((1,), generator=rng, device=x.device) * 2 * math.pi
@@ -83,7 +82,7 @@ class StairsHeightmapGenerator(BaseHeightmapGenerator):
             z_i, step_raw = make_stairs(angle, x[i], y[i], max_coord, n_steps, step_height, self.exponent)
             z[i] = z_i
             step_indices[i] = step_raw
-        return z, {"suitable_mask": suitable_mask, "step_indices": step_indices}
+        return z, {"step_indices": step_indices}
 
 
 @dataclass
@@ -110,9 +109,8 @@ class FixedStairsHeightmapGenerator(BaseHeightmapGenerator):
             raise ValueError("Exponent must be positive if specified.")
 
     def _generate_heightmap(self, x, y, max_coord, rng=None):
-        suitable_mask = torch.ones_like(x, dtype=torch.bool)
         z, step_indices = make_stairs(torch.tensor(self.normal_angle), x, y, max_coord, torch.tensor(self.n_steps), self.step_height, self.exponent)
-        return z, {"suitable_mask": suitable_mask, "step_indices": step_indices}
+        return z, {"step_indices": step_indices}
 
 
 @dataclass
@@ -143,7 +141,6 @@ class BidirectionalStairsHeightmapGenerator(BaseHeightmapGenerator):
         B = x.shape[0]
         z = torch.zeros_like(x)
         step_indices = torch.zeros_like(x, dtype=torch.long)
-        suitable_mask = torch.ones_like(x, dtype=torch.bool)
         for i in range(B):
             angle = torch.rand((1,), generator=rng, device=x.device) * 2 * math.pi
             n_steps = (
@@ -168,7 +165,7 @@ class BidirectionalStairsHeightmapGenerator(BaseHeightmapGenerator):
             valid2 = raw2 >= 0
             step_indices[i] = torch.where(left_mask & valid1, raw1, 0)
             step_indices[i] = torch.where(right_mask & valid2, raw2 + n_steps - 1, step_indices[i])
-        return z, {"suitable_mask": suitable_mask, "step_indices": step_indices}
+        return z, {"step_indices": step_indices}
 
 
 @dataclass
@@ -212,8 +209,7 @@ class FixedBidirectionalStairsHeightmapGenerator(BaseHeightmapGenerator):
         step_indices = torch.where(left_mask & valid1, raw1, 0)
         step_indices = torch.where(right_mask & valid2, raw2 + self.n_steps - 1, step_indices)
         # Create the suitable mask
-        suitable_mask = torch.ones_like(x, dtype=torch.bool)
-        return z, {"suitable_mask": suitable_mask, "step_indices": step_indices}
+        return z, {"step_indices": step_indices}
 
 
 if __name__ == "__main__":

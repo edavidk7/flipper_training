@@ -40,6 +40,50 @@ class TrunkCrossing(BaseObjective):
     def load_state_dict(self, state_dict):
         self._cache_cursor = state_dict["cache_cursor"]
 
+    def _generate_cache_states(self, batch_index: int, count: int) -> tuple[torch.Tensor, torch.Tensor]:
+        # Get valid indices for this robot's terrain (batch index b)
+        left_indices = torch.nonzero(self.terrain_config.grid_extras["trunk_sides"][batch_index] == TrunkSide.LEFT, as_tuple=False).cpu()
+        right_indices = torch.nonzero(self.terrain_config.grid_extras["trunk_sides"][batch_index] == TrunkSide.RIGHT, as_tuple=False).cpu()
+        # Oversample start and goal indices from valid set
+        if left_indices.shape[0] == 0 or right_indices.shape[0] == 0:
+            raise ValueError(f"Robot {batch_index} has no valid start/goal positions in the terrain configuration.")
+        start_pos = torch.empty((count, 3), dtype=torch.float32)
+        goal_pos = torch.empty((count, 3), dtype=torch.float32)
+        oversample_factor = 1
+        collected = 0
+        while collected < count:
+            remaining = count - collected
+            n_samples = int(remaining * oversample_factor)
+            n_samples = min(n_samples, left_indices.shape[0], right_indices.shape[0])
+            left_idx = torch.randperm(left_indices.shape[0], generator=self.rng)[:n_samples].cpu()
+            right_idx = torch.randperm(right_indices.shape[0], generator=self.rng)[:n_samples].cpu()
+            left_ij = left_indices[left_idx]
+            right_ij = right_indices[right_idx]
+            is_start_left_mask = torch.bernoulli(torch.full((n_samples,), 0.5), generator=self.rng).bool().unsqueeze(-1)
+            start_ij = torch.where(is_start_left_mask, left_ij, right_ij)
+            goal_ij = torch.where(is_start_left_mask, right_ij, left_ij)
+            # Compute xyz coordinates using this robot's terrain data
+            start_xyz = torch.stack(
+                [g[batch_index, *start_ij.unbind(-1)] for g in [self.terrain_config.x_grid, self.terrain_config.y_grid, self.terrain_config.z_grid]],
+                dim=-1,
+            ).to("cpu")
+            goal_xyz = torch.stack(
+                [g[batch_index, *goal_ij.unbind(-1)] for g in [self.terrain_config.x_grid, self.terrain_config.y_grid, self.terrain_config.z_grid]],
+                dim=-1,
+            ).to("cpu")
+            # Validate pairs (ensure batch dimension is respected in _is_start_goal_xyz_valid)
+            valid_mask = self._is_start_goal_xyz_valid(start_xyz, goal_xyz)
+            valid_start = start_xyz[valid_mask]
+            valid_goal = goal_xyz[valid_mask]
+            n_new = min(valid_start.shape[0], remaining)
+            # Store in cache for this robot (batch index batch_index)
+            start_pos[collected : collected + n_new] = valid_start[:remaining]
+            goal_pos[collected : collected + n_new] = valid_goal[:n_new]
+            collected += n_new
+            oversample_factor *= 2
+
+        return start_pos, goal_pos
+
     def _init_cache(self) -> None:
         B = self.physics_config.num_robots
         total_needed_per_robot = self.cache_size  # Number of cache entries per robot
@@ -50,44 +94,7 @@ class TrunkCrossing(BaseObjective):
 
         # Process each robot's terrain separately
         for b in trange(B, desc="Initializing start/goal position cache"):
-            # Get valid indices for this robot's terrain (batch index b)
-            left_indices = torch.nonzero(self.terrain_config.grid_extras["trunk_sides"][b] == TrunkSide.LEFT, as_tuple=False).cpu()
-            right_indices = torch.nonzero(self.terrain_config.grid_extras["trunk_sides"][b] == TrunkSide.RIGHT, as_tuple=False).cpu()
-            # Oversample start and goal indices from valid set
-            if left_indices.shape[0] == 0 or right_indices.shape[0] == 0:
-                raise ValueError(f"Robot {b} has no valid start/goal positions in the terrain configuration.")
-            oversample_factor = 1
-            collected = 0
-            while collected < total_needed_per_robot:
-                remaining = total_needed_per_robot - collected
-                n_samples = int(remaining * oversample_factor)
-                n_samples = min(n_samples, left_indices.shape[0], right_indices.shape[0])
-                left_idx = torch.randperm(left_indices.shape[0], generator=self.rng)[:n_samples].cpu()
-                right_idx = torch.randperm(right_indices.shape[0], generator=self.rng)[:n_samples].cpu()
-                left_ij = left_indices[left_idx]
-                right_ij = right_indices[right_idx]
-                is_start_left_mask = torch.bernoulli(torch.full((n_samples,), 0.5), generator=self.rng).bool().unsqueeze(-1)
-                start_ij = torch.where(is_start_left_mask, left_ij, right_ij)
-                goal_ij = torch.where(is_start_left_mask, right_ij, left_ij)
-                # Compute xyz coordinates using this robot's terrain data
-                start_xyz = torch.stack(
-                    [g[b, *start_ij.unbind(-1)] for g in [self.terrain_config.x_grid, self.terrain_config.y_grid, self.terrain_config.z_grid]],
-                    dim=-1,
-                ).to("cpu")
-                goal_xyz = torch.stack(
-                    [g[b, *goal_ij.unbind(-1)] for g in [self.terrain_config.x_grid, self.terrain_config.y_grid, self.terrain_config.z_grid]],
-                    dim=-1,
-                ).to("cpu")
-                # Validate pairs (ensure batch dimension is respected in _is_start_goal_xyz_valid)
-                valid_mask = self._is_start_goal_xyz_valid(start_xyz, goal_xyz)
-                valid_start = start_xyz[valid_mask]
-                valid_goal = goal_xyz[valid_mask]
-                n_new = min(valid_start.shape[0], remaining)
-                # Store in cache for this robot (batch index b)
-                start_pos_cache[collected : collected + n_new, b, :] = valid_start[:remaining]
-                goal_pos_cache[collected : collected + n_new, b, :] = valid_goal[:n_new]
-                collected += n_new
-                oversample_factor *= 2
+            start_pos_cache[:, b], goal_pos_cache[:, b] = self._generate_cache_states(b, total_needed_per_robot)
         # Store the cache
         self.cache = {
             "start": start_pos_cache,

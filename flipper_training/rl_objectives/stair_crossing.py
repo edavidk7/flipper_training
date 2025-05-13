@@ -42,174 +42,141 @@ class StairCrossing(BaseObjective):
     def load_state_dict(self, state_dict):
         self._cache_cursor = state_dict["cache_cursor"]
 
-    def _get_suitable_core_mask(self, step_indices: torch.Tensor) -> torch.BoolTensor:
+    def _get_suitable_core_mask(self, si: torch.Tensor) -> torch.BoolTensor:
         """
-        Identify core cells of each step plateau by excluding any cell adjacent
-        to a different index or outside (-1), and then erode by the configured
-        min_dist_from_edge (in meters) using grid_res to compute radius.
+        Compute core cells for a single step_indices map.
         """
-        si = step_indices  # (B, H, W)
         valid = si != -1
-        # number of cells to erode based on configured distance
         grid_res = self.terrain_config.grid_res
         radius = int(math.ceil(self.min_dist_from_edge / grid_res))
 
-        # first pass: remove immediate edges (4-connected neighbors)
+        # remove immediate edges
         pad_si = F.pad(si, (1, 1, 1, 1), mode="constant", value=-1)
-        up = pad_si[:, :-2, 1:-1]
-        down = pad_si[:, 2:, 1:-1]
-        left = pad_si[:, 1:-1, :-2]
-        right = pad_si[:, 1:-1, 2:]
+        up = pad_si[:-2, 1:-1]
+        down = pad_si[2:, 1:-1]
+        left = pad_si[1:-1, :-2]
+        right = pad_si[1:-1, 2:]
         core = valid & (up == si) & (down == si) & (left == si) & (right == si)
 
-        # iterative erosion for additional radius
+        # iterative erosion beyond immediate neighbors
         if radius > 1:
-            for i in range(step_indices.shape[0]):
-                neigh = core[i]
-                for _ in range(radius - 1):
-                    pad_c = F.pad(neigh.float(), (1, 1, 1, 1), mode="constant", value=0).bool()
-                    upc = pad_c[:-2, 1:-1]
-                    downc = pad_c[2:, 1:-1]
-                    leftc = pad_c[1:-1, :-2]
-                    rightc = pad_c[1:-1, 2:]
-                    neigh_next = neigh & upc & downc & leftc & rightc
-                    if not neigh_next.any():
-                        self.term_logger.warning(
-                            f"Warning: No suitable core cells found after erosion for min_dist_from_edge={self.min_dist_from_edge} for robot {i}."
-                            " Try reducing the distance or increasing grid size."
-                        )
-                        # if no core cells are found, fall back to the original core
-                        break
-                    neigh = neigh_next
-
-                core[i] = neigh
+            for _ in range(radius - 1):
+                pad_c = F.pad(core.float(), (1, 1, 1, 1), mode="constant", value=0).bool()
+                upc = pad_c[:-2, 1:-1]
+                downc = pad_c[2:, 1:-1]
+                leftc = pad_c[1:-1, :-2]
+                rightc = pad_c[1:-1, 2:]
+                next_core = core & upc & downc & leftc & rightc
+                if not next_core.any():
+                    self.term_logger.warning(f"No suitable core cells after erosion (radius={radius}); keeping previous core.")
+                    break
+                core = next_core
         return core
+
+    def _generate_cache_states(self, batch_index: int, count: int) -> tuple[torch.Tensor, torch.Tensor]:
+        """
+        Generate start and goal positions for a given batch index.
+        """
+        # Get the step indices for the current batch
+        step_indices = self.terrain_config.grid_extras["step_indices"][batch_index].cpu()
+        core_mask = self._get_suitable_core_mask(step_indices)
+        valid_core_indices = torch.nonzero(core_mask, as_tuple=False)  # (N_valid, 2) [i, j]
+        if valid_core_indices.shape[0] == 0:
+            raise ValueError(
+                f"No suitable core cells found for robot {batch_index} with min_dist_from_edge={self.min_dist_from_edge}."
+                "Try reducing the distance or increasing grid size."
+            )
+        start_pos = torch.empty((count, 3), dtype=torch.float32)
+        goal_pos = torch.empty((count, 3), dtype=torch.float32)
+        collected = 0
+        oversample_factor = 1  # Start with oversampling
+        while collected < count:
+            remaining = count - collected
+            n_samples = int(remaining * oversample_factor)
+            if self.sampling_mode == "lowest_highest":
+                valid_indices_values = step_indices[core_mask]
+                min_step = valid_indices_values.min()
+                max_step = valid_indices_values.max()
+                if min_step == max_step:
+                    raise ValueError(
+                        f"Only one valid step level ({min_step}) found for robot {batch_index} in 'lowest_highest' mode. Cannot sample distinct start/goal."
+                    )
+                lowest_indices = torch.nonzero((step_indices == min_step) & core_mask, as_tuple=False)
+                highest_indices = torch.nonzero((step_indices == max_step) & core_mask, as_tuple=False)
+                if lowest_indices.shape[0] == 0 or highest_indices.shape[0] == 0:
+                    raise ValueError(f"Could not find both lowest ({min_step}) and highest ({max_step}) suitable core cells for robot {batch_index}.")
+                n_samples = min(n_samples, lowest_indices.shape[0], highest_indices.shape[0])
+                if n_samples == 0:
+                    oversample_factor *= 2  # Should not happen if checks above pass, but safety first
+                    continue
+                low_idx = torch.randperm(lowest_indices.shape[0], generator=self.rng)[:n_samples]
+                high_idx = torch.randperm(highest_indices.shape[0], generator=self.rng)[:n_samples]
+                lowest_ij = lowest_indices[low_idx]
+                highest_ij = highest_indices[high_idx]
+                is_start_low_mask = torch.bernoulli(torch.full((n_samples,), 0.5), generator=self.rng).bool().unsqueeze(-1)
+                start_ij = torch.where(is_start_low_mask, lowest_ij, highest_ij)
+                goal_ij = torch.where(is_start_low_mask, highest_ij, lowest_ij)
+
+            elif self.sampling_mode == "any":
+                n_valid_core = valid_core_indices.shape[0]
+                if n_valid_core < 2:
+                    raise ValueError(f"Need at least 2 suitable core cells for robot {batch_index} in 'any' mode, found {n_valid_core}.")
+                start_perm_idx = torch.randperm(n_valid_core, generator=self.rng)
+                goal_perm_idx = torch.randperm(n_valid_core, generator=self.rng)
+                start_ij_all = valid_core_indices[start_perm_idx]
+                goal_ij_all = valid_core_indices[goal_perm_idx]
+                # Ensure start and goal are not on the same step
+                start_steps = step_indices[start_ij_all[:, 0], start_ij_all[:, 1]]
+                goal_steps = step_indices[goal_ij_all[:, 0], goal_ij_all[:, 1]]
+                different_step_mask = start_steps != goal_steps
+                start_ij = start_ij_all[different_step_mask][:n_samples]
+                goal_ij = goal_ij_all[different_step_mask][:n_samples]
+                n_samples = start_ij.shape[0]  # Update n_samples based on valid pairs found
+
+            else:
+                raise ValueError(f"Unknown sampling mode: {self.sampling_mode}")
+
+            if n_samples == 0:
+                oversample_factor *= 2
+                if oversample_factor > 256:  # Prevent infinite loop
+                    raise RuntimeError(
+                        f"Failed to find valid start/goal pairs for robot {batch_index} after extensive oversampling. Check parameters."
+                    )
+                continue
+
+            # Convert ij to xyz for this robot
+            start_xyz = torch.stack(
+                [
+                    g[batch_index, start_ij[:, 0], start_ij[:, 1]]
+                    for g in [self.terrain_config.x_grid, self.terrain_config.y_grid, self.terrain_config.z_grid]
+                ],
+                dim=-1,
+            ).cpu()
+            goal_xyz = torch.stack(
+                [
+                    g[batch_index, goal_ij[:, 0], goal_ij[:, 1]]
+                    for g in [self.terrain_config.x_grid, self.terrain_config.y_grid, self.terrain_config.z_grid]
+                ],
+                dim=-1,
+            ).cpu()
+
+            n_new = min(n_samples, remaining)
+            start_pos[collected : collected + n_new] = start_xyz[:n_new]
+            goal_pos[collected : collected + n_new] = goal_xyz[:n_new]
+            collected += n_new
+            oversample_factor *= 2
+
+        return start_pos, goal_pos
 
     def _init_cache(self) -> None:
         B = self.physics_config.num_robots
         total_needed_per_robot = self.cache_size
-
-        step_indices = self.terrain_config.grid_extras["step_indices"].cpu()  # (B, H, W)
-        suitable_core_mask = self._get_suitable_core_mask(step_indices)
-        # import matplotlib.pyplot as plt
-        # from flipper_training.vis.static_vis import plot_grids_xyz
-
-        # for b in range(B):
-        #     plt.imshow(suitable_core_mask[b].cpu().numpy())
-        #     plt.title(f"Robot {b} suitable core mask")
-        #     plt.colorbar()
-        #     plt.show()
-        #     plot_grids_xyz(
-        #         self.terrain_config.x_grid[b].cpu(),
-        #         self.terrain_config.y_grid[b].cpu(),
-        #         self.terrain_config.z_grid[b].cpu(),
-        #         title=f"Robot {b} terrain",
-        #     )
-        #     plt.show()
         # Initialize cache tensors
         start_pos_cache = torch.empty((self.cache_size, B, 3), dtype=torch.float32)
         goal_pos_cache = torch.empty((self.cache_size, B, 3), dtype=torch.float32)
-
         for b in trange(B, desc="Initializing start/goal position cache (Stairs)"):
-            indices_b = step_indices[b]
-            core_mask_b = suitable_core_mask[b]
-
-            valid_core_indices_b = torch.nonzero(core_mask_b, as_tuple=False)  # (N_valid, 2) [i, j]
-
-            if valid_core_indices_b.shape[0] == 0:
-                raise ValueError(
-                    f"No suitable core cells found for robot {b} with min_dist_from_edge={self.min_dist_from_edge}."
-                    "Try reducing the distance or increasing grid size."
-                )
-
-            collected = 0
-            oversample_factor = 2  # Start with oversampling
-
-            while collected < total_needed_per_robot:
-                remaining = total_needed_per_robot - collected
-                n_samples = int(remaining * oversample_factor)
-
-                if self.sampling_mode == "lowest_highest":
-                    valid_indices_values = indices_b[core_mask_b]
-                    min_step = valid_indices_values.min()
-                    max_step = valid_indices_values.max()
-                    if min_step == max_step:
-                        raise ValueError(
-                            f"Only one valid step level ({min_step}) found for robot {b} in 'lowest_highest' mode. Cannot sample distinct start/goal."
-                        )
-
-                    lowest_indices = torch.nonzero((indices_b == min_step) & core_mask_b, as_tuple=False)
-                    highest_indices = torch.nonzero((indices_b == max_step) & core_mask_b, as_tuple=False)
-
-                    if lowest_indices.shape[0] == 0 or highest_indices.shape[0] == 0:
-                        raise ValueError(f"Could not find both lowest ({min_step}) and highest ({max_step}) suitable core cells for robot {b}.")
-
-                    n_samples = min(n_samples, lowest_indices.shape[0], highest_indices.shape[0])
-                    if n_samples == 0:
-                        oversample_factor *= 2  # Should not happen if checks above pass, but safety first
-                        continue
-
-                    low_idx = torch.randperm(lowest_indices.shape[0], generator=self.rng)[:n_samples]
-                    high_idx = torch.randperm(highest_indices.shape[0], generator=self.rng)[:n_samples]
-                    lowest_ij = lowest_indices[low_idx]
-                    highest_ij = highest_indices[high_idx]
-
-                    is_start_low_mask = torch.bernoulli(torch.full((n_samples,), 0.5), generator=self.rng).bool().unsqueeze(-1)
-                    start_ij = torch.where(is_start_low_mask, lowest_ij, highest_ij)
-                    goal_ij = torch.where(is_start_low_mask, highest_ij, lowest_ij)
-
-                elif self.sampling_mode == "any":
-                    n_valid_core = valid_core_indices_b.shape[0]
-                    if n_valid_core < 2:
-                        raise ValueError(f"Need at least 2 suitable core cells for robot {b} in 'any' mode, found {n_valid_core}.")
-
-                    start_perm_idx = torch.randperm(n_valid_core, generator=self.rng)
-                    goal_perm_idx = torch.randperm(n_valid_core, generator=self.rng)
-
-                    start_ij_all = valid_core_indices_b[start_perm_idx]
-                    goal_ij_all = valid_core_indices_b[goal_perm_idx]
-
-                    # Ensure start and goal are not on the same step
-                    start_steps = indices_b[start_ij_all[:, 0], start_ij_all[:, 1]]
-                    goal_steps = indices_b[goal_ij_all[:, 0], goal_ij_all[:, 1]]
-                    different_step_mask = start_steps != goal_steps
-
-                    start_ij = start_ij_all[different_step_mask][:n_samples]
-                    goal_ij = goal_ij_all[different_step_mask][:n_samples]
-                    n_samples = start_ij.shape[0]  # Update n_samples based on valid pairs found
-
-                else:
-                    raise ValueError(f"Unknown sampling mode: {self.sampling_mode}")
-
-                if n_samples == 0:
-                    oversample_factor *= 2
-                    if oversample_factor > 128:  # Prevent infinite loop
-                        raise RuntimeError(f"Failed to find valid start/goal pairs for robot {b} after extensive oversampling. Check parameters.")
-                    continue
-
-                # Convert ij to xyz for this robot
-                start_xyz = torch.stack(
-                    [
-                        g[b, start_ij[:, 0], start_ij[:, 1]]
-                        for g in [self.terrain_config.x_grid, self.terrain_config.y_grid, self.terrain_config.z_grid]
-                    ],
-                    dim=-1,
-                ).cpu()
-                goal_xyz = torch.stack(
-                    [
-                        g[b, goal_ij[:, 0], goal_ij[:, 1]]
-                        for g in [self.terrain_config.x_grid, self.terrain_config.y_grid, self.terrain_config.z_grid]
-                    ],
-                    dim=-1,
-                ).cpu()
-
-                # No extra validation needed here as suitability was checked via core_mask
-                n_new = min(n_samples, remaining)
-                start_pos_cache[collected : collected + n_new, b, :] = start_xyz[:n_new]
-                goal_pos_cache[collected : collected + n_new, b, :] = goal_xyz[:n_new]
-                collected += n_new
-                oversample_factor *= 1.1  # Increase slightly if needed
-
+            # Generate start and goal positions for each robot
+            start_pos_cache[:, b], goal_pos_cache[:, b] = self._generate_cache_states(b, total_needed_per_robot)
         # Store the cache
         self.cache = {
             "start": start_pos_cache,

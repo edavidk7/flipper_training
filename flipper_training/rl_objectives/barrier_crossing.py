@@ -38,13 +38,52 @@ class BarrierCrossing(BaseObjective):
 
     def load_state_dict(self, state_dict):
         self._cache_cursor = state_dict["cache_cursor"]
+        
+    def _generate_cache_states(self, batch_index: int, count: int) -> tuple[torch.Tensor, torch.Tensor]:
+        mask = self.terrain_config.grid_extras["suitable_mask"][batch_index].cpu()
+        left_idx = torch.nonzero(mask == BarrierZones.LEFT, as_tuple=False).cpu()
+        right_idx = torch.nonzero(mask == BarrierZones.RIGHT, as_tuple=False).cpu()
+        start_pos = torch.empty((count, 3), dtype=torch.float32)
+        goal_pos = torch.empty((count, 3), dtype=torch.float32)
+        collected = 0
+        factor = 1
+        while collected < count:
+            rem = count - collected
+            n = min(rem * factor, left_idx.shape[0], right_idx.shape[0])
+            idxL = torch.randperm(left_idx.shape[0], generator=self.rng)[:n]
+            idxR = torch.randperm(right_idx.shape[0], generator=self.rng)[:n]
+            L = left_idx[idxL]
+            R = right_idx[idxR]
+            pick_left = torch.bernoulli(torch.full((n,), 0.5), generator=self.rng).bool().unsqueeze(-1)
+            start_ij = torch.where(pick_left, L, R)
+            goal_ij = torch.where(pick_left, R, L)
+            if (mask[*start_ij.unbind(-1)] == mask[*goal_ij.unbind(-1)]).any():
+                raise ValueError("Start and goal positions are not on different sides of the barrier.")
+
+            sp = torch.stack(
+                [g[batch_index, *start_ij.unbind(-1)] for g in [self.terrain_config.x_grid, self.terrain_config.y_grid, self.terrain_config.z_grid]], dim=-1
+            ).to("cpu")
+            gp = torch.stack(
+                [g[batch_index, *goal_ij.unbind(-1)] for g in [self.terrain_config.x_grid, self.terrain_config.y_grid, self.terrain_config.z_grid]], dim=-1
+            ).to("cpu")
+
+            valid = self._is_start_goal_xyz_valid(sp, gp)
+            if self.enforce_path_through_barrier:
+                midpoints = torch.floor((start_ij + goal_ij) / 2).long()
+                valid &= mask[*midpoints.unbind(-1)] == BarrierZones.BARRIER
+            vs, vg = sp[valid], gp[valid]
+            take = min(vs.shape[0], rem)
+            start_pos[collected : collected + take] = vs[:take]
+            goal_pos[collected : collected + take] = vg[:take]
+            collected += take
+            factor *= 2
+        return start_pos, goal_pos
 
     def _init_cache(self) -> None:
         B = self.physics_config.num_robots
         total = self.cache_size
         start_pos = torch.empty((total, B, 3), dtype=torch.float32)
         goal_pos = torch.empty((total, B, 3), dtype=torch.float32)
-
         for b in trange(B, desc="Init barrier start/goal cache"):
             # import matplotlib.pyplot as plt
 
@@ -66,41 +105,7 @@ class BarrierCrossing(BaseObjective):
             #     cmap="tab10",
             # )
             # plt.show()
-            mask = self.terrain_config.grid_extras["suitable_mask"][b].cpu()
-            left_idx = torch.nonzero(mask == BarrierZones.LEFT, as_tuple=False).cpu()
-            right_idx = torch.nonzero(mask == BarrierZones.RIGHT, as_tuple=False).cpu()
-            collected = 0
-            factor = 1
-            while collected < total:
-                rem = total - collected
-                n = min(rem * factor, left_idx.shape[0], right_idx.shape[0])
-                idxL = torch.randperm(left_idx.shape[0], generator=self.rng)[:n]
-                idxR = torch.randperm(right_idx.shape[0], generator=self.rng)[:n]
-                L = left_idx[idxL]
-                R = right_idx[idxR]
-                pick_left = torch.bernoulli(torch.full((n,), 0.5), generator=self.rng).bool().unsqueeze(-1)
-                start_ij = torch.where(pick_left, L, R)
-                goal_ij = torch.where(pick_left, R, L)
-                if (mask[*start_ij.unbind(-1)] == mask[*goal_ij.unbind(-1)]).any():
-                    raise ValueError("Start and goal positions are not on different sides of the barrier.")
-
-                sp = torch.stack(
-                    [g[b, *start_ij.unbind(-1)] for g in [self.terrain_config.x_grid, self.terrain_config.y_grid, self.terrain_config.z_grid]], dim=-1
-                ).to("cpu")
-                gp = torch.stack(
-                    [g[b, *goal_ij.unbind(-1)] for g in [self.terrain_config.x_grid, self.terrain_config.y_grid, self.terrain_config.z_grid]], dim=-1
-                ).to("cpu")
-
-                valid = self._is_start_goal_xyz_valid(sp, gp)
-                if self.enforce_path_through_barrier:
-                    midpoints = torch.floor((start_ij + goal_ij) / 2).long()
-                    valid &= mask[*midpoints.unbind(-1)] == BarrierZones.BARRIER
-                vs, vg = sp[valid], gp[valid]
-                take = min(vs.shape[0], rem)
-                start_pos[collected : collected + take, b] = vs[:take]
-                goal_pos[collected : collected + take, b] = vg[:take]
-                collected += take
-                factor *= 2
+            start_pos[:, b], goal_pos[:, b] = self._generate_cache_states(b, total)
 
         self.cache = {
             "start": start_pos,
