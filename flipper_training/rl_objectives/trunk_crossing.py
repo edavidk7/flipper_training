@@ -54,6 +54,8 @@ class TrunkCrossing(BaseObjective):
             left_indices = torch.nonzero(self.terrain_config.grid_extras["trunk_sides"][b] == TrunkSide.LEFT, as_tuple=False).cpu()
             right_indices = torch.nonzero(self.terrain_config.grid_extras["trunk_sides"][b] == TrunkSide.RIGHT, as_tuple=False).cpu()
             # Oversample start and goal indices from valid set
+            if left_indices.shape[0] == 0 or right_indices.shape[0] == 0:
+                raise ValueError(f"Robot {b} has no valid start/goal positions in the terrain configuration.")
             oversample_factor = 1
             collected = 0
             while collected < total_needed_per_robot:

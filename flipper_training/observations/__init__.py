@@ -93,8 +93,8 @@ class Observation(ABC):
         """
 
         @wraps(cls)
-        def factory(env: "Env"):
-            return cls(env=env, **opts)
+        def factory(env: "Env", **kwargs):
+            return cls(env=env, **opts | kwargs)
 
         return factory
 

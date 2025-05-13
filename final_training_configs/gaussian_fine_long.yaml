@@ -139,8 +139,8 @@ policy_opts:
     hidden_dim: 64
     layernorm: true
   actor_optimizer_opts:
-    lr: 0.00044218054463238604
+    lr: 0.00010518972025063779
     weight_decay: 0.0001
   value_optimizer_opts:
-    lr: 0.0020812972313916348
+    lr: 0.0015027977890540343
     weight_decay: 0.0001

@@ -7,6 +7,8 @@ from functools import wraps
 if TYPE_CHECKING:
     from flipper_training.environment.env import Env
     from flipper_training.engine.engine_state import PhysicsState
+    from flipper_training.configs.terrain_config import TerrainConfig
+    from flipper_training.configs.engine_config import PhysicsEngineConfig
 
     try:
         from simview import SimViewStaticObject
@@ -14,7 +16,7 @@ if TYPE_CHECKING:
         SimViewStaticObject = None
 
 
-@dataclass
+@dataclass(kw_only=True)
 class BaseObjective(ABC):
     """
     Base class for an objective that manages the generation of start/goal positions for the robots in the environment,
@@ -32,15 +34,19 @@ class BaseObjective(ABC):
 
     env: "Env"
     rng: torch.Generator
+    terrain_config: "TerrainConfig | None" = None
+    physics_config: "PhysicsEngineConfig | None" = None
 
     def __post_init__(self):
         """
         Post-initialization method to unpack the environment configuration.
         """
         self.device = self.env.device
-        self.physics_config = self.env.phys_cfg
         self.robot_model = self.env.robot_cfg
-        self.terrain_config = self.env.terrain_cfg
+        if self.physics_config is None:
+            self.physics_config = self.env.phys_cfg
+        if self.terrain_config is None:
+            self.terrain_config = self.env.terrain_cfg
 
     @property
     def name(self) -> str:

@@ -30,9 +30,9 @@ heightmap_gen: ${ cls:flipper_training.heightmaps.trunks.TrunkHeightmapGenerator
 heightmap_gen_opts:
   min_trunk_height: 0.25
   max_trunk_height: 0.45
-  max_dist_from_origin: 0.8
+  max_dist_from_origin: 0.5
   trunk_deadzone_width: 0.3
-  max_trunk_width: 1.8
+  max_trunk_width: 1.5
   min_trunk_width: 0.8
   exp: 40
 objective: ${cls:flipper_training.rl_objectives.trunk_crossing.TrunkCrossing}
