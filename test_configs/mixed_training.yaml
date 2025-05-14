@@ -109,10 +109,9 @@ policy_opts:
   value_optimizer_opts:
     lr: 0.002027103877870638
     weight_decay: 0.0001
-reward: ${cls:flipper_training.rl_rewards.rewards.PotentialGoal}
+reward: ${cls:flipper_training.rl_rewards.rewards.PotentialGoalSimplified}
 reward_opts:
-  goal_reached_reward: 9.226219446495175
-  failed_reward: -9.218539745909489
+  termination_reward: 9.0
   potential_coef: 41.652884613488965
   gamma: ${gae_opts.gamma}
   step_penalty: -0.3371775776356437
@@ -144,7 +143,7 @@ observations:
         - -1
         - -1
       normalize_to_interval: false
-total_frames: ${mul:5242880,5}
+total_frames: ${mul:5242880,6}
 vecnorm_opts:
   eps: 0.0001
   decay: 0.99
