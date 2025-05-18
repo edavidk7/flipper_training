@@ -25,3 +25,7 @@ dependencies = [
 
 [tool.setuptools.package-dir]
 flipper_training = "flipper_training"
+
+
+[tool.ty.environment]
+python = ".venv"

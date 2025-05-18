@@ -149,5 +149,5 @@ policy_opts:
   value_optimizer_opts:
     lr: 0.002159040781862437
     weight_decay: 0.0001
-policy_weights_path: runs/ppo/final_trunk_thesis_training_42_2025-05-09_21-01-13/weights/policy_final.pth
-vecnorm_weights_path: runs/ppo/final_trunk_thesis_training_42_2025-05-09_21-01-13/weights/vecnorm_final.pth
+policy_weights_path: runs/ppo/final_mixed_objective_weighted_training_thesis_42_2025-05-16_17-57-59/weights/policy_final.pth
+vecnorm_weights_path: runs/ppo/final_mixed_objective_weighted_training_thesis_42_2025-05-16_17-57-59/weights/vecnorm_final.pth

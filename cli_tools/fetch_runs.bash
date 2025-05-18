@@ -11,16 +11,16 @@ DESTINATION_BASE_PATH="runs/ppo"
 # List of folder names to rsync
 # Note: The bullet points have been removed from the folder names.
 FOLDERS_TO_SYNC=(
-    final_fine_gaussian_terrain_thesis_666_2025-05-12_13-46-49
-    final_fine_gaussian_terrain_thesis_98_2025-05-12_13-34-12
-    final_fine_gaussian_terrain_thesis_1_2025-05-12_13-33-38
-    final_fine_gaussian_terrain_thesis_26_2025-05-12_13-32-31
-    final_fine_gaussian_terrain_thesis_13_2025-05-12_13-30-14
-    final_fine_gaussian_terrain_thesis_420_2025-05-12_13-27-39
-    final_fine_gaussian_terrain_thesis_64_2025-05-12_13-27-20
-    final_fine_gaussian_terrain_thesis_16_2025-05-12_13-27-10
-    final_fine_gaussian_terrain_thesis_32_2025-05-12_13-27-10
-    final_fine_gaussian_terrain_thesis_42_2025-05-12_13-27-08
+final_mixed_objective_training_666_2025-05-16_19-08-25
+final_mixed_objective_training_98_2025-05-16_19-07-09
+final_mixed_objective_training_1_2025-05-16_19-05-04
+final_mixed_objective_training_26_2025-05-16_18-56-02
+final_mixed_objective_training_13_2025-05-16_18-52-36
+final_mixed_objective_training_420_2025-05-16_18-29-08
+final_mixed_objective_training_64_2025-05-16_18-28-41
+final_mixed_objective_training_32_2025-05-16_18-12-04
+final_mixed_objective_training_16_2025-05-16_17-59-39
+final_mixed_objective_training_42_2025-05-16_17-59-12
 )
 
 # Rsync options
