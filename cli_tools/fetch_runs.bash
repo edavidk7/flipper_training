@@ -11,16 +11,9 @@ DESTINATION_BASE_PATH="runs/ppo"
 # List of folder names to rsync
 # Note: The bullet points have been removed from the folder names.
 FOLDERS_TO_SYNC=(
-final_mixed_objective_training_666_2025-05-16_19-08-25
-final_mixed_objective_training_98_2025-05-16_19-07-09
-final_mixed_objective_training_1_2025-05-16_19-05-04
-final_mixed_objective_training_26_2025-05-16_18-56-02
-final_mixed_objective_training_13_2025-05-16_18-52-36
-final_mixed_objective_training_420_2025-05-16_18-29-08
-final_mixed_objective_training_64_2025-05-16_18-28-41
-final_mixed_objective_training_32_2025-05-16_18-12-04
-final_mixed_objective_training_16_2025-05-16_17-59-39
-final_mixed_objective_training_42_2025-05-16_17-59-12
+final_mixed_objective_training_64_2025-05-18_15-39-22
+final_mixed_objective_training_42_2025-05-18_15-01-37
+final_mixed_objective_training_42_2025-05-18_14-51-46
 )
 
 # Rsync options

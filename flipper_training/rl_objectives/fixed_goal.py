@@ -34,7 +34,7 @@ class FixedStartGoalNavigation(BaseObjective):
         )
         self.initial_joint_angles = self._get_initial_joint_angles(self.physics_config.num_robots)
 
-    def _get_initial_joint_angles(sel, count: int) -> torch.Tensor:
+    def _get_initial_joint_angles(self, count: int) -> torch.Tensor:
         match self.init_joint_angles:
             case "max":
                 return self.robot_model.joint_limits[None, 1].to(self.device).repeat(count, 1)
