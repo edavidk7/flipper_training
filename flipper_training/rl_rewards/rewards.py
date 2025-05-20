@@ -414,15 +414,21 @@ class PotentialGoalWithSideLatentPreference(Reward):
         neg_goal_dist_curr = -curr_dist  # phi(s')
         neg_goal_dist_prev = -prev_dist  # phi(s)
         reward = self.potential_coef * (self.gamma * neg_goal_dist_curr - neg_goal_dist_prev) + self.step_penalty
-        vector_to_goal_planar = goal_state.x[:, :2] - curr_state.x[:, :2]
-        robot_yaws = quaternion_to_yaw(curr_state.q)
-        robot__direction_planar = torch.stack([torch.cos(robot_yaws), torch.sin(robot_yaws)], dim=-1)
-        dots = (normalized(vector_to_goal_planar) * normalized(robot__direction_planar)).sum(
-            dim=-1, keepdim=True
-        )  # dot product between the robot's heading and the direct line to the goal
-        dots *= latent_control_params  # this shifts the sign to the side we want to prefer
+        start_goal_vec = goal_state.x[:, :2] - start_state.x[:, :2]
+        robot_pos_planar = curr_state.x[:, :2]
+        # Compute signed distance from robot to the line from start to goal (positive on one side, negative on the other)
+        # The sign is determined by the cross product between (goal - start) and (robot - start)
+        # If latent_control_params is provided, use its sign as the preferred side
+        # Formula: signed_dist = ((goal - start) x (robot - start)) / ||goal - start||
+        vec_goal = start_goal_vec  # (B,2)
+        vec_robot = robot_pos_planar - start_state.x[:, :2]  # (B,2)
+        cross = vec_goal[:, 0] * vec_robot[:, 1] - vec_goal[:, 1] * vec_robot[:, 0]  # (B,)
+        norm = vec_goal.norm(dim=-1) + 1e-8  # (B,)
+        signed_dist = cross / norm  # (B,)
+        diff = (signed_dist * latent_control_params.squeeze(-1)).unsqueeze(-1)  # (B,1)
+        diff.clamp_min_(0.0)  # Don't penalize the robot for being on the wrong side
         is_closer_mask = (curr_dist < prev_dist).float()
-        reward += self.side_bonus_coef * dots * is_closer_mask
+        reward += self.side_bonus_coef * diff * is_closer_mask
         reward[success] += self.goal_reached_reward
         reward[fail] += self.failed_reward
         return reward.to(self.env.out_dtype)

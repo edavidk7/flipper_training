@@ -14,7 +14,7 @@ from pathlib import Path
 from flipper_training.experiments.ppo.config import PPOExperimentConfig
 from omegaconf import DictConfig, OmegaConf
 from flipper_training.utils.logutils import LocalRunReader, WandbRunReader
-
+from flipper_training.environment.transforms import RawRewardSaveTransform
 from torchrl.envs import Compose, VecNorm, StepCounter, TransformedEnv, Transform
 
 if TYPE_CHECKING:
@@ -117,14 +117,13 @@ def log_from_eval_rollout(eval_rollout: "TensorDict") -> dict[str, int | float]:
     """
     Computes the statistics from the evaluation rollout and returns them as a dictionary.
     """
-    reward_key = "raw_reward" if "raw_reward" in eval_rollout["next"] else "reward"
     last_step_count = eval_rollout["step_count"][:, -1].float()
     last_succeeded_mean = eval_rollout["next", "succeeded"][:, -1].float().mean().item()
     last_failed_mean = eval_rollout["next", "failed"][:, -1].float().mean().item()
-    return {
-        "eval/mean_step_reward": eval_rollout["next", reward_key].mean().item(),
-        "eval/max_step_reward": eval_rollout["next", reward_key].max().item(),
-        "eval/min_step_reward": eval_rollout["next", reward_key].min().item(),
+    l = {
+        "eval/mean_step_reward": eval_rollout["next", "reward"].mean().item(),
+        "eval/max_step_reward": eval_rollout["next", "reward"].max().item(),
+        "eval/min_step_reward": eval_rollout["next", "reward"].min().item(),
         "eval/mean_step_count": last_step_count.mean().item(),
         "eval/max_step_count": last_step_count.max().item(),
         "eval/min_step_count": last_step_count.min().item(),
@@ -132,6 +131,11 @@ def log_from_eval_rollout(eval_rollout: "TensorDict") -> dict[str, int | float]:
         "eval/pct_failed": last_failed_mean,
         "eval/pct_truncated": 1 - last_succeeded_mean - last_failed_mean,  # eithered none of the states at the end of the rollout
     }
+    if "raw_reward" in eval_rollout["next"]:
+        l["eval/mean_raw_step_reward"] = eval_rollout["next", "raw_reward"].mean().item()
+        l["eval/max_raw_step_reward"] = eval_rollout["next", "raw_reward"].max().item()
+        l["eval/min_raw_step_reward"] = eval_rollout["next", "raw_reward"].min().item()
+    return l
 
 
 def make_transformed_env(env: "Env", train_config: "PPOExperimentConfig", policy_transforms: list[Transform]) -> tuple[TransformedEnv, VecNorm]:
@@ -143,6 +147,7 @@ def make_transformed_env(env: "Env", train_config: "PPOExperimentConfig", policy
         **train_config.vecnorm_opts,
     )
     transforms = [StepCounter()]
+    transforms += [RawRewardSaveTransform()]
     transforms += [t["cls"](**(t["opts"] or {})) for t in train_config.extra_env_transforms]
     transforms += policy_transforms
     transforms.append(vecnorm)

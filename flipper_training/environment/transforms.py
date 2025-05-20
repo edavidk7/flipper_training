@@ -9,7 +9,7 @@ class RawRewardSaveTransform(Transform):
     """
 
     def __init__(self):
-        super().__init__(in_keys=["reward"], out_keys=["raw_reward"])
+        super().__init__(in_keys=["reward"], out_keys=["reward", "raw_reward"])
 
     def _call(self, tensordict):
         """

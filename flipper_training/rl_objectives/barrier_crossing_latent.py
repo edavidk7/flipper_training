@@ -30,8 +30,8 @@ class BarrierCrossingWithLatentControl(BaseObjective):
 
     def __post_init__(self) -> None:
         super().__post_init__()
-        if self.terrain_config.grid_extras is None or "suitable_mask" not in self.terrain_config.grid_extras:
-            raise ValueError("World configuration must contain the barrier suitable_mask in grid_extras.")
+        if self.terrain_config.grid_extras is None or "barrier_mask" not in self.terrain_config.grid_extras:
+            raise ValueError("World configuration must contain the barrier barrier_mask in grid_extras.")
         if self.cache_size > 0:
             self._init_cache()
         else:
@@ -65,12 +65,12 @@ class BarrierCrossingWithLatentControl(BaseObjective):
             # ax[1].contourf(
             #     self.terrain_config.x_grid[b].cpu(),
             #     self.terrain_config.y_grid[b].cpu(),
-            #     self.terrain_config.grid_extras["suitable_mask"][b].cpu(),
+            #     self.terrain_config.grid_extras["barrier_mask"][b].cpu(),
             #     levels=[-0.5, 0.5, 1.5, 2.5],
             #     cmap="tab10",
             # )
             # plt.show()
-            mask = self.terrain_config.grid_extras["suitable_mask"][b].cpu()
+            mask = self.terrain_config.grid_extras["barrier_mask"][b].cpu()
             left_idx = torch.nonzero(mask == BarrierZones.LEFT, as_tuple=False).cpu()
             right_idx = torch.nonzero(mask == BarrierZones.RIGHT, as_tuple=False).cpu()
             collected = 0
@@ -192,7 +192,6 @@ class BarrierCrossingWithLatentControl(BaseObjective):
         else:
             current_latent_params[self.last_reset_mask] = self.cache["latent_params"][self._cache_cursor].to(self.env.device)[self.last_reset_mask]
             self.env.latent_control_params = current_latent_params
-        self.env.latent_control_params[:] = 1.0
 
     @override
     def generate_start_goal_states(self) -> tuple[PhysicsState, PhysicsState, torch.IntTensor]:
