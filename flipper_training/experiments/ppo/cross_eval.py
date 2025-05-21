@@ -8,8 +8,6 @@ import contextlib
 from tqdm import tqdm
 import pickle
 import os
-import sys
-import torch
 
 CONFIGS_DIR = ROOT / "cross_eval_configs"
 RESULTS_DIR = ROOT / "cross_eval_results"
@@ -18,6 +16,7 @@ with open(CONFIGS_DIR / "cross_eval_seeds.txt", "r") as f:
 
 NUM_ENVS_PER_EVAL = 16  # robots in parallel
 MAX_EVAL_STEPS = 1000
+OBS_NOISE = 1e-2
 LOGGER = get_terminal_logger("cross_eval")
 
 
@@ -32,6 +31,11 @@ def cross_eval(dict_config) -> None:
     train_config.num_robots = NUM_ENVS_PER_EVAL
     train_config.max_eval_steps = MAX_EVAL_STEPS
     train_config.objective_opts["cache_size"] = 10
+    for obs in train_config.observations:
+        if "opts" in obs:
+            obs["opts"]["apply_noise"] = True
+            obs["opts"]["noise_scale"] = OBS_NOISE
+            LOGGER.info(f"Adding noise to {obs['cls']} with scale {OBS_NOISE}")
     devnull_handle = open(os.devnull, "w")
     FULL_RESULT_DIR = RESULTS_DIR / f"{train_config.name}_{train_config.policy_weights_path.stem}"
     FULL_RESULT_DIR.mkdir(parents=True, exist_ok=True)

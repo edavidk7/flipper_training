@@ -13,7 +13,7 @@ time_steps_per_batch: 128
 epochs_per_batch: 5
 frames_per_sub_batch: 4096
 eval_and_save_every: 10
-max_eval_steps: 500
+max_eval_steps: 1000
 optimizer: ${cls:torch.optim.AdamW}
 scheduler: ${cls:torch.optim.lr_scheduler.LinearLR}
 scheduler_opts:
@@ -24,23 +24,18 @@ max_grad_norm: 0.5
 grid_res: 0.05
 max_coord: 3.2
 # start important
-heightmap_gen: ${ cls:flipper_training.heightmaps.multi_gaussian.MultiGaussianHeightmapGenerator}
+heightmap_gen: ${ cls:flipper_training.heightmaps.from_file.FromFileHeightmap}
 heightmap_gen_opts:
-  min_gaussians: 400
-  max_gaussians: 600
-  min_height_fraction: 0.03
-  max_height_fraction: 0.25
-  min_std_fraction: 0.03
-  max_std_fraction: 0.08
-  min_sigma_ratio: 0.5
+  file_path: heightmap_files/sinus.pt
+  top_height_percentile_cutoff: 0.7
 objective: ${cls:flipper_training.rl_objectives.random_nav.RandomNavigationObjective}
 objective_opts:
-  goal_reached_threshold: 0.2
+  goal_reached_threshold: 0.35
   start_z_offset: 0.3
   goal_z_offset: 0.2
-  iteration_limit_factor: 5
+  iteration_limit_factor: 8
   min_dist_to_goal: 2.0
-  max_dist_to_goal: 5.0
+  max_dist_to_goal: 4.0
   max_feasible_pitch: 1.5
   max_feasible_roll: 1.5
   start_position_orientation: towards_goal
@@ -78,7 +73,7 @@ observations:
   - cls: ${cls:flipper_training.observations.robot_state.LocalStateVector}
     opts:
       apply_noise: true
-      noise_scale: 1.0e-05
+      noise_scale: 1.0e-02
       encoder_opts:
         num_hidden: 2
         hidden_dim: 64
@@ -87,7 +82,7 @@ observations:
   - cls: ${cls:flipper_training.observations.heightmap.Heightmap}
     opts:
       apply_noise: true
-      noise_scale: 1.0e-05
+      noise_scale: 1.0e-02
       percep_shape:
         - 64
         - 64
@@ -151,5 +146,5 @@ policy_opts:
   value_optimizer_opts:
     lr: 0.0023065521662259366
     weight_decay: 0.0001
-policy_weights_path: runs/ppo/final_fine_gaussian_terrain_thesis_98_2025-05-12_13-34-12/weights/policy_final.pth
-vecnorm_weights_path: runs/ppo/final_fine_gaussian_terrain_thesis_98_2025-05-12_13-34-12/weights/vecnorm_final.pth
+policy_weights_path: runs/ppo/final_mixed_objective_training_666_2025-05-16_19-08-25/weights/policy_final.pth
+vecnorm_weights_path: runs/ppo/final_mixed_objective_training_666_2025-05-16_19-08-25/weights/vecnorm_final.pth
