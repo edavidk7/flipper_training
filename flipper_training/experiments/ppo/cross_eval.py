@@ -56,7 +56,7 @@ def cross_eval(dict_config) -> None:
             pickle.dump(results, f)
 
     for test_config_path in CONFIGS_DIR.glob("*.yaml"):
-        if (FULL_RESULT_DIR / test_config_path.stem).exists():
+        if (FULL_RESULT_DIR / f"{test_config_path.stem}.pkl").exists():
             print(f"Skipping {test_config_path.stem} as it already exists")
             continue
         print(f"Evaluating {test_config_path.stem}")
