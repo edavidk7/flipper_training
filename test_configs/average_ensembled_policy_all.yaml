@@ -1,5 +1,5 @@
-name: random_fine_gaussian_terrain_with_random_start_goal_stabilization
-comment: "Random fine gaussian terrain with random start and goal, parameters derived from the best Optuna run for enforcing control smoothness"
+name: average_ensembled_policy_all
+comment: "Ensembled policy with averaged weights, all best policies"
 seed: 42
 use_wandb: true
 eval_repeats_after_training: 1
@@ -26,8 +26,8 @@ max_coord: 3.2
 # start important
 heightmap_gen: ${ cls:flipper_training.heightmaps.from_file.FromFileHeightmap}
 heightmap_gen_opts:
-  file_path: heightmap_files/sinus.pt
-  top_height_percentile_cutoff: 0.7
+  file_path: heightmap_files/ridge.pt
+  top_height_percentile_cutoff: 0.9
 objective: ${cls:flipper_training.rl_objectives.random_nav.RandomNavigationObjective}
 objective_opts:
   goal_reached_threshold: 0.35
@@ -146,5 +146,5 @@ policy_opts:
   value_optimizer_opts:
     lr: 0.0023065521662259366
     weight_decay: 0.0001
-policy_weights_path: modified_networks/top_3_averaged/policy.pth
-vecnorm_weights_path: modified_networks/top_3_averaged/vecnorm.pth
+policy_weights_path: modified_networks/top_all_averaged/policy.pth
+vecnorm_weights_path: modified_networks/top_all_averaged/vecnorm.pth

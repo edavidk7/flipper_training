@@ -68,6 +68,7 @@ class Env(EnvBase):
         self.step_limits = torch.zeros((self.n_robots,), device=self.device, dtype=torch.int32)
         self.start = PhysicsState.dummy(batch_size=self.n_robots, robot_model=robot_model_config, device=self.device)
         self.goal = PhysicsState.dummy(batch_size=self.n_robots, robot_model=robot_model_config, device=self.device)
+        self.truncate_mode = True
         # Specs
         self.action_spec = self._make_action_spec()
         self.observation_spec = self._make_observation_spec()
@@ -88,6 +89,9 @@ class Env(EnvBase):
         state_dict["objective"] = self.objective.state_dict()
         state_dict["reward"] = self.reward.state_dict()
         return state_dict
+
+    def _set_truncate_mode(self, truncate_mode: bool) -> None:
+        self.truncate_mode = truncate_mode
 
     def load_state_dict(self, state_dict: dict, *args, **kwargs):
         self.step_count = state_dict["step_count"]
@@ -264,6 +268,7 @@ class Env(EnvBase):
         return first_prev_state_der, curr_state
 
     def _reset(self, tensordict=None, **kwargs) -> TensorDict:
+        self.logger.info("Resetting environment")
         # Generate start and goal states, iteration limits for done/terminated robots
         if tensordict is not None and "_reset" in tensordict:  # this is passed in training
             reset_mask = tensordict["_reset"].squeeze(-1)
@@ -299,7 +304,7 @@ class Env(EnvBase):
         # Check if the robots have reached the goal or terminated
         reached_goal = self.objective.check_reached_goal(prev_state, curr_state, self.goal)
         failed = self.objective.check_terminated_wrong(prev_state, curr_state, self.goal)
-        truncated = self.step_count >= self.step_limits
+        truncated = (self.step_count >= self.step_limits) * self.truncate_mode  # All zeros if truncate_mode is False
         # Output tensordict
         obs_td = self._get_observations(prev_state=prev_state, action=action, prev_state_der=prev_state_der, curr_state=curr_state)
         obs_td["succeeded"] = reached_goal
