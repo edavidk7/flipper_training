@@ -131,7 +131,6 @@ class Env(EnvBase):
         rtol: float = 1e-3,
         **kwargs,
     ) -> None:
-        self.logger.info(f"Environment: Compiling engine with options {kwargs}")
         act = self.action_spec.rand()
         state = self.start.clone()  # Dummy state
         # Capture the return tensors from the engine for correctness
@@ -268,7 +267,6 @@ class Env(EnvBase):
         return first_prev_state_der, curr_state
 
     def _reset(self, tensordict=None, **kwargs) -> TensorDict:
-        self.logger.info("Resetting environment")
         # Generate start and goal states, iteration limits for done/terminated robots
         if tensordict is not None and "_reset" in tensordict:  # this is passed in training
             reset_mask = tensordict["_reset"].squeeze(-1)

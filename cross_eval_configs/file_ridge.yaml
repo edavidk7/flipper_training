@@ -40,7 +40,7 @@ objective_opts:
   max_feasible_roll: 1.5
   start_position_orientation: towards_goal
   higher_allowed: 0.5
-  cache_size: 10
+  cache_size: 10000
   init_joint_angles: ${tensor:[0.0,0.0,0.0,0.0]}
 # end important
 world_opts:
@@ -146,5 +146,5 @@ policy_opts:
   value_optimizer_opts:
     lr: 0.0023065521662259366
     weight_decay: 0.0001
-policy_weights_path: modified_networks/top_3_averaged/policy.pth
-vecnorm_weights_path: modified_networks/top_3_averaged/vecnorm.pth
+policy_weights_path: runs/ppo/final_coarse_gaussian_terrain_thesis_98_2025-05-12_12-07-12/weights/policy_final.pth
+vecnorm_weights_path: runs/ppo/final_coarse_gaussian_terrain_thesis_98_2025-05-12_12-07-12/weights/vecnorm_final.pth
