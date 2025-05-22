@@ -79,7 +79,7 @@ observations:
   - cls: ${cls:flipper_training.observations.robot_state.LocalStateVector}
     opts:
       apply_noise: true
-      noise_scale: 1.0e-05
+      noise_scale: 1.0e-2
       encoder_opts:
         num_hidden: 2
         hidden_dim: 64
@@ -88,7 +88,7 @@ observations:
   - cls: ${cls:flipper_training.observations.heightmap.Heightmap}
     opts:
       apply_noise: true
-      noise_scale: 1.0e-05
+      noise_scale: 1.0e-2
       percep_shape:
         - 64
         - 64
@@ -152,5 +152,5 @@ policy_opts:
   value_optimizer_opts:
     lr: 0.0023065521662259366
     weight_decay: 0.0001
-policy_weights_path: runs/ppo/final_barrier_thesis_42_2025-05-10_10-46-54/weights/policy_final.pth
-vecnorm_weights_path: runs/ppo/final_barrier_thesis_42_2025-05-10_10-46-54/weights/vecnorm_final.pth
+policy_weights_path: modified_networks/top_3_averaged/policy.pth
+vecnorm_weights_path: modified_networks/top_3_averaged/vecnorm.pth
