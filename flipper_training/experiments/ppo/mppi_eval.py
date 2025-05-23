@@ -33,8 +33,8 @@ NUM_ENVS_PER_EVAL = 16  # robots in parallel
 MAX_EVAL_STEPS = 1000
 OBS_NOISE = 1e-2
 
-steps = 30
-num_samples = 100
+steps = 10
+num_samples = 50
 lambda_ = 1.0
 noise_sigma = 0.1
 temperature = 1.0
