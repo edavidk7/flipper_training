@@ -34,7 +34,7 @@ MAX_EVAL_STEPS = 1000
 OBS_NOISE = 1e-2
 
 steps = 10
-num_samples = 50
+num_samples = 15
 lambda_ = 1.0
 noise_sigma = 0.1
 temperature = 1.0
