@@ -1,4 +1,3 @@
-from pathlib import Path
 import torch
 import contextlib
 import pickle
@@ -17,7 +16,7 @@ policies = [
     "mixed_training_smoothness_2025-05-20_06-47-01",
 ]
 
-p_root = Path("runs/ppo/")
+p_root = ROOT / "runs/ppo"
 LOGGER = get_terminal_logger("action_space_ensemble_eval")
 
 CONFIGS_DIR = ROOT / "cross_eval_configs"
@@ -61,6 +60,30 @@ class ActionSpacePolicyEnsemble:
         return tensordict
 
 
+def get_action_space_ensemble(
+    config: PPOExperimentConfig,
+):
+    env, device, rng = prepare_env(config, mode="eval")
+    env = TransformedEnv(env, StepCounter())
+    p_sds = [torch.load(p_root / f"{policy}/weights/policy_final.pth", map_location=device) for policy in policies]
+    vecnorm_sds = [torch.load(p_root / f"{policy}/weights/vecnorm_final.pth", map_location=device) for policy in policies]
+    policy_config = config.policy_config(**config.policy_opts)
+    actor_value_wrapper, optim_groups, policy_transforms = policy_config.create(
+        env=env,
+        device=device,
+    )
+    vecnorm = VecNorm(in_keys=[o.name for o in env.observations if o.supports_vecnorm], **config.vecnorm_opts)
+    vecnorm = vecnorm.to(device)
+    planner = ActionSpacePolicyEnsemble(
+        actor_value_wrapper=actor_value_wrapper,
+        vecnorm_obj=vecnorm,
+        weights=p_sds,
+        vecnorm_weights=vecnorm_sds,
+        device=device,
+    )
+    return planner
+
+
 def get_eval_rollout(
     config: PPOExperimentConfig,
 ):
@@ -84,10 +107,8 @@ def get_eval_rollout(
         vecnorm_weights=vecnorm_sds,
         device=device,
     )
-    env.reset()
     rollout = env.rollout(config.max_eval_steps, planner, break_when_all_done=True, break_when_any_done=False)
-    log = log_from_eval_rollout(rollout)
-    return log
+    return env, rollout
 
 
 configs = ["file_natural_cracks.yaml", "file_natural.yaml", "file_ridge.yaml", "file_sine.yaml"]
@@ -113,7 +134,10 @@ def action_space_ensembling_eval():
             train_config.seed = seed
             with contextlib.redirect_stdout(devnull_handle):
                 with contextlib.redirect_stderr(devnull_handle):
-                    log = get_eval_rollout(train_config)
+                    env, rollout = get_eval_rollout(train_config)
+            log = log_from_eval_rollout(rollout)
+            del env
+            del rollout
             results.append(log)
         savename = cfg.split(".")[0]
         with open(FULL_RESULT_DIR / f"{savename}.pkl", "wb") as f:

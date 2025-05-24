@@ -1,6 +1,6 @@
 name: random_fine_gaussian_terrain_with_random_start_goal_stabilization
 comment: "Random fine gaussian terrain with random start and goal, parameters derived from the best Optuna run for enforcing control smoothness"
-seed: 42
+seed: 42000
 use_wandb: true
 eval_repeats_after_training: 1
 use_tensorboard: false
@@ -8,12 +8,12 @@ device: cuda
 training_dtype: ${dtype:float32}
 total_frames: ${mul:5242880,4}
 engine_iters_per_env_step: 4
-num_robots: 16
+num_robots: 4
 time_steps_per_batch: 128
 epochs_per_batch: 5
 frames_per_sub_batch: 4096
 eval_and_save_every: 10
-max_eval_steps: 1000
+max_eval_steps: 500
 optimizer: ${cls:torch.optim.AdamW}
 scheduler: ${cls:torch.optim.lr_scheduler.LinearLR}
 scheduler_opts:
@@ -146,5 +146,5 @@ policy_opts:
   value_optimizer_opts:
     lr: 0.0023065521662259366
     weight_decay: 0.0001
-policy_weights_path: runs/ppo/final_coarse_gaussian_terrain_thesis_98_2025-05-12_12-07-12/weights/policy_final.pth
-vecnorm_weights_path: runs/ppo/final_coarse_gaussian_terrain_thesis_98_2025-05-12_12-07-12/weights/vecnorm_final.pth
+policy_weights_path: modified_networks/top_3_averaged/policy.pth
+vecnorm_weights_path: modified_networks/top_3_averaged/vecnorm.pth
